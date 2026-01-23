@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Project, Transaction, Material } from '../types';
 import { Camera, X, Loader2, Save, Image as ImageIcon, Package, Trash2, Plus, RefreshCw, Upload } from 'lucide-react';
 import { analyzeReceiptImage } from '../services/geminiService';
+import { supabase } from '../lib/supabase';
 
 interface ScannerModalProps {
   projects: Project[];
@@ -11,7 +12,9 @@ interface ScannerModalProps {
 
 const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }) => {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [imageBlob, setImageBlob] = useState<Blob | null>(null); // To store raw file for upload
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [step, setStep] = useState<'capture' | 'review' | 'form'>('capture');
   const [isCameraActive, setIsCameraActive] = useState(false);
   
@@ -75,6 +78,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
       setTimeout(() => {
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
+          videoRef.current.play().catch(e => console.error("Error playing video:", e));
         }
       }, 100);
 
@@ -110,8 +114,13 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
       if (context) {
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
         
-        // Convert to base64
+        // Convert to base64 for AI analysis
         const base64String = canvas.toDataURL('image/jpeg', 0.85); // 0.85 quality
+        
+        // Convert to Blob for Supabase Upload
+        canvas.toBlob((blob) => {
+            if (blob) setImageBlob(blob);
+        }, 'image/jpeg', 0.85);
         
         stopCamera();
         setImagePreview(base64String);
@@ -124,6 +133,8 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
+      setImageBlob(file); // Set blob for upload
+      
       const reader = new FileReader();
       reader.onloadend = () => {
         const base64String = reader.result as string;
@@ -152,7 +163,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
       // Update detected materials if any
       if (data.items && Array.isArray(data.items)) {
           const newMats: Material[] = data.items.map((item: any) => ({
-              id: Date.now().toString() + Math.random(),
+              id: crypto.randomUUID(),
               projectId: '', // Will update on submit
               name: item.name || 'Material detectado',
               quantity: item.quantity ? Number(item.quantity) : 1, // Ensure number
@@ -187,7 +198,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
 
   const addEmptyMaterial = () => {
       setDetectedMaterials([...detectedMaterials, {
-          id: Date.now().toString() + Math.random(),
+          id: crypto.randomUUID(),
           projectId: '',
           name: '',
           quantity: 1,
@@ -197,29 +208,106 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
       }]);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const uploadPhotoToSupabase = async (projectId: string): Promise<string | null> => {
+      if (!imageBlob) return null;
+
+      try {
+          const fileName = `${projectId}/${Date.now()}.jpg`;
+          const { data, error } = await supabase.storage
+              .from('photos')
+              .upload(fileName, imageBlob, {
+                  contentType: 'image/jpeg',
+                  upsert: false
+              });
+
+          if (error) throw error;
+          
+          const { data: { publicUrl } } = supabase.storage
+              .from('photos')
+              .getPublicUrl(fileName);
+              
+          return publicUrl;
+      } catch (e) {
+          console.error("Upload error:", e);
+          return null; // Don't block flow if upload fails, just don't have URL
+      }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.projectId) {
       alert("Selecciona un proyecto");
       return;
     }
 
-    const newTransaction: Transaction = {
-      id: Date.now().toString(),
-      projectId: formData.projectId,
-      type: 'expense', // Default to expense for receipts
-      category: formData.category,
-      amount: Number(formData.amount),
-      date: formData.date,
-      description: formData.description
-    };
+    setIsUploading(true);
 
-    const finalMaterials = detectedMaterials.map(m => ({
-        ...m,
-        projectId: formData.projectId
-    }));
+    try {
+        // 1. Upload Photo
+        const photoUrl = await uploadPhotoToSupabase(formData.projectId);
 
-    onSave(formData.projectId, newTransaction, finalMaterials);
+        // 2. Prepare Data
+        const newTransaction: Transaction = {
+          id: crypto.randomUUID(),
+          projectId: formData.projectId,
+          type: 'expense', 
+          category: formData.category,
+          amount: Number(formData.amount),
+          date: formData.date,
+          description: formData.description
+        };
+
+        const finalMaterials = detectedMaterials.map(m => ({
+            ...m,
+            projectId: formData.projectId
+        }));
+
+        // 3. Save Transaction to DB
+        await supabase.from('transactions').insert({
+            id: newTransaction.id,
+            project_id: newTransaction.projectId,
+            type: newTransaction.type,
+            category: newTransaction.category,
+            amount: newTransaction.amount,
+            date: newTransaction.date,
+            description: newTransaction.description
+        });
+
+        // 4. Save Materials to DB
+        if (finalMaterials.length > 0) {
+            const matsForDb = finalMaterials.map(m => ({
+                id: m.id,
+                project_id: m.projectId,
+                name: m.name,
+                quantity: m.quantity,
+                unit: m.unit,
+                min_stock: m.minStock,
+                price_per_unit: m.pricePerUnit
+            }));
+            await supabase.from('materials').insert(matsForDb);
+        }
+
+        // 5. Save Document Ref if uploaded
+        if (photoUrl) {
+            await supabase.from('documents').insert({
+                id: crypto.randomUUID(),
+                project_id: formData.projectId,
+                name: `Escaneo ${formData.date}`,
+                type: 'image',
+                date: formData.date,
+                data: photoUrl // Save URL instead of Base64
+            });
+        }
+
+        // 6. Notify Parent to update UI
+        onSave(formData.projectId, newTransaction, finalMaterials);
+    
+    } catch (error) {
+        console.error("Error saving to DB:", error);
+        alert("Error guardando datos en la nube.");
+    } finally {
+        setIsUploading(false);
+    }
   };
 
   const handleClose = () => {
@@ -457,8 +545,9 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
 
               <div className="pt-2 flex gap-4">
                  <button type="button" onClick={() => setStep('capture')} className="flex-1 py-3 text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-600 font-bold transition-colors">Reintentar</button>
-                 <button type="submit" className="flex-1 py-3 text-white bg-green-600 rounded-xl hover:bg-green-700 shadow-lg shadow-green-200 dark:shadow-green-900/30 font-bold flex items-center justify-center gap-2 transition-transform active:scale-95">
-                    <Save className="w-5 h-5" /> Guardar Todo
+                 <button type="submit" disabled={isUploading} className="flex-1 py-3 text-white bg-green-600 rounded-xl hover:bg-green-700 shadow-lg shadow-green-200 dark:shadow-green-900/30 font-bold flex items-center justify-center gap-2 transition-transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
+                    {isUploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
+                    {isUploading ? 'Guardando...' : 'Guardar Todo'}
                  </button>
               </div>
             </form>

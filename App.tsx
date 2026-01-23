@@ -1,22 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { Project, PriceItem } from './types';
-import { INITIAL_PROJECTS, PRICE_DATABASE } from './constants';
+import { PRICE_DATABASE } from './constants';
 import ProjectList from './components/ProjectList';
 import ProjectDetail from './components/ProjectDetail';
 import GlobalFinance from './components/GlobalFinance';
 import PriceDatabase from './components/PriceDatabase';
 import ProjectCalendar from './components/ProjectCalendar';
+import { supabase } from './lib/supabase';
+import { Loader2 } from 'lucide-react';
 
 const App: React.FC = () => {
   // Application State
-  const [projects, setProjects] = useState<Project[]>(() => {
-    const saved = localStorage.getItem('voltmanager_projects');
-    return saved ? JSON.parse(saved) : INITIAL_PROJECTS;
-  });
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   const [priceDatabase, setPriceDatabase] = useState<PriceItem[]>(() => {
     const saved = localStorage.getItem('voltmanager_pricedb');
-    // Transform constant PRICE_DATABASE to match PriceItem interface with IDs if needed
     if (saved) return JSON.parse(saved);
     return PRICE_DATABASE.map((p, i) => ({ ...p, id: `pd-${i}` }));
   });
@@ -30,11 +29,65 @@ const App: React.FC = () => {
   const [showPriceDb, setShowPriceDb] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
 
-  // Persistence & Effects
-  useEffect(() => {
-    localStorage.setItem('voltmanager_projects', JSON.stringify(projects));
-  }, [projects]);
+  // --- Supabase Data Fetching ---
+  const fetchProjects = async () => {
+    try {
+      setIsLoading(true);
+      // Fetch projects with all relations
+      // Note: We map snake_case DB columns to camelCase manually or rely on JS flexibility. 
+      // Ideally we use a transform, but for now we manually map in the .map below.
+      const { data, error } = await supabase
+        .from('projects')
+        .select(`
+          *,
+          transactions(*),
+          materials(*),
+          incidents(*),
+          documents(*),
+          budgets(*, items:budget_items(*))
+        `)
+        .order('created_at', { ascending: false });
 
+      if (error) throw error;
+
+      if (data) {
+        const formattedProjects: Project[] = data.map((p: any) => ({
+          id: p.id,
+          type: p.type as any,
+          name: p.name,
+          client: p.client,
+          location: p.location,
+          status: p.status,
+          progress: Number(p.progress),
+          startDate: p.start_date,
+          endDate: p.end_date,
+          budget: Number(p.budget),
+          description: p.description,
+          pvData: p.pv_data, // JSONB column
+          transactions: p.transactions || [],
+          materials: p.materials || [],
+          incidents: p.incidents || [],
+          documents: p.documents || [],
+          budgets: p.budgets?.map((b: any) => ({
+             ...b,
+             items: b.items || []
+          })) || []
+        }));
+        setProjects(formattedProjects);
+      }
+    } catch (err) {
+      console.error("Error fetching projects from Supabase:", err);
+      // Fallback or alert user
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchProjects();
+  }, []);
+
+  // --- Persistence & Effects ---
   useEffect(() => {
     localStorage.setItem('voltmanager_pricedb', JSON.stringify(priceDatabase));
   }, [priceDatabase]);
@@ -49,19 +102,83 @@ const App: React.FC = () => {
     }
   }, [darkMode]);
 
-  // Handlers
-  const handleAddProject = (newProject: Project) => {
-    setProjects([newProject, ...projects]);
+  // --- Handlers ---
+
+  const handleAddProject = async (newProject: Project) => {
+    try {
+      // Optimistic update
+      setProjects([newProject, ...projects]);
+
+      const { data, error } = await supabase
+        .from('projects')
+        .insert({
+           id: newProject.id, // Using the ID generated in frontend (ensure it's UUID compatible)
+           type: newProject.type,
+           name: newProject.name,
+           client: newProject.client,
+           location: newProject.location,
+           status: newProject.status,
+           progress: newProject.progress,
+           start_date: newProject.startDate,
+           end_date: newProject.endDate,
+           description: newProject.description,
+           budget: newProject.budget,
+           pv_data: newProject.pvData
+        })
+        .select();
+
+      if (error) throw error;
+      
+      // Upload initial documents if any exist in the new project
+      if (newProject.documents.length > 0) {
+          const docsToInsert = newProject.documents.map(d => ({
+              project_id: newProject.id,
+              name: d.name,
+              type: d.type,
+              date: d.date,
+              data: d.data
+          }));
+          await supabase.from('documents').insert(docsToInsert);
+      }
+
+    } catch (err) {
+      console.error("Error creating project in DB:", err);
+      alert("Error al guardar en la nube. Los cambios pueden no persistir.");
+      fetchProjects(); // Revert to server state
+    }
   };
 
   const handleUpdateProject = (updatedProject: Project) => {
-    setProjects(projects.map(p => p.id === updatedProject.id ? updatedProject : p));
+     // For simple root-level updates (like status, progress, edit details)
+     // Complex nested updates (like adding a material) are handled in ProjectDetail directly against DB
+     // But we update state here to reflect changes in UI instantly
+     setProjects(projects.map(p => p.id === updatedProject.id ? updatedProject : p));
+
+     // Debounce or direct update? Direct for now.
+     supabase.from('projects').update({
+         name: updatedProject.name,
+         status: updatedProject.status,
+         progress: updatedProject.progress,
+         end_date: updatedProject.endDate,
+         description: updatedProject.description,
+         // Add other root fields as needed
+     }).eq('id', updatedProject.id).then(({ error }) => {
+         if (error) console.error("Error updating project root:", error);
+     });
   };
 
-  const handleDeleteProject = (id: string) => {
-    if (window.confirm("¿Estás seguro de que quieres eliminar este proyecto?")) {
+  const handleDeleteProject = async (id: string) => {
+    if (window.confirm("¿Estás seguro de que quieres eliminar este proyecto? Se borrarán todos los datos asociados.")) {
+        // Optimistic delete
         setProjects(projects.filter(p => p.id !== id));
         setSelectedProjectId(null);
+
+        const { error } = await supabase.from('projects').delete().eq('id', id);
+        if (error) {
+            console.error("Error deleting project:", error);
+            alert("Error al eliminar el proyecto.");
+            fetchProjects();
+        }
     }
   };
 
@@ -69,10 +186,27 @@ const App: React.FC = () => {
       setPriceDatabase(newItems);
   };
 
+  // Helper to refresh data when returning from detail view to ensure consistency
+  const handleBackToMenu = () => {
+      setSelectedProjectId(null);
+      fetchProjects(); 
+  }
+
   const selectedProject = projects.find(p => p.id === selectedProjectId);
 
   // View Routing
   
+  if (isLoading) {
+      return (
+          <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900">
+              <div className="flex flex-col items-center gap-4">
+                  <Loader2 className="w-10 h-10 animate-spin text-[#0047AB]" />
+                  <p className="text-slate-500 font-medium">Cargando datos...</p>
+              </div>
+          </div>
+      );
+  }
+
   if (showPriceDb) {
       return (
           <PriceDatabase 
@@ -105,7 +239,7 @@ const App: React.FC = () => {
     return (
       <ProjectDetail 
         project={selectedProject} 
-        onBack={() => setSelectedProjectId(null)}
+        onBack={handleBackToMenu}
         onUpdate={handleUpdateProject}
         onDelete={handleDeleteProject}
         priceDatabase={priceDatabase}

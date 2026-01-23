@@ -8,6 +8,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, B
 import { analyzeProjectStatus } from '../services/geminiService';
 import BudgetManager from './BudgetManager';
 import DocumentManager from './DocumentManager';
+import { supabase } from '../lib/supabase';
 
 interface ProjectDetailProps {
   project: Project;
@@ -26,21 +27,20 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
   const [history, setHistory] = useState<Project[]>([]);
 
   // Helper wrapper to save history before updating
+  // Note: With Supabase, undoing DB changes is complex. 
+  // We will keep the optimistic history for UI feel, but actual undoing of DB inserts is out of scope for this snippet unless we store transaction IDs.
   const updateProjectWithHistory = (newProjectState: Project) => {
-      // Save current state to history
       setHistory(prev => [...prev, project]);
-      // Perform the update
       onUpdate(newProjectState);
   };
 
   const handleUndo = () => {
       if (history.length === 0) return;
-      
       const previousState = history[history.length - 1];
       const newHistory = history.slice(0, -1);
-      
       setHistory(newHistory);
-      onUpdate(previousState); // Restore previous state without adding to history again
+      onUpdate(previousState);
+      // NOTE: Use with caution as this doesn't revert Supabase DB changes automatically in this implementation
   };
 
   // Helper to calculate financials
@@ -61,17 +61,21 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
     setIsAnalyzing(false);
   };
 
-  const handleStatusChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    updateProjectWithHistory({ ...project, status: e.target.value as ProjectStatus });
+  const handleStatusChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newStatus = e.target.value as ProjectStatus;
+    // Optimistic
+    updateProjectWithHistory({ ...project, status: newStatus });
+    // DB Update
+    await supabase.from('projects').update({ status: newStatus }).eq('id', project.id);
   };
 
   // --- Actions ---
 
-  const handleAddTransaction = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleAddTransaction = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     const newTransaction: Transaction = {
-      id: Date.now().toString(),
+      id: crypto.randomUUID(),
       projectId: project.id,
       description: formData.get('description') as string,
       amount: Number(formData.get('amount')),
@@ -79,16 +83,28 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
       category: formData.get('category') as string,
       date: new Date().toISOString().split('T')[0],
     };
+    
+    // DB Update
+    await supabase.from('transactions').insert({
+        id: newTransaction.id,
+        project_id: newTransaction.projectId,
+        type: newTransaction.type,
+        category: newTransaction.category,
+        amount: newTransaction.amount,
+        date: newTransaction.date,
+        description: newTransaction.description
+    });
+
     const updated = { ...project, transactions: [newTransaction, ...project.transactions] };
     updateProjectWithHistory(updated);
     e.currentTarget.reset();
   };
 
-  const handleAddMaterial = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleAddMaterial = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     const newMaterial: Material = {
-      id: Date.now().toString(),
+      id: crypto.randomUUID(),
       projectId: project.id,
       name: formData.get('name') as string,
       quantity: Number(formData.get('quantity')),
@@ -96,19 +112,32 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
       minStock: Number(formData.get('minStock')),
       pricePerUnit: Number(formData.get('pricePerUnit')),
     };
+
+    // DB Update
+    await supabase.from('materials').insert({
+        id: newMaterial.id,
+        project_id: newMaterial.projectId,
+        name: newMaterial.name,
+        quantity: newMaterial.quantity,
+        unit: newMaterial.unit,
+        min_stock: newMaterial.minStock,
+        price_per_unit: newMaterial.pricePerUnit
+    });
+
     updateProjectWithHistory({ ...project, materials: [...project.materials, newMaterial] });
     e.currentTarget.reset();
   };
 
-  const handleDeleteMaterial = (id: string) => {
+  const handleDeleteMaterial = async (id: string) => {
+      await supabase.from('materials').delete().eq('id', id);
       updateProjectWithHistory({...project, materials: project.materials.filter(m => m.id !== id)});
   }
 
-  const handleAddIncident = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleAddIncident = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     const newIncident: Incident = {
-      id: Date.now().toString(),
+      id: crypto.randomUUID(),
       projectId: project.id,
       title: formData.get('title') as string,
       description: formData.get('description') as string,
@@ -116,14 +145,33 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
       status: 'Open',
       date: new Date().toISOString().split('T')[0],
     };
+
+    // DB Update
+    await supabase.from('incidents').insert({
+        id: newIncident.id,
+        project_id: newIncident.projectId,
+        title: newIncident.title,
+        description: newIncident.description,
+        priority: newIncident.priority,
+        status: newIncident.status,
+        date: newIncident.date
+    });
+
     updateProjectWithHistory({ ...project, incidents: [newIncident, ...project.incidents] });
     e.currentTarget.reset();
   };
 
-  const toggleIncidentStatus = (id: string) => {
+  const toggleIncidentStatus = async (id: string) => {
     const updatedIncidents = project.incidents.map(inc => 
       inc.id === id ? { ...inc, status: inc.status === 'Open' ? 'Resolved' : 'Open' as 'Open'|'Resolved' } : inc
     );
+    
+    // Find incident to update DB
+    const incident = updatedIncidents.find(i => i.id === id);
+    if (incident) {
+        await supabase.from('incidents').update({ status: incident.status }).eq('id', id);
+    }
+
     updateProjectWithHistory({ ...project, incidents: updatedIncidents });
   };
 
