@@ -144,9 +144,6 @@ const App: React.FC = () => {
               date: d.date,
               data: d.data
           }));
-          // Document insert does not need ID if DB generates it, assuming table set up that way
-          // But if we generated temp IDs for UI, we exclude them here unless table expects them.
-          // Since we are inserting new docs, let's let DB handle ID or remove it from map if exists.
           await supabase.from('documents').insert(docsToInsert);
       }
 
@@ -192,7 +189,7 @@ const App: React.FC = () => {
   const handleBackToMenu = () => {
       setSelectedProjectId(null);
       fetchProjects(); 
-  }
+  };
 
   const selectedProject = projects.find(p => p.id === selectedProjectId);
 
