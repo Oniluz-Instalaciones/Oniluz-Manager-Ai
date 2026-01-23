@@ -8,6 +8,9 @@ const apiKey = 'AIzaSyDhw7HUqBlxd2dohZ84jOZD9H75bmjAg3k';
 // Inicialización del SDK (Versión @google/genai v1)
 const ai = new GoogleGenAI({ apiKey });
 
+// MODELO DEFINIDO: Nombre exacto 'gemini-1.5-flash' para evitar errores 404
+const MODEL_NAME = 'gemini-1.5-flash';
+
 // Función para el Chat Global
 export const chatWithAssistant = async (message: string, context?: string): Promise<string> => {
   try {
@@ -18,7 +21,7 @@ export const chatWithAssistant = async (message: string, context?: string): Prom
     const prompt = context ? `Contexto actual:\n${context}\n\nUsuario: ${message}` : message;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-1.5-flash',
+      model: MODEL_NAME,
       contents: prompt,
       config: {
         systemInstruction: systemInstruction
@@ -28,7 +31,7 @@ export const chatWithAssistant = async (message: string, context?: string): Prom
     return response.text || "No pude generar una respuesta.";
   } catch (error) {
     console.error("Error chat assistant:", error);
-    return "Error de conexión con la IA. Verifica tu API Key.";
+    return "Error de conexión con la IA. Verifica tu API Key o la disponibilidad del modelo.";
   }
 };
 
@@ -54,7 +57,7 @@ export const analyzeProjectStatus = async (project: Project): Promise<string> =>
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-1.5-flash',
+      model: MODEL_NAME,
       contents: prompt,
     });
     return response.text || "No se pudo generar el análisis.";
@@ -65,9 +68,6 @@ export const analyzeProjectStatus = async (project: Project): Promise<string> =>
 };
 
 export const analyzeDocument = async (base64String: string, mimeType: string = 'image/jpeg'): Promise<any> => {
-  // Diagnóstico de conexión
-  console.log("Iniciando análisis con Gemini 1.5 Flash...");
-
   // Limpieza robusta del base64 para evitar errores de envío
   const base64Data = base64String.includes(',') ? base64String.split(',')[1] : base64String;
 
@@ -90,7 +90,7 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-1.5-flash',
+      model: MODEL_NAME,
       contents: {
         parts: [
           {
@@ -119,8 +119,8 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
     return JSON.parse(text);
   } catch (error) {
     console.error("Error analyzing document:", error);
-    // Devolvemos un objeto vacío seguro en lugar de lanzar error para que la UI no rompa
-    return { comercio: "Error de lectura", total: 0, categoria: "Otros" };
+    // Devolvemos objeto vacío para permitir edición manual sin borrar texto de error
+    return { comercio: "", total: 0, categoria: "Otros" };
   }
 };
 
@@ -167,7 +167,7 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
 
     try {
         const response = await ai.models.generateContent({
-            model: 'gemini-1.5-flash',
+            model: MODEL_NAME,
             contents: { parts },
             config: {}
         });
@@ -206,7 +206,7 @@ export const parseMaterialsFromInput = async (inputText: string): Promise<PriceI
 
     try {
         const response = await ai.models.generateContent({
-            model: 'gemini-1.5-flash',
+            model: MODEL_NAME,
             contents: prompt,
             config: {
                 responseMimeType: "application/json",
@@ -257,7 +257,7 @@ export const parseMaterialsFromImage = async (base64Image: string): Promise<Pric
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-1.5-flash',
+      model: MODEL_NAME,
       contents: {
         parts: [
             { inlineData: { mimeType: 'image/jpeg', data: base64Data } },
