@@ -106,33 +106,43 @@ const App: React.FC = () => {
 
   const handleAddProject = async (newProject: Project) => {
     try {
-      // Optimistic update
-      setProjects([newProject, ...projects]);
-
+      // 1. Insert Project into DB (Let Supabase generate ID)
       const { data, error } = await supabase
         .from('projects')
         .insert({
-           id: newProject.id, // Using the ID generated in frontend (ensure it's UUID compatible)
+           // id: newProject.id, // Removed to let DB generate UUID
            type: newProject.type,
            name: newProject.name,
            client: newProject.client,
            location: newProject.location,
            status: newProject.status,
            progress: newProject.progress,
-           start_date: newProject.startDate || null, // Convert empty string to null
-           end_date: newProject.endDate || null,     // Convert empty string to null
+           start_date: newProject.startDate || null, // Sanitize empty dates
+           end_date: newProject.endDate || null,     // Sanitize empty dates
            description: newProject.description,
            budget: newProject.budget,
            pv_data: newProject.pvData
         })
-        .select();
+        .select()
+        .single();
 
       if (error) throw error;
+
+      const createdProjectData = data;
+      const realId = createdProjectData.id;
       
-      // Upload initial documents if any exist in the new project
+      // 2. Update local state with the returned real ID
+      const finalProject: Project = {
+          ...newProject,
+          id: realId
+      };
+      
+      setProjects([finalProject, ...projects]);
+
+      // 3. Upload initial documents using real ID
       if (newProject.documents.length > 0) {
           const docsToInsert = newProject.documents.map(d => ({
-              project_id: newProject.id,
+              project_id: realId, // Use real generated ID
               name: d.name,
               type: d.type,
               date: d.date,
@@ -143,7 +153,7 @@ const App: React.FC = () => {
 
     } catch (err) {
       console.error("Error creating project in DB:", err);
-      alert("Error al guardar en la nube. Los cambios pueden no persistir.");
+      alert("Error al guardar en la nube. Inténtelo de nuevo.");
       fetchProjects(); // Revert to server state
     }
   };
