@@ -5,7 +5,7 @@ import { PRICE_DATABASE } from "../constants";
 // --- CONFIGURACIÓN DIRECTA ---
 const apiKey = 'AIzaSyDhw7HUqBlxd2dohZ84jOZD9H75bmjAg3k'; 
 
-// Inicialización correcta para @google/genai (v1 SDK)
+// Inicialización del SDK (Versión @google/genai v1)
 const ai = new GoogleGenAI({ apiKey });
 
 // Función para el Chat Global
@@ -65,6 +65,9 @@ export const analyzeProjectStatus = async (project: Project): Promise<string> =>
 };
 
 export const analyzeDocument = async (base64String: string, mimeType: string = 'image/jpeg'): Promise<any> => {
+  // Diagnóstico de conexión
+  console.log("Iniciando análisis con Gemini 1.5 Flash...");
+
   // Limpieza robusta del base64 para evitar errores de envío
   const base64Data = base64String.includes(',') ? base64String.split(',')[1] : base64String;
 
