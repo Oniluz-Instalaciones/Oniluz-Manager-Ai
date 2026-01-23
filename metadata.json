@@ -1,0 +1,7 @@
+{
+  "name": "Oniluz AI",
+  "description": "Plataforma de gestión integral para empresas eléctricas. Control de proyectos, gastos, stock e incidencias con asistencia IA.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
