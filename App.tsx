@@ -119,8 +119,8 @@ const App: React.FC = () => {
            location: newProject.location,
            status: newProject.status,
            progress: newProject.progress,
-           start_date: newProject.startDate,
-           end_date: newProject.endDate,
+           start_date: newProject.startDate || null, // Convert empty string to null
+           end_date: newProject.endDate || null,     // Convert empty string to null
            description: newProject.description,
            budget: newProject.budget,
            pv_data: newProject.pvData
@@ -159,7 +159,7 @@ const App: React.FC = () => {
          name: updatedProject.name,
          status: updatedProject.status,
          progress: updatedProject.progress,
-         end_date: updatedProject.endDate,
+         end_date: updatedProject.endDate || null, // Convert empty string to null
          description: updatedProject.description,
          // Add other root fields as needed
      }).eq('id', updatedProject.id).then(({ error }) => {
