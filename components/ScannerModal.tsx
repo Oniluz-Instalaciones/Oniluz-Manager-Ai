@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Project, Transaction, Material } from '../types';
-import { Camera, X, Loader2, Save, Image as ImageIcon, Package, Trash2, Plus, RefreshCw, Upload } from 'lucide-react';
-import { analyzeReceiptImage } from '../services/geminiService';
+import { Camera, X, Loader2, Save, Image as ImageIcon, Package, Trash2, Plus, RefreshCw, Upload, FileText } from 'lucide-react';
+import { analyzeDocument } from '../services/geminiService';
 import { supabase } from '../lib/supabase';
 
 interface ScannerModalProps {
@@ -11,8 +11,10 @@ interface ScannerModalProps {
 }
 
 const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }) => {
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [imageBlob, setImageBlob] = useState<Blob | null>(null); 
+  const [fileData, setFileData] = useState<string | null>(null); // Base64
+  const [fileBlob, setFileBlob] = useState<Blob | null>(null);
+  const [mimeType, setMimeType] = useState<string>('image/jpeg');
+  
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [step, setStep] = useState<'capture' | 'review' | 'form'>('capture');
@@ -23,10 +25,15 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
+  // Form Data including new fields from AI analysis
   const [formData, setFormData] = useState({
+    docType: 'RECEIPT', // RECEIPT, DELIVERY_NOTE, BUDGET
+    supplier: '',
+    cif: '',
     amount: 0,
+    tax: 0,
     description: '',
-    category: '',
+    category: 'Material',
     date: new Date().toISOString().split('T')[0],
     projectId: projects[0]?.id || ''
   });
@@ -95,9 +102,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
       const video = videoRef.current;
       const canvas = canvasRef.current;
       
-      if (video.videoWidth === 0 || video.videoHeight === 0) {
-          return;
-      }
+      if (video.videoWidth === 0 || video.videoHeight === 0) return;
 
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
@@ -109,13 +114,14 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
         const base64String = canvas.toDataURL('image/jpeg', 0.85); 
         
         canvas.toBlob((blob) => {
-            if (blob) setImageBlob(blob);
+            if (blob) setFileBlob(blob);
         }, 'image/jpeg', 0.85);
         
         stopCamera();
-        setImagePreview(base64String);
+        setFileData(base64String);
+        setMimeType('image/jpeg');
         setStep('review');
-        analyzeImage(base64String);
+        processDocument(base64String, 'image/jpeg');
       }
     }
   };
@@ -123,29 +129,35 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      setImageBlob(file); 
+      setFileBlob(file); 
+      setMimeType(file.type);
       
       const reader = new FileReader();
       reader.onloadend = () => {
         const base64String = reader.result as string;
-        setImagePreview(base64String);
+        setFileData(base64String);
         setStep('review');
-        analyzeImage(base64String);
+        processDocument(base64String, file.type);
       };
       reader.readAsDataURL(file);
     }
   };
 
-  const analyzeImage = async (base64: string) => {
+  const processDocument = async (base64: string, type: string) => {
     setIsAnalyzing(true);
     try {
-      const data = await analyzeReceiptImage(base64);
+      const data = await analyzeDocument(base64, type);
       
+      // Map AI result to Form
       setFormData(prev => ({
         ...prev,
-        amount: data.amount || 0,
-        description: data.description || '',
-        category: data.category || 'Material',
+        docType: data.type || 'RECEIPT',
+        supplier: data.supplier || '',
+        cif: data.cif || '',
+        amount: data.total_amount || 0,
+        tax: data.tax_amount || 0,
+        description: data.supplier ? `Compra en ${data.supplier}` : (data.type === 'DELIVERY_NOTE' ? 'Recepción de Material' : 'Gasto Varios'),
+        category: 'Material', // Default
         date: data.date || prev.date
       }));
 
@@ -165,7 +177,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
       setStep('form');
     } catch (error) {
       console.error(error);
-      alert("No se pudo analizar la imagen correctamente. Por favor, rellena los datos manualmente.");
+      alert("No se pudo analizar el documento correctamente. Por favor, rellena los datos manualmente.");
       setStep('form');
     } finally {
       setIsAnalyzing(false);
@@ -196,15 +208,17 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
       }]);
   };
 
-  const uploadPhotoToSupabase = async (projectId: string): Promise<string | null> => {
-      if (!imageBlob) return null;
+  const uploadFileToSupabase = async (projectId: string): Promise<string | null> => {
+      if (!fileBlob) return null;
 
       try {
-          const fileName = `${projectId}/${Date.now()}.jpg`;
-          const { data, error } = await supabase.storage
-              .from('photos')
-              .upload(fileName, imageBlob, {
-                  contentType: 'image/jpeg',
+          const ext = mimeType === 'application/pdf' ? 'pdf' : 'jpg';
+          const fileName = `${projectId}/${Date.now()}.${ext}`;
+          
+          const { error } = await supabase.storage
+              .from('photos') // Reuse existing bucket, maybe rename bucket conceptually in future
+              .upload(fileName, fileBlob, {
+                  contentType: mimeType,
                   upsert: false
               });
 
@@ -231,8 +245,9 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
     setIsUploading(true);
 
     try {
-        const photoUrl = await uploadPhotoToSupabase(formData.projectId);
+        const fileUrl = await uploadFileToSupabase(formData.projectId);
 
+        // Map Form to Transaction
         const newTransaction: Transaction = {
           id: crypto.randomUUID(),
           projectId: formData.projectId,
@@ -248,7 +263,8 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
             projectId: formData.projectId
         }));
 
-        // Insert Transaction - Remove ID
+        // Insert Transaction - Only if amount > 0 or it's a receipt
+        // If it's purely a Delivery Note with 0 cost, we might skip transaction or record 0 cost
         await supabase.from('transactions').insert({
             project_id: newTransaction.projectId,
             type: newTransaction.type,
@@ -258,7 +274,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
             description: newTransaction.description
         });
 
-        // Insert Materials - Remove ID
+        // Insert Materials
         if (finalMaterials.length > 0) {
             const matsForDb = finalMaterials.map(m => ({
                 project_id: m.projectId,
@@ -271,13 +287,13 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
             await supabase.from('materials').insert(matsForDb);
         }
 
-        if (photoUrl) {
+        if (fileUrl) {
             await supabase.from('documents').insert({
                 project_id: formData.projectId,
-                name: `Escaneo ${formData.date}`,
-                type: 'image',
+                name: `${formData.docType === 'DELIVERY_NOTE' ? 'Albarán' : 'Factura'} ${formData.date}`,
+                type: mimeType === 'application/pdf' ? 'pdf' : 'image',
                 date: formData.date || null,
-                data: photoUrl 
+                data: fileUrl 
             });
         }
 
@@ -302,7 +318,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
         
         <div className="bg-[#0047AB] p-5 flex justify-between items-center text-white shadow-lg z-10 shrink-0">
           <h2 className="text-lg font-bold flex items-center gap-2">
-            <Camera className="w-6 h-6" /> Escáner Inteligente
+            <Camera className="w-6 h-6" /> Escáner Multimodal
           </h2>
           <button onClick={handleClose} className="hover:bg-white/20 p-2 rounded-full transition-colors">
             <X className="w-5 h-5" />
@@ -344,7 +360,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
                 ) : (
                     <div className="flex flex-col items-center justify-center space-y-8 py-12 px-6 h-full">
                         <div className="w-28 h-28 bg-white dark:bg-slate-700 rounded-full flex items-center justify-center text-slate-300 dark:text-slate-500 mb-2 shadow-sm border border-slate-100 dark:border-slate-600">
-                            <ImageIcon className="w-12 h-12" />
+                            <FileText className="w-12 h-12" />
                         </div>
                         
                         <div className="w-full space-y-4">
@@ -352,7 +368,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
                                 onClick={startCamera}
                                 className="w-full bg-[#0047AB] text-white py-4 rounded-2xl font-bold shadow-xl shadow-blue-900/20 hover:bg-[#003380] transition-transform active:scale-95 flex items-center justify-center gap-3 text-lg"
                             >
-                                <Camera className="w-6 h-6" /> Abrir Cámara
+                                <Camera className="w-6 h-6" /> Escanear con Cámara
                             </button>
                             
                             <div className="relative py-2">
@@ -366,7 +382,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
 
                             <input 
                                 type="file" 
-                                accept="image/*" 
+                                accept="image/*,application/pdf" 
                                 ref={fileInputRef}
                                 onChange={handleFileChange}
                                 className="hidden" 
@@ -375,12 +391,12 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
                                 onClick={() => fileInputRef.current?.click()}
                                 className="w-full bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 py-4 rounded-2xl font-bold border border-slate-200 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-600 transition-colors flex items-center justify-center gap-3"
                             >
-                                <Upload className="w-5 h-5" /> Subir de Galería
+                                <Upload className="w-5 h-5" /> Subir Archivo (IMG/PDF)
                             </button>
                         </div>
                         
-                        <p className="text-center text-slate-400 dark:text-slate-500 text-sm mt-4">
-                            La IA analizará el ticket o material automáticamente.
+                        <p className="text-center text-slate-400 dark:text-slate-500 text-sm mt-4 px-8">
+                            Soporta Facturas, Albaranes y Tickets en formato PDF o Imagen.
                         </p>
                     </div>
                 )}
@@ -389,12 +405,22 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
 
           {step === 'review' && (
             <div className="flex flex-col items-center justify-center space-y-6 py-8 h-full">
-               {imagePreview && (
-                 <img src={imagePreview} alt="Preview" className="w-64 h-auto object-contain rounded-2xl shadow-lg border-4 border-white dark:border-slate-700" />
-               )}
-               <div className="flex items-center gap-3 text-[#0047AB] dark:text-blue-400 font-bold animate-pulse text-lg">
-                 <Loader2 className="w-6 h-6 animate-spin" />
-                 Analizando con IA...
+               <div className="relative">
+                  {mimeType === 'application/pdf' ? (
+                      <div className="w-64 h-80 bg-slate-100 dark:bg-slate-700 rounded-2xl flex flex-col items-center justify-center border-4 border-white dark:border-slate-600 shadow-lg">
+                          <FileText className="w-20 h-20 text-red-500 mb-4" />
+                          <span className="text-sm font-bold text-slate-500 dark:text-slate-300">Documento PDF</span>
+                      </div>
+                  ) : (
+                    fileData && <img src={fileData} alt="Preview" className="w-64 h-auto object-contain rounded-2xl shadow-lg border-4 border-white dark:border-slate-700" />
+                  )}
+               </div>
+               <div className="flex flex-col items-center gap-2 text-[#0047AB] dark:text-blue-400 font-bold animate-pulse">
+                 <div className="flex items-center gap-3 text-lg">
+                    <Loader2 className="w-6 h-6 animate-spin" />
+                    Analizando documento con IA...
+                 </div>
+                 <span className="text-xs text-slate-400 dark:text-slate-500 font-medium">Detectando tipo, precios y materiales</span>
                </div>
             </div>
           )}
@@ -402,6 +428,17 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
           {step === 'form' && (
             <form onSubmit={handleSubmit} className="space-y-6 p-6">
               
+              <div className="flex items-center justify-between mb-2">
+                 <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                     formData.docType === 'DELIVERY_NOTE' ? 'bg-orange-100 text-orange-700' :
+                     formData.docType === 'BUDGET' ? 'bg-purple-100 text-purple-700' :
+                     'bg-green-100 text-green-700'
+                 }`}>
+                     {formData.docType === 'DELIVERY_NOTE' ? 'Albarán Detectado' : formData.docType === 'BUDGET' ? 'Presupuesto' : 'Factura Detectada'}
+                 </span>
+                 {formData.supplier && <span className="text-xs font-bold text-slate-500">{formData.supplier}</span>}
+              </div>
+
               <div>
                 <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Proyecto Destino</label>
                 <select 
@@ -417,11 +454,12 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
                 </select>
               </div>
 
+              {/* Economic Data - Only relevant if not purely a delivery note without prices, but we allow editing anyway */}
               <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 space-y-4">
-                 <h3 className="text-sm font-bold text-slate-800 dark:text-white border-b border-slate-100 dark:border-slate-700 pb-2">Datos Económicos</h3>
+                 <h3 className="text-sm font-bold text-slate-800 dark:text-white border-b border-slate-100 dark:border-slate-700 pb-2">Datos Económicos (Gastos)</h3>
                  <div className="flex gap-4">
                     <div className="w-1/2">
-                       <label className="text-[10px] font-bold text-slate-400 uppercase">Importe Total (€)</label>
+                       <label className="text-[10px] font-bold text-slate-400 uppercase">Total (€)</label>
                        <input 
                          type="number" 
                          step="0.01"
@@ -431,29 +469,42 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
                        />
                     </div>
                     <div className="w-1/2">
-                       <label className="text-[10px] font-bold text-slate-400 uppercase">Fecha</label>
+                       <label className="text-[10px] font-bold text-slate-400 uppercase">IVA (€)</label>
                        <input 
-                         type="date" 
-                         value={formData.date}
-                         onChange={(e) => setFormData({...formData, date: e.target.value})}
-                         className="w-full mt-1 p-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:ring-2 focus:ring-[#0047AB] transition-all outline-none" 
+                         type="number"
+                         step="0.01"
+                         value={formData.tax}
+                         onChange={(e) => setFormData({...formData, tax: Number(e.target.value)})}
+                         className="w-full mt-1 p-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-700 dark:text-slate-300 focus:ring-2 focus:ring-[#0047AB] transition-all outline-none" 
                        />
                     </div>
                  </div>
-                 <div>
-                    <label className="text-[10px] font-bold text-slate-400 uppercase">Descripción</label>
-                    <input 
-                      value={formData.description}
-                      onChange={(e) => setFormData({...formData, description: e.target.value})}
-                      className="w-full mt-1 p-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-[#0047AB] transition-all outline-none" 
-                    />
+                 <div className="flex gap-4">
+                     <div className="w-2/3">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase">Descripción</label>
+                        <input 
+                          value={formData.description}
+                          onChange={(e) => setFormData({...formData, description: e.target.value})}
+                          className="w-full mt-1 p-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-[#0047AB] transition-all outline-none" 
+                        />
+                     </div>
+                     <div className="w-1/3">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase">Fecha</label>
+                        <input 
+                          type="date" 
+                          value={formData.date}
+                          onChange={(e) => setFormData({...formData, date: e.target.value})}
+                          className="w-full mt-1 p-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-[#0047AB] transition-all outline-none" 
+                        />
+                     </div>
                  </div>
               </div>
 
+              {/* Material List */}
               <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 space-y-4">
                  <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-700 pb-2">
                     <h3 className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                        <Package className="w-4 h-4 text-[#0047AB] dark:text-blue-400" /> Stock Detectado
+                        <Package className="w-4 h-4 text-[#0047AB] dark:text-blue-400" /> Materiales Recibidos
                     </h3>
                     <button type="button" onClick={addEmptyMaterial} className="text-xs text-[#0047AB] dark:text-blue-400 font-bold flex items-center hover:underline">
                         <Plus className="w-3 h-3 mr-1" /> Añadir
@@ -461,7 +512,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
                  </div>
                  
                  {detectedMaterials.length === 0 ? (
-                     <p className="text-center text-xs text-slate-400 py-4">No se han detectado materiales específicos para inventario.</p>
+                     <p className="text-center text-xs text-slate-400 py-4">No se han detectado materiales específicos.</p>
                  ) : (
                      <div className="space-y-3">
                          {detectedMaterials.map((mat, idx) => (

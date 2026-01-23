@@ -64,28 +64,33 @@ export const analyzeProjectStatus = async (project: Project): Promise<string> =>
   }
 };
 
-export const analyzeReceiptImage = async (base64Image: string): Promise<any> => {
-  const base64Data = base64Image.split(',')[1];
+export const analyzeDocument = async (base64String: string, mimeType: string = 'image/jpeg'): Promise<any> => {
+  // Eliminar prefijo data:URL si existe
+  const base64Data = base64String.includes(',') ? base64String.split(',')[1] : base64String;
 
   const prompt = `
-    Analiza esta imagen (ticket, factura, albarán o foto de material) para una empresa eléctrica.
+    Analiza este documento de una empresa eléctrica. Puede ser un Ticket/Factura, un Albarán de entrega o un Presupuesto externo.
+
+    1. CLASIFICA el documento: "RECEIPT" (factura/ticket con precios), "DELIVERY_NOTE" (albarán solo con materiales), o "BUDGET" (presupuesto).
+    2. EXTRAE los datos clave según el tipo.
     
-    Tu objetivo PRINCIPAL es extraer el listado de materiales y sus CANTIDADES exactas para el control de stock.
-    
-    Extrae un JSON con esta estructura:
-    1. "amount": Importe total del documento (número).
-    2. "date": Fecha (YYYY-MM-DD).
-    3. "description": Nombre del proveedor.
-    4. "category": Categoría (Material, Herramienta, Varios).
-    5. "items": Array con cada línea de material detectada. Para cada item:
-       - "name": Descripción del producto.
-       - "quantity": LA CANTIDAD EXACTA (número). Busca columnas "Cant", "Uds", "Qty" o números a la izquierda de la descripción (ej: "20x Tubo"). Si pone "100m Cable", cantidad es 100.
-       - "unit": Unidad (m, ud, kg, caja, pack).
-       - "pricePerUnit": Precio unitario (si aparece).
-    
-    IMPORTANTE: 
-    - No asumas cantidad 1 si ves un número explícito indicando más cantidad.
-    - Si detectas "Caja de 50 tacos", el nombre es "Tacos" y la cantidad es 50 (o nombre "Caja tacos" cantidad 1, decide lo más lógico para stock).
+    Devuelve un JSON con esta estructura exacta:
+    {
+      "type": "RECEIPT" | "DELIVERY_NOTE" | "BUDGET",
+      "supplier": "Nombre del proveedor o comercio",
+      "cif": "CIF/NIF del proveedor si aparece",
+      "date": "YYYY-MM-DD",
+      "total_amount": Número (Total final con impuestos. Si es albarán sin precios, pon 0),
+      "tax_amount": Número (Total IVA. Si no se desglosa, estima o 0),
+      "items": [
+        {
+          "name": "Descripción del material",
+          "quantity": Número (Cantidad exacta detectada. Ej: si dice 'Caja de 100', cantidad es 100, unidad 'ud'. Si dice '100m Cable', cantidad 100, unidad 'm'),
+          "unit": "m, ud, kg, pack",
+          "pricePerUnit": Número (Precio unitario si existe, sino 0)
+        }
+      ]
+    }
   `;
 
   try {
@@ -95,7 +100,7 @@ export const analyzeReceiptImage = async (base64Image: string): Promise<any> => 
         parts: [
           {
             inlineData: {
-              mimeType: 'image/jpeg', 
+              mimeType: mimeType, 
               data: base64Data
             }
           },
@@ -105,11 +110,12 @@ export const analyzeReceiptImage = async (base64Image: string): Promise<any> => 
     });
 
     let text = response.text || "{}";
+    // Limpieza básica de Markdown json
     text = text.replace(/```json/g, '').replace(/```/g, '').trim();
     
     return JSON.parse(text);
   } catch (error) {
-    console.error("Error analyzing receipt:", error);
+    console.error("Error analyzing document:", error);
     throw error;
   }
 };
