@@ -2,15 +2,37 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { Project, PriceItem } from "../types";
 import { PRICE_DATABASE } from "../constants";
 
-// Initialize the API client safely
-const apiKey = process.env.API_KEY || '';
-const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
+// --- CONFIGURACIÓN DIRECTA ---
+// IMPORTANTE: REEMPLAZA EL TEXTO DE ABAJO CON TU API KEY REAL DE GOOGLE AI STUDIO
+const apiKey = 'PEGA_AQUI_TU_LLAVE_QUE_EMPIEZA_POR_AIza'; 
+
+const ai = new GoogleGenAI({ apiKey });
+
+// Función para el Chat Global (Nuevo botón)
+export const chatWithAssistant = async (message: string, context?: string): Promise<string> => {
+  try {
+    const systemInstruction = `Eres Oniluz AI, un asistente experto para empresas eléctricas. 
+    Ayudas a gestionar obras, materiales, normativas (REBT) y finanzas. 
+    Responde de forma breve, profesional y útil.`;
+
+    const prompt = context ? `Contexto actual:\n${context}\n\nUsuario: ${message}` : message;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-1.5-flash',
+      contents: prompt,
+      config: {
+        systemInstruction: systemInstruction
+      }
+    });
+
+    return response.text || "No pude generar una respuesta.";
+  } catch (error) {
+    console.error("Error chat assistant:", error);
+    return "Error de conexión con la IA. Verifica tu API Key.";
+  }
+};
 
 export const analyzeProjectStatus = async (project: Project): Promise<string> => {
-  if (!ai) {
-    return "API Key no configurada. Por favor configure process.env.API_KEY para usar la IA.";
-  }
-
   const prompt = `
     Actúa como un gestor de proyectos experto en el sector eléctrico.
     Analiza los siguientes datos de un proyecto y proporciona un resumen ejecutivo breve (máximo 100 palabras)
@@ -32,7 +54,7 @@ export const analyzeProjectStatus = async (project: Project): Promise<string> =>
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-1.5-flash',
       contents: prompt,
     });
     return response.text || "No se pudo generar el análisis.";
@@ -43,10 +65,6 @@ export const analyzeProjectStatus = async (project: Project): Promise<string> =>
 };
 
 export const analyzeReceiptImage = async (base64Image: string): Promise<any> => {
-  if (!ai) {
-    throw new Error("API Key no configurada");
-  }
-
   const base64Data = base64Image.split(',')[1];
 
   const prompt = `
@@ -72,7 +90,7 @@ export const analyzeReceiptImage = async (base64Image: string): Promise<any> => 
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image',
+      model: 'gemini-1.5-flash',
       contents: {
         parts: [
           {
@@ -97,10 +115,6 @@ export const analyzeReceiptImage = async (base64Image: string): Promise<any> => 
 };
 
 export const generateSmartBudget = async (description: string, currentPrices: PriceItem[], images: string[] = []): Promise<any[]> => {
-    if (!ai) {
-        throw new Error("API Key no configurada");
-    }
-
     const priceList = JSON.stringify(currentPrices.map(p => `${p.name} (${p.price}€/${p.unit})`));
 
     const promptText = `
@@ -131,13 +145,11 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
 
     const parts: any[] = [{ text: promptText }];
     
-    // Add images if provided
     for (const imgBase64 of images) {
-        // Strip prefix if exists
         const base64Data = imgBase64.includes(',') ? imgBase64.split(',')[1] : imgBase64;
         parts.push({
             inlineData: {
-                mimeType: 'image/jpeg', // Defaulting to jpeg for simplicity in this context
+                mimeType: 'image/jpeg', 
                 data: base64Data
             }
         });
@@ -145,13 +157,12 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
 
     try {
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash-image', // Use flash-image to handle both text reasoning and image inputs efficiently
+            model: 'gemini-1.5-flash',
             contents: { parts },
             config: {}
         });
         
         let text = response.text || "[]";
-        // Simple cleanup for JSON in markdown blocks
         text = text.replace(/```json/g, '').replace(/```/g, '').trim();
         
         try {
@@ -168,10 +179,6 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
 };
 
 export const parseMaterialsFromInput = async (inputText: string): Promise<PriceItem[]> => {
-    if (!ai) {
-        throw new Error("API Key no configurada");
-    }
-
     const prompt = `
       Analiza el siguiente texto. Puede ser contenido copiado de una web de suministros eléctricos, un PDF de tarifas, o una lista informal.
       Extrae todos los materiales, precios y unidades que encuentres.
@@ -189,7 +196,7 @@ export const parseMaterialsFromInput = async (inputText: string): Promise<PriceI
 
     try {
         const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
+            model: 'gemini-1.5-flash',
             contents: prompt,
             config: {
                 responseMimeType: "application/json",
@@ -211,7 +218,6 @@ export const parseMaterialsFromInput = async (inputText: string): Promise<PriceI
         let text = response.text || "[]";
         const items = JSON.parse(text);
         
-        // Add IDs
         return items.map((item: any) => ({
             ...item,
             id: Date.now().toString() + Math.random().toString(36).substr(2, 5)
@@ -224,11 +230,7 @@ export const parseMaterialsFromInput = async (inputText: string): Promise<PriceI
 };
 
 export const parseMaterialsFromImage = async (base64Image: string): Promise<PriceItem[]> => {
-  if (!ai) {
-    throw new Error("API Key no configurada");
-  }
-
-  const base64Data = base64Image.split(',')[1]; // Remove prefix
+  const base64Data = base64Image.split(',')[1]; 
 
   const prompt = `
     Analiza esta imagen de una tarifa de precios o catálogo de material eléctrico.
@@ -245,7 +247,7 @@ export const parseMaterialsFromImage = async (base64Image: string): Promise<Pric
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image',
+      model: 'gemini-1.5-flash',
       contents: {
         parts: [
             { inlineData: { mimeType: 'image/jpeg', data: base64Data } },

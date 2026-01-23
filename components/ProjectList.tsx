@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Project, ProjectStatus, Transaction, ProjectDocument, ProjectType, PvData, Material } from '../types';
-import { Plus, Search, Building2, MapPin, Camera, PieChart, Database, Upload, FileText, Menu, Moon, Sun, ChevronRight, X, Zap, Sun as SunIcon, Battery, Calendar, HardHat } from 'lucide-react';
+import { Plus, Search, Building2, MapPin, Camera, PieChart, Database, Upload, FileText, Menu, Moon, Sun, ChevronRight, X, Zap, Sun as SunIcon, Battery, Calendar, HardHat, Sparkles } from 'lucide-react';
 import ScannerModal from './ScannerModal';
+import GlobalAssistant from './GlobalAssistant';
 
 interface ProjectListProps {
   projects: Project[];
@@ -22,6 +23,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalType, setModalType] = useState<ProjectType>('General'); // Track which type we are creating
   const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [isAssistantOpen, setIsAssistantOpen] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<ProjectStatus | 'ALL'>('ALL');
@@ -163,6 +165,16 @@ const ProjectList: React.FC<ProjectListProps> = ({
           </div>
           
           <div className="flex items-center gap-3">
+              {/* AI Assistant Button */}
+              <button 
+                  onClick={() => setIsAssistantOpen(true)}
+                  className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[#0047AB] dark:text-blue-400 p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-all shadow-sm hover:shadow-md flex items-center gap-2 group"
+                  title="Asistente Oniluz"
+              >
+                  <Sparkles className="w-5 h-5" />
+                  <span className="font-bold text-sm hidden sm:inline group-hover:text-[#003380] dark:group-hover:text-blue-300">Asistente</span>
+              </button>
+
               {/* New Project Buttons */}
               <button 
                   onClick={() => handleOpenCreateModal('General')}
@@ -566,6 +578,13 @@ const ProjectList: React.FC<ProjectListProps> = ({
               onSave={handleScanSave}
             />
         )}
+
+        {/* Global Assistant Modal */}
+        <GlobalAssistant 
+          isOpen={isAssistantOpen}
+          onClose={() => setIsAssistantOpen(false)}
+        />
+
       </div>
 
       {/* Floating Action Button for Scanner - Fixed position and high Z-index */}
