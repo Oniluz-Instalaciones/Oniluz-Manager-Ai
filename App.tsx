@@ -33,9 +33,6 @@ const App: React.FC = () => {
   const fetchProjects = async () => {
     try {
       setIsLoading(true);
-      // Fetch projects with all relations
-      // Note: We map snake_case DB columns to camelCase manually or rely on JS flexibility. 
-      // Ideally we use a transform, but for now we manually map in the .map below.
       const { data, error } = await supabase
         .from('projects')
         .select(`
@@ -77,7 +74,6 @@ const App: React.FC = () => {
       }
     } catch (err) {
       console.error("Error fetching projects from Supabase:", err);
-      // Fallback or alert user
     } finally {
       setIsLoading(false);
     }
@@ -110,7 +106,7 @@ const App: React.FC = () => {
       const { data, error } = await supabase
         .from('projects')
         .insert({
-           // id: newProject.id, // Removed to let DB generate UUID
+           // NO ID included here, DB generates UUID
            type: newProject.type,
            name: newProject.name,
            client: newProject.client,
@@ -148,6 +144,9 @@ const App: React.FC = () => {
               date: d.date,
               data: d.data
           }));
+          // Document insert does not need ID if DB generates it, assuming table set up that way
+          // But if we generated temp IDs for UI, we exclude them here unless table expects them.
+          // Since we are inserting new docs, let's let DB handle ID or remove it from map if exists.
           await supabase.from('documents').insert(docsToInsert);
       }
 
@@ -159,19 +158,14 @@ const App: React.FC = () => {
   };
 
   const handleUpdateProject = (updatedProject: Project) => {
-     // For simple root-level updates (like status, progress, edit details)
-     // Complex nested updates (like adding a material) are handled in ProjectDetail directly against DB
-     // But we update state here to reflect changes in UI instantly
      setProjects(projects.map(p => p.id === updatedProject.id ? updatedProject : p));
 
-     // Debounce or direct update? Direct for now.
      supabase.from('projects').update({
          name: updatedProject.name,
          status: updatedProject.status,
          progress: updatedProject.progress,
-         end_date: updatedProject.endDate || null, // Convert empty string to null
+         end_date: updatedProject.endDate || null,
          description: updatedProject.description,
-         // Add other root fields as needed
      }).eq('id', updatedProject.id).then(({ error }) => {
          if (error) console.error("Error updating project root:", error);
      });
@@ -179,7 +173,6 @@ const App: React.FC = () => {
 
   const handleDeleteProject = async (id: string) => {
     if (window.confirm("¿Estás seguro de que quieres eliminar este proyecto? Se borrarán todos los datos asociados.")) {
-        // Optimistic delete
         setProjects(projects.filter(p => p.id !== id));
         setSelectedProjectId(null);
 
@@ -196,7 +189,6 @@ const App: React.FC = () => {
       setPriceDatabase(newItems);
   };
 
-  // Helper to refresh data when returning from detail view to ensure consistency
   const handleBackToMenu = () => {
       setSelectedProjectId(null);
       fetchProjects(); 
@@ -204,8 +196,6 @@ const App: React.FC = () => {
 
   const selectedProject = projects.find(p => p.id === selectedProjectId);
 
-  // View Routing
-  
   if (isLoading) {
       return (
           <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900">

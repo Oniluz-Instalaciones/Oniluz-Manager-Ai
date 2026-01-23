@@ -23,12 +23,8 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   
-  // History State for Undo functionality
   const [history, setHistory] = useState<Project[]>([]);
 
-  // Helper wrapper to save history before updating
-  // Note: With Supabase, undoing DB changes is complex. 
-  // We will keep the optimistic history for UI feel, but actual undoing of DB inserts is out of scope for this snippet unless we store transaction IDs.
   const updateProjectWithHistory = (newProjectState: Project) => {
       setHistory(prev => [...prev, project]);
       onUpdate(newProjectState);
@@ -40,15 +36,12 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
       const newHistory = history.slice(0, -1);
       setHistory(newHistory);
       onUpdate(previousState);
-      // NOTE: Use with caution as this doesn't revert Supabase DB changes automatically in this implementation
   };
 
-  // Helper to calculate financials
   const totalIncome = project.transactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
   const totalExpense = project.transactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
   const profit = totalIncome - totalExpense;
 
-  // Chart Data
   const financialData = [
     { name: 'Ingresos', value: totalIncome, color: '#10b981' },
     { name: 'Gastos', value: totalExpense, color: '#ef4444' },
@@ -63,9 +56,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
 
   const handleStatusChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
     const newStatus = e.target.value as ProjectStatus;
-    // Optimistic
     updateProjectWithHistory({ ...project, status: newStatus });
-    // DB Update
     await supabase.from('projects').update({ status: newStatus }).eq('id', project.id);
   };
 
@@ -75,7 +66,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     const newTransaction: Transaction = {
-      id: crypto.randomUUID(),
+      id: crypto.randomUUID(), // Temp ID for UI
       projectId: project.id,
       description: formData.get('description') as string,
       amount: Number(formData.get('amount')),
@@ -84,14 +75,13 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
       date: new Date().toISOString().split('T')[0],
     };
     
-    // DB Update
+    // DB Update - Removed ID
     await supabase.from('transactions').insert({
-        id: newTransaction.id,
         project_id: newTransaction.projectId,
         type: newTransaction.type,
         category: newTransaction.category,
         amount: newTransaction.amount,
-        date: newTransaction.date,
+        date: newTransaction.date || null,
         description: newTransaction.description
     });
 
@@ -104,7 +94,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     const newMaterial: Material = {
-      id: crypto.randomUUID(),
+      id: crypto.randomUUID(), // Temp ID for UI
       projectId: project.id,
       name: formData.get('name') as string,
       quantity: Number(formData.get('quantity')),
@@ -113,9 +103,8 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
       pricePerUnit: Number(formData.get('pricePerUnit')),
     };
 
-    // DB Update
+    // DB Update - Removed ID
     await supabase.from('materials').insert({
-        id: newMaterial.id,
         project_id: newMaterial.projectId,
         name: newMaterial.name,
         quantity: newMaterial.quantity,
@@ -137,7 +126,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     const newIncident: Incident = {
-      id: crypto.randomUUID(),
+      id: crypto.randomUUID(), // Temp ID for UI
       projectId: project.id,
       title: formData.get('title') as string,
       description: formData.get('description') as string,
@@ -146,15 +135,14 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
       date: new Date().toISOString().split('T')[0],
     };
 
-    // DB Update
+    // DB Update - Removed ID
     await supabase.from('incidents').insert({
-        id: newIncident.id,
         project_id: newIncident.projectId,
         title: newIncident.title,
         description: newIncident.description,
         priority: newIncident.priority,
         status: newIncident.status,
-        date: newIncident.date
+        date: newIncident.date || null
     });
 
     updateProjectWithHistory({ ...project, incidents: [newIncident, ...project.incidents] });
@@ -166,7 +154,6 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
       inc.id === id ? { ...inc, status: inc.status === 'Open' ? 'Resolved' : 'Open' as 'Open'|'Resolved' } : inc
     );
     
-    // Find incident to update DB
     const incident = updatedIncidents.find(i => i.id === id);
     if (incident) {
         await supabase.from('incidents').update({ status: incident.status }).eq('id', id);
@@ -239,7 +226,6 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
           </div>
         </div>
         
-        {/* Undo Button */}
         <div>
            <button 
              onClick={handleUndo}
@@ -297,7 +283,6 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                     <span className="font-semibold text-slate-900 dark:text-white">{project.startDate}</span>
                   </div>
 
-                  {/* Estimated End Date based on Budget */}
                   {project.endDate && (
                       <div className="flex justify-between py-3 border-b border-slate-50 dark:border-slate-700 bg-blue-50/50 dark:bg-blue-900/10 px-3 -mx-3 rounded-lg border-l-4 border-l-[#0047AB] dark:border-l-blue-500">
                           <div className="flex flex-col">
@@ -320,7 +305,6 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                 </div>
               </div>
 
-              {/* AI Assistant Section */}
               <div className="bg-gradient-to-br from-[#0047AB]/5 to-blue-50 dark:from-slate-800 dark:to-slate-800/50 p-8 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,71,171,0.1)] border border-blue-100/50 dark:border-slate-700 transition-colors">
                 <div className="flex items-center justify-between mb-6">
                   <h3 className="text-lg font-bold text-[#0047AB] dark:text-blue-400 flex items-center">
@@ -570,12 +554,6 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                     </button>
                  </div>
                ))}
-                {project.incidents.length === 0 && (
-                  <div className="col-span-full text-center py-16 text-slate-400 dark:text-slate-500 bg-white dark:bg-slate-800 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700">
-                     <CheckCircle className="w-14 h-14 mx-auto mb-4 opacity-20 text-[#0047AB]" />
-                     <p className="font-medium">Sin incidencias registradas.</p>
-                  </div>
-                )}
              </div>
           </div>
         )}

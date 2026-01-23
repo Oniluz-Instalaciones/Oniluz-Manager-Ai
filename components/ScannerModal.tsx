@@ -12,7 +12,7 @@ interface ScannerModalProps {
 
 const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }) => {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [imageBlob, setImageBlob] = useState<Blob | null>(null); // To store raw file for upload
+  const [imageBlob, setImageBlob] = useState<Blob | null>(null); 
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [step, setStep] = useState<'capture' | 'review' | 'form'>('capture');
@@ -23,7 +23,6 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
-  // Form State
   const [formData, setFormData] = useState({
     amount: 0,
     description: '',
@@ -32,10 +31,8 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
     projectId: projects[0]?.id || ''
   });
 
-  // Detected Materials State
   const [detectedMaterials, setDetectedMaterials] = useState<Material[]>([]);
 
-  // Cleanup camera on unmount or close
   useEffect(() => {
     return () => {
       stopCamera();
@@ -65,7 +62,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
       setIsCameraActive(true);
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: { 
-          facingMode: 'environment', // Prefer back camera
+          facingMode: 'environment', 
           width: { ideal: 1920 },
           height: { ideal: 1080 }
         },
@@ -74,7 +71,6 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
       
       streamRef.current = stream;
       
-      // Delay slightly to ensure ref is mounted
       setTimeout(() => {
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
@@ -86,7 +82,6 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
       console.error("Error accessing camera:", err);
       setIsCameraActive(false);
       
-      // Handle specific permission errors
       if (err instanceof DOMException && err.name === "NotAllowedError") {
          alert("Permiso denegado. Por favor, permite el acceso a la cámara en la configuración de tu navegador.");
       } else {
@@ -100,24 +95,19 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
       const video = videoRef.current;
       const canvas = canvasRef.current;
       
-      // Check if video is ready
       if (video.videoWidth === 0 || video.videoHeight === 0) {
           return;
       }
 
-      // Set canvas dimensions to match video source dimensions
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       
-      // Draw video frame to canvas
       const context = canvas.getContext('2d');
       if (context) {
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
         
-        // Convert to base64 for AI analysis
-        const base64String = canvas.toDataURL('image/jpeg', 0.85); // 0.85 quality
+        const base64String = canvas.toDataURL('image/jpeg', 0.85); 
         
-        // Convert to Blob for Supabase Upload
         canvas.toBlob((blob) => {
             if (blob) setImageBlob(blob);
         }, 'image/jpeg', 0.85);
@@ -133,7 +123,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      setImageBlob(file); // Set blob for upload
+      setImageBlob(file); 
       
       const reader = new FileReader();
       reader.onloadend = () => {
@@ -151,7 +141,6 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
     try {
       const data = await analyzeReceiptImage(base64);
       
-      // Update basic transaction info
       setFormData(prev => ({
         ...prev,
         amount: data.amount || 0,
@@ -160,16 +149,15 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
         date: data.date || prev.date
       }));
 
-      // Update detected materials if any
       if (data.items && Array.isArray(data.items)) {
           const newMats: Material[] = data.items.map((item: any) => ({
               id: crypto.randomUUID(),
-              projectId: '', // Will update on submit
+              projectId: '', 
               name: item.name || 'Material detectado',
-              quantity: item.quantity ? Number(item.quantity) : 1, // Ensure number
+              quantity: item.quantity ? Number(item.quantity) : 1, 
               unit: item.unit || 'ud',
               pricePerUnit: item.pricePerUnit ? Number(item.pricePerUnit) : 0,
-              minStock: 5 // Default
+              minStock: 5 
           }));
           setDetectedMaterials(newMats);
       }
@@ -229,7 +217,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
           return publicUrl;
       } catch (e) {
           console.error("Upload error:", e);
-          return null; // Don't block flow if upload fails, just don't have URL
+          return null; 
       }
   };
 
@@ -243,10 +231,8 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
     setIsUploading(true);
 
     try {
-        // 1. Upload Photo
         const photoUrl = await uploadPhotoToSupabase(formData.projectId);
 
-        // 2. Prepare Data
         const newTransaction: Transaction = {
           id: crypto.randomUUID(),
           projectId: formData.projectId,
@@ -262,21 +248,19 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
             projectId: formData.projectId
         }));
 
-        // 3. Save Transaction to DB
+        // Insert Transaction - Remove ID
         await supabase.from('transactions').insert({
-            id: newTransaction.id,
             project_id: newTransaction.projectId,
             type: newTransaction.type,
             category: newTransaction.category,
             amount: newTransaction.amount,
-            date: newTransaction.date,
+            date: newTransaction.date || null,
             description: newTransaction.description
         });
 
-        // 4. Save Materials to DB
+        // Insert Materials - Remove ID
         if (finalMaterials.length > 0) {
             const matsForDb = finalMaterials.map(m => ({
-                id: m.id,
                 project_id: m.projectId,
                 name: m.name,
                 quantity: m.quantity,
@@ -287,19 +271,16 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
             await supabase.from('materials').insert(matsForDb);
         }
 
-        // 5. Save Document Ref if uploaded
         if (photoUrl) {
             await supabase.from('documents').insert({
-                id: crypto.randomUUID(),
                 project_id: formData.projectId,
                 name: `Escaneo ${formData.date}`,
                 type: 'image',
-                date: formData.date,
-                data: photoUrl // Save URL instead of Base64
+                date: formData.date || null,
+                data: photoUrl 
             });
         }
 
-        // 6. Notify Parent to update UI
         onSave(formData.projectId, newTransaction, finalMaterials);
     
     } catch (error) {
@@ -319,7 +300,6 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
     <div className="fixed inset-0 bg-slate-900/90 flex items-center justify-center p-0 sm:p-4 z-50 backdrop-blur-md">
       <div className="bg-white dark:bg-slate-800 rounded-none sm:rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col h-full sm:h-auto sm:max-h-[90vh] border border-slate-200 dark:border-slate-700 transition-colors">
         
-        {/* Header */}
         <div className="bg-[#0047AB] p-5 flex justify-between items-center text-white shadow-lg z-10 shrink-0">
           <h2 className="text-lg font-bold flex items-center gap-2">
             <Camera className="w-6 h-6" /> Escáner Inteligente
@@ -329,10 +309,8 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
           </button>
         </div>
 
-        {/* Content */}
         <div className="flex-1 bg-slate-50 dark:bg-slate-900/50 overflow-y-auto relative">
           
-          {/* STEP 1: CAPTURE (Live Camera or Upload) */}
           {step === 'capture' && (
             <div className="h-full flex flex-col">
                 {isCameraActive ? (
@@ -347,7 +325,6 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
                         ></video>
                         <canvas ref={canvasRef} className="hidden"></canvas>
                         
-                        {/* Overlay Controls */}
                         <div className="absolute bottom-0 left-0 right-0 p-8 flex justify-center items-center gap-8 bg-gradient-to-t from-black/80 to-transparent z-20">
                             <button 
                                 onClick={stopCamera}
@@ -361,7 +338,6 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
                             >
                                 <div className="w-16 h-16 bg-white rounded-full"></div>
                             </button>
-                            {/* Placeholder for camera switch if needed later */}
                             <div className="w-14"></div> 
                         </div>
                     </div>
@@ -411,7 +387,6 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
             </div>
           )}
 
-          {/* STEP 2: ANALYZING */}
           {step === 'review' && (
             <div className="flex flex-col items-center justify-center space-y-6 py-8 h-full">
                {imagePreview && (
@@ -424,11 +399,9 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
             </div>
           )}
 
-          {/* STEP 3: FORM */}
           {step === 'form' && (
             <form onSubmit={handleSubmit} className="space-y-6 p-6">
               
-              {/* Project Select - Sticky or Top */}
               <div>
                 <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Proyecto Destino</label>
                 <select 
@@ -444,7 +417,6 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
                 </select>
               </div>
 
-              {/* Transaction Section */}
               <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 space-y-4">
                  <h3 className="text-sm font-bold text-slate-800 dark:text-white border-b border-slate-100 dark:border-slate-700 pb-2">Datos Económicos</h3>
                  <div className="flex gap-4">
@@ -478,7 +450,6 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
                  </div>
               </div>
 
-              {/* Detected Stock Section */}
               <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 space-y-4">
                  <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-700 pb-2">
                     <h3 className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
