@@ -3,12 +3,12 @@ import { Project, PriceItem } from "../types";
 import { PRICE_DATABASE } from "../constants";
 
 // --- CONFIGURACIÓN DIRECTA ---
-// IMPORTANTE: REEMPLAZA EL TEXTO DE ABAJO CON TU API KEY REAL DE GOOGLE AI STUDIO
-const apiKey = 'PEGA_AQUI_TU_LLAVE_QUE_EMPIEZA_POR_AIza'; 
+const apiKey = 'AIzaSyDhw7HUqBlxd2dohZ84jOZD9H75bmjAg3k'; 
 
+// Inicialización correcta para @google/genai (v1 SDK)
 const ai = new GoogleGenAI({ apiKey });
 
-// Función para el Chat Global (Nuevo botón)
+// Función para el Chat Global
 export const chatWithAssistant = async (message: string, context?: string): Promise<string> => {
   try {
     const systemInstruction = `Eres Oniluz AI, un asistente experto para empresas eléctricas. 
@@ -65,32 +65,24 @@ export const analyzeProjectStatus = async (project: Project): Promise<string> =>
 };
 
 export const analyzeDocument = async (base64String: string, mimeType: string = 'image/jpeg'): Promise<any> => {
-  // Eliminar prefijo data:URL si existe
+  // Limpieza robusta del base64 para evitar errores de envío
   const base64Data = base64String.includes(',') ? base64String.split(',')[1] : base64String;
 
   const prompt = `
-    Analiza este documento de una empresa eléctrica. Puede ser un Ticket/Factura, un Albarán de entrega o un Presupuesto externo.
+    Analiza este documento (Ticket, Factura, Albarán o Presupuesto).
+    Tu tarea es extraer los datos financieros clave para una empresa eléctrica.
 
-    1. CLASIFICA el documento: "RECEIPT" (factura/ticket con precios), "DELIVERY_NOTE" (albarán solo con materiales), o "BUDGET" (presupuesto).
-    2. EXTRAE los datos clave según el tipo.
-    
-    Devuelve un JSON con esta estructura exacta:
+    Devuelve EXCLUSIVAMENTE un objeto JSON válido con esta estructura exacta:
     {
-      "type": "RECEIPT" | "DELIVERY_NOTE" | "BUDGET",
-      "supplier": "Nombre del proveedor o comercio",
-      "cif": "CIF/NIF del proveedor si aparece",
-      "date": "YYYY-MM-DD",
-      "total_amount": Número (Total final con impuestos. Si es albarán sin precios, pon 0),
-      "tax_amount": Número (Total IVA. Si no se desglosa, estima o 0),
-      "items": [
-        {
-          "name": "Descripción del material",
-          "quantity": Número (Cantidad exacta detectada. Ej: si dice 'Caja de 100', cantidad es 100, unidad 'ud'. Si dice '100m Cable', cantidad 100, unidad 'm'),
-          "unit": "m, ud, kg, pack",
-          "pricePerUnit": Número (Precio unitario si existe, sino 0)
-        }
-      ]
+      "comercio": "Nombre del proveedor o tienda",
+      "fecha": "YYYY-MM-DD" (si no encuentras año, usa el actual),
+      "total": Número (el importe total final con impuestos),
+      "iva": Número (la cantidad de impuestos, si no aparece pon 0),
+      "categoria": "Material" | "Herramientas" | "Combustible" | "Comida" | "Otros"
     }
+
+    Si detectas materiales específicos en el documento, inclúyelos en un array opcional "items":
+    "items": [{"name": "Nombre material", "quantity": número, "unit": "ud/m", "price": número}]
   `;
 
   try {
@@ -110,13 +102,22 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
     });
 
     let text = response.text || "{}";
-    // Limpieza básica de Markdown json
+    
+    // Limpieza CRÍTICA para evitar errores de parseo si la IA devuelve Markdown
     text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    
+    // Intento de encontrar el JSON si hay texto adicional alrededor
+    const firstBrace = text.indexOf('{');
+    const lastBrace = text.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1) {
+        text = text.substring(firstBrace, lastBrace + 1);
+    }
     
     return JSON.parse(text);
   } catch (error) {
     console.error("Error analyzing document:", error);
-    throw error;
+    // Devolvemos un objeto vacío seguro en lugar de lanzar error para que la UI no rompa
+    return { comercio: "Error de lectura", total: 0, categoria: "Otros" };
   }
 };
 

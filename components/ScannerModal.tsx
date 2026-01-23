@@ -27,7 +27,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
 
   // Form Data including new fields from AI analysis
   const [formData, setFormData] = useState({
-    docType: 'RECEIPT', // RECEIPT, DELIVERY_NOTE, BUDGET
+    docType: 'RECEIPT', 
     supplier: '',
     cif: '',
     amount: 0,
@@ -146,21 +146,24 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
   const processDocument = async (base64: string, type: string) => {
     setIsAnalyzing(true);
     try {
+      // Llamada al servicio con la nueva estructura de respuesta JSON
       const data = await analyzeDocument(base64, type);
       
-      // Map AI result to Form
+      // Mapeo estricto de los campos devueltos por la IA (comercio, fecha, total, iva, categoria)
+      // a nuestro estado local del formulario
       setFormData(prev => ({
         ...prev,
-        docType: data.type || 'RECEIPT',
-        supplier: data.supplier || '',
-        cif: data.cif || '',
-        amount: data.total_amount || 0,
-        tax: data.tax_amount || 0,
-        description: data.supplier ? `Compra en ${data.supplier}` : (data.type === 'DELIVERY_NOTE' ? 'Recepción de Material' : 'Gasto Varios'),
-        category: 'Material', // Default
-        date: data.date || prev.date
+        docType: data.total > 0 ? 'RECEIPT' : 'DELIVERY_NOTE', // Inferencia simple
+        supplier: data.comercio || '',
+        cif: '', // La IA no está obligada a devolver esto ahora, pero el campo existe en el estado
+        amount: data.total || 0,
+        tax: data.iva || 0,
+        description: data.comercio ? `Gasto en ${data.comercio}` : 'Gasto detectado',
+        category: data.categoria || 'Material',
+        date: data.fecha || prev.date
       }));
 
+      // Si la IA devolvió items (opcional según el prompt nuevo)
       if (data.items && Array.isArray(data.items)) {
           const newMats: Material[] = data.items.map((item: any) => ({
               id: crypto.randomUUID(),
@@ -168,10 +171,12 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
               name: item.name || 'Material detectado',
               quantity: item.quantity ? Number(item.quantity) : 1, 
               unit: item.unit || 'ud',
-              pricePerUnit: item.pricePerUnit ? Number(item.pricePerUnit) : 0,
+              pricePerUnit: item.price ? Number(item.price) : 0,
               minStock: 5 
           }));
           setDetectedMaterials(newMats);
+      } else {
+        setDetectedMaterials([]);
       }
 
       setStep('form');
