@@ -1,14 +1,14 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Project, PriceItem } from "../types";
-import { PRICE_DATABASE } from "../constants";
 
-// --- CONFIGURACIÓN DIRECTA ---
+// --- CONFIGURACIÓN TÉCNICA ---
+// API Key limpia y exacta
 const apiKey = 'AIzaSyDhw7HUqBlxd2dohZ84jOZD9H75bmjAg3k'; 
 
-// Inicialización del SDK (Versión @google/genai v1)
+// Inicialización del SDK moderno (@google/genai)
 const ai = new GoogleGenAI({ apiKey });
 
-// MODELO DEFINIDO: Nombre exacto 'gemini-1.5-flash' para evitar errores 404
+// MODELO DEFINIDO: 'gemini-1.5-flash' exacto para evitar error 404
 const MODEL_NAME = 'gemini-1.5-flash';
 
 // Función para el Chat Global
@@ -31,7 +31,7 @@ export const chatWithAssistant = async (message: string, context?: string): Prom
     return response.text || "No pude generar una respuesta.";
   } catch (error) {
     console.error("Error chat assistant:", error);
-    return "Error de conexión con la IA. Verifica tu API Key o la disponibilidad del modelo.";
+    return "Lo siento, hubo un problema de conexión. Inténtalo de nuevo.";
   }
 };
 
@@ -46,7 +46,6 @@ export const analyzeProjectStatus = async (project: Project): Promise<string> =>
     Estado: ${project.status}
     Presupuesto: ${project.budget}€
     Gastos Totales: ${project.transactions.filter(t => t.type === 'expense').reduce((acc, t) => acc + t.amount, 0)}€
-    Ingresos Totales: ${project.transactions.filter(t => t.type === 'income').reduce((acc, t) => acc + t.amount, 0)}€
     
     Incidencias Abiertas:
     ${project.incidents.filter(i => i.status === 'Open').map(i => `- ${i.title} (${i.priority})`).join('\n')}
@@ -60,32 +59,31 @@ export const analyzeProjectStatus = async (project: Project): Promise<string> =>
       model: MODEL_NAME,
       contents: prompt,
     });
-    return response.text || "No se pudo generar el análisis.";
+    return response.text || "Análisis no disponible.";
   } catch (error) {
     console.error("Error calling Gemini:", error);
-    return "Error al conectar con el servicio de IA. Inténtelo más tarde.";
+    return "No se pudo conectar con el asistente de análisis.";
   }
 };
 
 export const analyzeDocument = async (base64String: string, mimeType: string = 'image/jpeg'): Promise<any> => {
-  // Limpieza robusta del base64 para evitar errores de envío
+  // Limpieza del string base64
   const base64Data = base64String.includes(',') ? base64String.split(',')[1] : base64String;
 
   const prompt = `
-    Analiza este documento (Ticket, Factura, Albarán o Presupuesto).
-    Tu tarea es extraer los datos financieros clave para una empresa eléctrica.
+    Analiza este documento (Ticket, Factura o Albarán).
+    Extrae los datos financieros clave.
 
-    Devuelve EXCLUSIVAMENTE un objeto JSON válido con esta estructura exacta:
+    Devuelve un JSON con esta estructura exacta:
     {
-      "comercio": "Nombre del proveedor o tienda",
-      "fecha": "YYYY-MM-DD" (si no encuentras año, usa el actual),
-      "total": Número (el importe total final con impuestos),
-      "iva": Número (la cantidad de impuestos, si no aparece pon 0),
-      "categoria": "Material" | "Herramientas" | "Combustible" | "Comida" | "Otros"
+      "comercio": "Nombre del proveedor",
+      "fecha": "YYYY-MM-DD",
+      "total": Número (importe total),
+      "iva": Número (impuestos),
+      "categoria": "Material" | "Herramientas" | "Combustible" | "Otros"
     }
 
-    Si detectas materiales específicos en el documento, inclúyelos en un array opcional "items":
-    "items": [{"name": "Nombre material", "quantity": número, "unit": "ud/m", "price": número}]
+    Si detectas items, inclúyelos en "items": [{"name": "...", "quantity": 1, "price": 0}]
   `;
 
   try {
@@ -106,10 +104,10 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
 
     let text = response.text || "{}";
     
-    // Limpieza CRÍTICA para evitar errores de parseo si la IA devuelve Markdown
+    // Limpieza de Markdown
     text = text.replace(/```json/g, '').replace(/```/g, '').trim();
     
-    // Intento de encontrar el JSON si hay texto adicional alrededor
+    // Extracción segura de JSON
     const firstBrace = text.indexOf('{');
     const lastBrace = text.lastIndexOf('}');
     if (firstBrace !== -1 && lastBrace !== -1) {
@@ -119,8 +117,8 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
     return JSON.parse(text);
   } catch (error) {
     console.error("Error analyzing document:", error);
-    // Devolvemos objeto vacío para permitir edición manual sin borrar texto de error
-    return { comercio: "", total: 0, categoria: "Otros" };
+    // IMPORTANTE: Devolvemos objeto vacío limpio, sin mensajes de error en los campos
+    return { comercio: "", total: 0, categoria: "Otros", items: [] };
   }
 };
 
@@ -128,29 +126,20 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
     const priceList = JSON.stringify(currentPrices.map(p => `${p.name} (${p.price}€/${p.unit})`));
 
     const promptText = `
-      Actúa como un estimador de presupuestos eléctricos experto.
+      Genera un presupuesto detallado para una obra eléctrica basado en esta descripción: "${description}".
       
-      ${images.length > 0 ? "He adjuntado imágenes/planos de la obra." : ""}
-      Basándote en la siguiente descripción y las imágenes proporcionadas (si las hay), genera una lista de partidas presupuestarias detallada.
+      Usa estos precios de referencia si aplican: ${priceList}
       
-      Descripción de la obra: "${description}"
-
-      Aquí tienes una lista de precios de referencia de mi base de datos actual:
-      ${priceList}
-
-      Instrucciones:
-      1. Prioriza SIEMPRE los elementos de la base de datos si encajan.
-      2. Si necesitas materiales que no están en la lista, estima un precio de mercado realista en España.
-      3. Incluye siempre mano de obra estimada.
-      4. Si hay imágenes de planos, intenta contar los puntos de luz, enchufes, etc.
-      5. Devuelve SOLAMENTE un JSON array con objetos que tengan esta estructura:
+      Devuelve un JSON Array:
+      [
          {
-           "name": "Nombre del concepto",
-           "unit": "ud" o "m" o "h",
-           "quantity": número,
-           "pricePerUnit": número,
-           "category": "Material" o "Mano de Obra" o "Trámites"
+           "name": "Concepto",
+           "unit": "ud/m/h",
+           "quantity": 0,
+           "pricePerUnit": 0,
+           "category": "Material"
          }
+      ]
     `;
 
     const parts: any[] = [{ text: promptText }];
@@ -169,7 +158,6 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
         const response = await ai.models.generateContent({
             model: MODEL_NAME,
             contents: { parts },
-            config: {}
         });
         
         let text = response.text || "[]";
@@ -178,54 +166,30 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
         try {
              return JSON.parse(text);
         } catch (e) {
-            console.warn("JSON parsing failed, returning empty array. Raw text:", text);
             return [];
         }
-
     } catch (error) {
         console.error("Error generating budget:", error);
-        throw error;
+        return [];
     }
 };
 
 export const parseMaterialsFromInput = async (inputText: string): Promise<PriceItem[]> => {
     const prompt = `
-      Analiza el siguiente texto. Puede ser contenido copiado de una web de suministros eléctricos, un PDF de tarifas, o una lista informal.
-      Extrae todos los materiales, precios y unidades que encuentres.
-
-      Texto a analizar:
-      "${inputText.substring(0, 10000)}"
-
-      Instrucciones:
-      1. Normaliza los nombres (ej: "CABLE RV-K" -> "Cable RV-K").
-      2. Detecta la unidad (m, ud, h, pack). Si no se especifica, asume "ud".
-      3. Extrae el precio numérico.
-      4. Asigna una categoría lógica (Material, Herramienta, Mano de Obra).
-      5. Devuelve un JSON Array con objetos PriceItem: { "name": string, "unit": string, "price": number, "category": string }
+      Extrae materiales, precios y unidades de este texto y devuélvelos como JSON Array:
+      "${inputText.substring(0, 5000)}"
+      
+      Formato: [{"name": "...", "unit": "...", "price": 0, "category": "Material"}]
     `;
 
     try {
         const response = await ai.models.generateContent({
             model: MODEL_NAME,
             contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.ARRAY,
-                    items: {
-                        type: Type.OBJECT,
-                        properties: {
-                            name: { type: Type.STRING },
-                            unit: { type: Type.STRING },
-                            price: { type: Type.NUMBER },
-                            category: { type: Type.STRING }
-                        }
-                    }
-                }
-            }
+            config: { responseMimeType: "application/json" }
         });
 
-        let text = response.text || "[]";
+        const text = response.text || "[]";
         const items = JSON.parse(text);
         
         return items.map((item: any) => ({
@@ -243,16 +207,8 @@ export const parseMaterialsFromImage = async (base64Image: string): Promise<Pric
   const base64Data = base64Image.split(',')[1]; 
 
   const prompt = `
-    Analiza esta imagen de una tarifa de precios o catálogo de material eléctrico.
-    Extrae todos los materiales, precios y unidades que encuentres.
-    
-    Instrucciones:
-    1. Normaliza los nombres (ej: "CABLE RV-K" -> "Cable RV-K").
-    2. Detecta la unidad (m, ud, h, pack). Si no se especifica, asume "ud".
-    3. Extrae el precio numérico.
-    4. Asigna una categoría lógica (Material, Herramienta, Mano de Obra).
-    5. Devuelve SOLAMENTE un JSON Array con objetos que sigan esta estructura exacta:
-       [ { "name": string, "unit": string, "price": number, "category": string } ]
+    Extrae materiales y precios de esta imagen de tarifa/catálogo.
+    Devuelve JSON Array: [{"name": "...", "unit": "...", "price": 0, "category": "Material"}]
   `;
 
   try {
