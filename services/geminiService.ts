@@ -5,30 +5,38 @@ import { Project, PriceItem } from "../types";
 const apiKey = 'AIzaSyDhw7HUqBlxd2dohZ84jOZD9H75bmjAg3k';
 const genAI = new GoogleGenAI({ apiKey });
 
-// CAMBIO CRÍTICO: 'gemini-1.5-flash-latest' es la referencia correcta y estable para el Free Tier 
-// en la versión v1beta de la API. Evita el 404 de 'gemini-1.5-flash' y el 429 de '2.0-flash'.
+// Usamos el modelo Flash optimizado.
+// Si activas la facturación en Google Cloud, este mismo modelo dejará de dar errores 429.
 const MODEL_NAME = 'gemini-1.5-flash-latest';
 
 /**
  * Analiza un documento.
- * Devuelve un objeto JSON con los datos extraídos o valores por defecto si falla.
  */
 export const analyzeDocument = async (base64String: string, mimeType: string = 'image/jpeg'): Promise<any> => {
+  // Objeto por defecto para fallback
+  const fallbackData = {
+    comercio: "",
+    fecha: new Date().toISOString().split('T')[0],
+    total: 0,
+    iva: 0,
+    categoria: "Material",
+    description: "Introducir datos manualmente",
+    items: []
+  };
+
   try {
     const cleanBase64 = base64String.includes(',') ? base64String.split(',')[1] : base64String;
     
-    // Prompt ajustado para mayor precisión en JSON
-    const prompt = `Analiza este documento (ticket/factura).
-    Responde ÚNICAMENTE con un objeto JSON válido con esta estructura:
+    const prompt = `Analiza este documento. Devuelve JSON válido:
     {
-      "comercio": "Nombre del proveedor",
+      "comercio": "string",
       "fecha": "YYYY-MM-DD",
-      "total": 0.00,
-      "iva": 0.00,
-      "categoria": "Material",
-      "items": [{ "name": "item", "quantity": 1, "unit": "ud", "price": 0 }]
+      "total": number,
+      "iva": number,
+      "categoria": "string",
+      "items": [{ "name": "string", "quantity": number, "unit": "string", "price": number }]
     }
-    Si algún dato no es visible, usa null o 0. No uses markdown.`;
+    Usa null si no encuentras algo.`;
     
     const response = await genAI.models.generateContent({
       model: MODEL_NAME,
@@ -38,74 +46,69 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
           { text: prompt }
         ]
       },
-      config: {
-        temperature: 0.1, // Baja temperatura para datos precisos
-      }
+      config: { temperature: 0.1 }
     });
 
     let text = response.text || "{}";
-    
-    // Limpieza agresiva: elimina bloques de código markdown ```json ... ``` y espacios
     text = text.replace(/```json|```/g, '').trim();
-    
-    // Busca el primer '{' y el último '}' para aislar el JSON de cualquier texto extra
     const start = text.indexOf('{');
     const end = text.lastIndexOf('}');
     
     if (start !== -1 && end !== -1) {
        text = text.substring(start, end + 1);
+       return JSON.parse(text);
     } else {
-       throw new Error("No se encontró JSON válido en la respuesta");
+       throw new Error("Respuesta inválida");
     }
 
-    return JSON.parse(text);
-
-  } catch (error) {
-    console.warn('Gemini API Fallback:', error);
+  } catch (error: any) {
+    console.warn('Gemini API Error:', error);
     
-    // Retornamos un objeto "vacío" seguro para que la UI no falle y permita edición manual
+    // Detectar específicamente error de CUOTA (429)
+    const isQuotaError = error.toString().includes('429') || 
+                         (error.status === 429) || 
+                         error.toString().includes('Quota') ||
+                         error.toString().includes('Resource Exhausted');
+
     return {
-        comercio: "",
-        fecha: new Date().toISOString().split('T')[0],
-        total: 0,
-        iva: 0,
-        categoria: "Material",
-        description: "Error de escaneo - Introducir manualmente",
-        items: []
+        ...fallbackData,
+        errorType: isQuotaError ? 'QUOTA' : 'GENERIC'
     };
   }
 };
 
 export const chatWithAssistant = async (message: string, context?: string): Promise<string> => {
   try {
-    const prompt = context ? `Contexto previo:\n${context}\n\nUsuario: ${message}` : message;
+    const prompt = context ? `Contexto:\n${context}\n\nUsuario: ${message}` : message;
     const response = await genAI.models.generateContent({
         model: MODEL_NAME,
         contents: prompt
     });
-    return response.text || "No tengo respuesta en este momento.";
-  } catch (error) {
-    console.error("Error chat:", error);
-    return "Lo siento, el servicio de IA no está disponible en este momento (posible límite de cuota).";
+    return response.text || "Sin respuesta.";
+  } catch (error: any) {
+    if (error.toString().includes('429')) {
+        return "⚠️ He alcanzado mi límite de uso gratuito. Por favor, configura la facturación en Google Cloud para continuar usando el asistente sin límites.";
+    }
+    return "El asistente no está disponible temporalmente.";
   }
 };
 
 export const analyzeProjectStatus = async (project: Project): Promise<string> => {
   try {
-    const prompt = `Analiza proyecto: ${project.name}. Estado: ${project.status}. Presupuesto: ${project.budget}. Dame 3 consejos breves.`;
+    const prompt = `Analiza proyecto: ${project.name}. Estado: ${project.status}. Presupuesto: ${project.budget}. Dame 3 consejos.`;
     const response = await genAI.models.generateContent({
         model: MODEL_NAME,
         contents: prompt
     });
     return response.text || "";
   } catch {
-    return "Análisis no disponible.";
+    return "Análisis no disponible (Límite de cuota o error de red).";
   }
 };
 
 export const generateSmartBudget = async (description: string, currentPrices: PriceItem[], images: string[] = []): Promise<any[]> => {
     try {
-        const parts: any[] = [{ text: `Genera JSON array de partidas para: "${description}". Formato: [{name, unit, quantity, pricePerUnit, category}].` }];
+        const parts: any[] = [{ text: `Genera JSON array presupuesto para: "${description}"` }];
         
         if (images.length > 0) {
              const img = images[0];
@@ -132,11 +135,8 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
 
 export const parseMaterialsFromInput = async (textInput: string): Promise<PriceItem[]> => {
     try {
-        const prompt = `Extrae materiales a JSON array {name, unit, price, category}: "${textInput}"`;
-        const response = await genAI.models.generateContent({
-            model: MODEL_NAME,
-            contents: prompt
-        });
+        const prompt = `Extrae materiales JSON: "${textInput}"`;
+        const response = await genAI.models.generateContent({ model: MODEL_NAME, contents: prompt });
         let text = response.text || "[]";
         text = text.replace(/```json|```/g, '').trim();
         const start = text.indexOf('[');
@@ -156,7 +156,7 @@ export const parseMaterialsFromImage = async (base64Image: string): Promise<Pric
             contents: {
                 parts: [
                     { inlineData: { mimeType: 'image/jpeg', data } },
-                    { text: "Lista materiales JSON array {name, unit, price, category}." }
+                    { text: "Lista materiales JSON." }
                 ]
             }
         });

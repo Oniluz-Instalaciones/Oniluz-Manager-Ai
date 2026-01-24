@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Project, Transaction, Material } from '../types';
-import { Camera, X, Loader2, Save, Image as ImageIcon, Package, Trash2, Plus, RefreshCw, Upload, FileText, AlertTriangle } from 'lucide-react';
+import { Camera, X, Loader2, Save, Image as ImageIcon, Package, Trash2, Plus, RefreshCw, Upload, FileText, AlertTriangle, CreditCard, ExternalLink } from 'lucide-react';
 import { analyzeDocument } from '../services/geminiService';
 import { supabase } from '../lib/supabase';
 
@@ -19,7 +19,9 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
   const [isUploading, setIsUploading] = useState(false);
   const [step, setStep] = useState<'capture' | 'review' | 'form'>('capture');
   const [isCameraActive, setIsCameraActive] = useState(false);
-  const [scanError, setScanError] = useState(false); // New state for error feedback
+  
+  // State for specific errors: 'QUOTA' | 'GENERIC' | null
+  const [scanErrorType, setScanErrorType] = useState<string | null>(null);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -142,13 +144,15 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
 
   const processDocument = async (base64: string, type: string) => {
     setIsAnalyzing(true);
-    setScanError(false);
+    setScanErrorType(null);
     try {
       const data = await analyzeDocument(base64, type);
       
-      // Si la descripción indica error, activamos el flag de error visual
-      if (data.description && data.description.includes("Error")) {
-          setScanError(true);
+      // Check for error types returned by service
+      if (data.errorType) {
+          setScanErrorType(data.errorType);
+      } else if (data.description && data.description.includes("Error")) {
+          setScanErrorType('GENERIC');
       }
 
       setFormData(prev => ({
@@ -180,7 +184,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
       setStep('form');
     } catch (error) {
       console.error(error);
-      setScanError(true);
+      setScanErrorType('GENERIC');
       setStep('form');
     } finally {
       setIsAnalyzing(false);
@@ -416,13 +420,36 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
           {step === 'form' && (
             <form onSubmit={handleSubmit} className="space-y-6 p-6">
               
-              {scanError && (
+              {/* Special Error Handling for Quota vs Generic */}
+              {scanErrorType === 'QUOTA' && (
+                  <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-4 rounded-xl flex flex-col gap-3">
+                      <div className="flex items-start gap-3">
+                        <CreditCard className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+                        <div>
+                            <h4 className="text-sm font-bold text-red-800 dark:text-red-300">Límite Gratuito Alcanzado</h4>
+                            <p className="text-xs text-red-700 dark:text-red-400 mt-1">
+                                Has superado la cuota gratuita de la IA. Para seguir usando el escáner automático, debes activar la facturación.
+                            </p>
+                        </div>
+                      </div>
+                      <a 
+                        href="https://aistudio.google.com/app/billing" 
+                        target="_blank" 
+                        rel="noreferrer"
+                        className="flex items-center justify-center gap-2 bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-200 py-2 rounded-lg text-xs font-bold hover:bg-red-200 dark:hover:bg-red-900/60 transition-colors"
+                      >
+                         <ExternalLink className="w-3 h-3" /> Activar Facturación en Google
+                      </a>
+                  </div>
+              )}
+
+              {scanErrorType === 'GENERIC' && (
                   <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 p-4 rounded-xl flex items-start gap-3">
                       <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
                       <div>
-                          <h4 className="text-sm font-bold text-amber-800 dark:text-amber-400">Escaneo Fallido o Limitado</h4>
+                          <h4 className="text-sm font-bold text-amber-800 dark:text-amber-400">Escaneo Manual Activado</h4>
                           <p className="text-xs text-amber-700 dark:text-amber-500 mt-1">
-                              No se pudieron extraer datos automáticamente (posible límite de cuota IA o error de red). Por favor, introduce los datos manualmente.
+                              No se pudieron extraer datos automáticamente. Por favor, introduce los datos manualmente.
                           </p>
                       </div>
                   </div>
