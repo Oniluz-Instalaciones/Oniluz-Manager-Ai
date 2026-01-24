@@ -3,15 +3,12 @@ import { Project, PriceItem } from "../types";
 
 // --- CONFIGURACIÓN DE API ---
 // NOTA: Se recomienda usar variables de entorno para la API Key.
-// CORRECCIÓN: Se ha eliminado el 'AIza' duplicado al inicio de la clave.
 const apiKey = 'AIzaSyAPt-4D6bA9qLK-BrijbJBcmnBU1ojXOA8';
 const genAI = new GoogleGenAI({ apiKey });
 
-// SOLUCIÓN: Usamos 'gemini-2.0-flash-exp'.
-// El error 404 con 'gemini-1.5-flash' se debe a que la librería @google/genai usa endpoints (v1beta/alpha)
-// donde el alias 1.5 a veces no está disponible o requiere sufijos específicos (-001, -002).
-// La versión 2.0 experimental es multimodal (lee imágenes), muy rápida y funciona consistentemente con este SDK.
-const MODEL_NAME = 'gemini-2.0-flash-exp';
+// SOLUCIÓN: Usamos 'gemini-2.0-flash'.
+// La versión estable tiene mejores límites de cuota que la versión experimental (-exp).
+const MODEL_NAME = 'gemini-2.0-flash';
 
 /**
  * Función auxiliar para limpiar y parsear JSON de la respuesta de la IA.
@@ -111,15 +108,17 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
     console.warn('Gemini API Error:', error);
     
     const errorStr = error.toString();
+    // Detección mejorada de errores de cuota (429)
     const isQuotaError = errorStr.includes('429') || 
                          (error.status === 429) || 
                          errorStr.includes('Quota') ||
-                         errorStr.includes('Resource Exhausted');
+                         errorStr.includes('Resource Exhausted') ||
+                         (error.body && error.body.includes('429'));
 
     return {
         ...fallbackData,
         errorType: isQuotaError ? 'QUOTA' : 'GENERIC',
-        description: isQuotaError ? "Error de Cuota" : "Error al procesar imagen"
+        description: isQuotaError ? "Límite de cuota alcanzado. Espera un momento." : "Error al procesar imagen"
     };
   }
 };
@@ -133,8 +132,8 @@ export const chatWithAssistant = async (message: string, context?: string): Prom
     });
     return response.text || "Sin respuesta.";
   } catch (error: any) {
-    if (error.toString().includes('429')) {
-        return "⚠️ He alcanzado mi límite de uso gratuito. Por favor, espera un momento o configura la facturación.";
+    if (error.toString().includes('429') || (error.status === 429)) {
+        return "⚠️ He alcanzado mi límite de uso gratuito por minuto. Por favor, espera unos segundos antes de preguntar de nuevo.";
     }
     return "El asistente no está disponible temporalmente.";
   }
@@ -148,8 +147,9 @@ export const analyzeProjectStatus = async (project: Project): Promise<string> =>
         contents: prompt
     });
     return response.text || "";
-  } catch {
-    return "Análisis no disponible (Límite de cuota o error de red).";
+  } catch (error: any) {
+     if (error.toString().includes('429')) return "Análisis pausado (Límite de velocidad). Inténtalo en 1 minuto.";
+     return "Análisis no disponible.";
   }
 };
 
