@@ -3,7 +3,7 @@ import { Project, Transaction, Material, Incident, ProjectStatus, Priority, Pric
 import { 
   ArrowLeft, Plus, Trash2, AlertTriangle, CheckCircle, 
   TrendingUp, TrendingDown, Package, FileText, Settings, BrainCircuit, X, Receipt, Paperclip, ChevronDown, Building2, Calendar, RotateCcw, Edit3,
-  Hammer, Coffee, User, Wallet
+  Hammer, Coffee, User, Wallet, BarChart3
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { analyzeProjectStatus } from '../services/geminiService';
@@ -45,6 +45,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
   const totalIncome = project.transactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
   const totalExpense = project.transactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
   const profit = totalIncome - totalExpense;
+  const profitMargin = totalIncome > 0 ? ((profit / totalIncome) * 100).toFixed(1) : '0';
 
   // Filter expenses by specific categories
   const materialExpenses = project.transactions.filter(t => t.type === 'expense' && t.category === 'Material');
@@ -562,6 +563,39 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                           </div>
                      </div>
                  )}
+             </div>
+
+             {/* Global Project Finance Summary Card */}
+             <div className="bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 transition-colors">
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6 flex items-center gap-2">
+                    <BarChart3 className="w-5 h-5 text-[#0047AB] dark:text-blue-400" /> Resumen Financiero Global
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                    {/* Income */}
+                    <div className="p-4 bg-green-50 dark:bg-green-900/10 rounded-xl border border-green-100 dark:border-green-900/30">
+                        <p className="text-xs font-bold text-green-600 dark:text-green-400 uppercase">Ingresos Totales</p>
+                        <p className="text-2xl font-extrabold text-slate-900 dark:text-white mt-1">{totalIncome.toLocaleString()}€</p>
+                    </div>
+                    {/* Expenses */}
+                    <div className="p-4 bg-red-50 dark:bg-red-900/10 rounded-xl border border-red-100 dark:border-red-900/30">
+                        <p className="text-xs font-bold text-red-600 dark:text-red-400 uppercase">Gastos Totales</p>
+                        <p className="text-2xl font-extrabold text-slate-900 dark:text-white mt-1">{totalExpense.toLocaleString()}€</p>
+                    </div>
+                    {/* Profit */}
+                    <div className="p-4 bg-blue-50 dark:bg-blue-900/10 rounded-xl border border-blue-100 dark:border-blue-900/30">
+                        <p className="text-xs font-bold text-[#0047AB] dark:text-blue-400 uppercase">Beneficio Neto</p>
+                        <p className={`text-2xl font-extrabold mt-1 ${profit >= 0 ? 'text-[#0047AB] dark:text-blue-400' : 'text-orange-500'}`}>
+                            {profit.toLocaleString()}€
+                        </p>
+                    </div>
+                    {/* Margin */}
+                    <div className="p-4 bg-purple-50 dark:bg-purple-900/10 rounded-xl border border-purple-100 dark:border-purple-900/30">
+                        <p className="text-xs font-bold text-purple-600 dark:text-purple-400 uppercase">Rentabilidad</p>
+                        <p className="text-2xl font-extrabold text-slate-900 dark:text-white mt-1">
+                            {profitMargin}%
+                        </p>
+                    </div>
+                </div>
              </div>
           </div>
         )}
