@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { signInWithEmail } from '../services/authService';
 import { Loader2, Mail, Lock, LogIn, AlertCircle } from 'lucide-react';
 
 const Login: React.FC = () => {
@@ -14,16 +14,13 @@ const Login: React.FC = () => {
     setError(null);
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
+      const { error } = await signInWithEmail(email, password);
 
       if (error) throw error;
+      // Login successful: App.tsx will detect session change via onAuthStateChange
     } catch (err: any) {
       setError(err.message || 'Error al iniciar sesión. Verifica tus credenciales.');
-    } finally {
-      setIsLoading(false);
+      setIsLoading(false); // Only stop loading on error, otherwise wait for app redirect
     }
   };
 

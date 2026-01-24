@@ -7,13 +7,13 @@ import GlobalFinance from './components/GlobalFinance';
 import PriceDatabase from './components/PriceDatabase';
 import ProjectCalendar from './components/ProjectCalendar';
 import Login from './components/Login';
-import { supabase } from './lib/supabase';
+import { supabase } from './lib/supabase'; // Kept for direct DB calls, auth moved to service
+import { getCurrentSession, onAuthStateChange, signOut } from './services/authService';
 import { Loader2 } from 'lucide-react';
-import { Session } from '@supabase/supabase-js';
 
 const App: React.FC = () => {
   // Auth State
-  const [session, setSession] = useState<Session | null>(null);
+  const [session, setSession] = useState<any | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
 
   // Application State
@@ -37,28 +37,43 @@ const App: React.FC = () => {
 
   // --- Auth & Initial Load ---
   useEffect(() => {
-    // 1. Check active session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setIsAuthLoading(false);
-    });
+    let mounted = true;
 
-    // 2. Listen for auth changes
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      setIsAuthLoading(false);
-      // If user logs out, reset some states
-      if (!session) {
-        setSelectedProjectId(null);
-        setShowGlobalFinance(false);
-        setShowPriceDb(false);
-        setShowCalendar(false);
+    // 1. Check initial session from local storage immediately
+    const initSession = async () => {
+      const currentSession = await getCurrentSession();
+      if (mounted) {
+        setSession(currentSession);
+        // Only turn off loading if we found a session, otherwise wait a tick for the listener
+        if (currentSession) setIsAuthLoading(false);
+      }
+    };
+
+    initSession();
+
+    // 2. Listen for real-time auth changes (Token refresh, login, logout)
+    const subscription = onAuthStateChange((newSession) => {
+      if (mounted) {
+        setSession(newSession);
+        setIsAuthLoading(false); // Auth check is definitely done now
+        
+        // If user logs out, reset app states
+        if (!newSession) {
+          setSelectedProjectId(null);
+          setShowGlobalFinance(false);
+          setShowPriceDb(false);
+          setShowCalendar(false);
+          setProjects([]); // Clear sensitive data from memory
+        }
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      if (subscription && typeof subscription.unsubscribe === 'function') {
+        subscription.unsubscribe();
+      }
+    };
   }, []);
 
   // --- Supabase Data Fetching (Only if authenticated) ---
@@ -137,7 +152,8 @@ const App: React.FC = () => {
   // --- Handlers ---
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    await signOut();
+    // State reset is handled by the onAuthStateChange listener
   };
 
   const handleAddProject = async (newProject: Project) => {
@@ -235,16 +251,19 @@ const App: React.FC = () => {
 
   if (isAuthLoading) {
     return (
-        <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900">
+        <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900 transition-colors">
              <div className="flex flex-col items-center gap-4">
-                  <div className="w-16 h-16 bg-[#0047AB] rounded-full flex items-center justify-center animate-pulse">
+                  <div className="w-16 h-16 bg-[#0047AB] rounded-full flex items-center justify-center animate-pulse shadow-lg shadow-blue-900/20">
                       <svg viewBox="0 0 24 24" className="w-8 h-8 text-white" fill="none" xmlns="http://www.w3.org/2000/svg">
                           <path d="M12 6V12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
                           <path d="M12 12L9 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
                           <path d="M12 12L15 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
                       </svg>
                   </div>
-                  <Loader2 className="w-8 h-8 animate-spin text-[#0047AB]" />
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="w-5 h-5 animate-spin text-[#0047AB]" />
+                    <p className="text-slate-500 font-medium text-sm">Cargando sesión...</p>
+                  </div>
              </div>
         </div>
     );
