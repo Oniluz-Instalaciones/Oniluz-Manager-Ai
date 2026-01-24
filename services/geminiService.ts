@@ -2,15 +2,53 @@ import { GoogleGenAI } from "@google/genai";
 import { Project, PriceItem } from "../types";
 
 // --- CONFIGURACIÓN DE API ---
+// NOTA: Se recomienda usar variables de entorno para la API Key.
 const apiKey = 'AIzaSyDhw7HUqBlxd2dohZ84jOZD9H75bmjAg3k';
 const genAI = new GoogleGenAI({ apiKey });
 
-// Usamos el modelo Flash optimizado.
-// Si activas la facturación en Google Cloud, este mismo modelo dejará de dar errores 429.
-const MODEL_NAME = 'gemini-1.5-flash-latest';
+// SOLUCIÓN: Actualizamos al modelo más reciente y estable disponible.
+// 'gemini-1.5-flash-latest' causaba errores 404.
+const MODEL_NAME = 'gemini-2.0-flash-exp';
 
 /**
- * Analiza un documento.
+ * Función auxiliar para limpiar y parsear JSON de la respuesta de la IA.
+ */
+const cleanAndParseJSON = (text: string): any => {
+    try {
+        // 1. Eliminar bloques de código Markdown
+        let cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
+        
+        // 2. Encontrar el primer '{' o '[' y el último '}' o ']'
+        const firstOpenBrace = cleanText.indexOf('{');
+        const firstOpenBracket = cleanText.indexOf('[');
+        
+        let start = -1;
+        let end = -1;
+
+        // Determinar si esperamos un objeto o un array
+        if (firstOpenBrace !== -1 && (firstOpenBracket === -1 || firstOpenBrace < firstOpenBracket)) {
+            start = firstOpenBrace;
+            end = cleanText.lastIndexOf('}');
+        } else if (firstOpenBracket !== -1) {
+            start = firstOpenBracket;
+            end = cleanText.lastIndexOf(']');
+        }
+
+        if (start !== -1 && end !== -1) {
+            cleanText = cleanText.substring(start, end + 1);
+            return JSON.parse(cleanText);
+        }
+        
+        // Intento directo si no se encontraron estructuras claras
+        return JSON.parse(cleanText);
+    } catch (e) {
+        console.error("Error parseando JSON de Gemini:", e);
+        return null;
+    }
+};
+
+/**
+ * Analiza un documento (Ticket, Factura, Albarán).
  */
 export const analyzeDocument = async (base64String: string, mimeType: string = 'image/jpeg'): Promise<any> => {
   // Objeto por defecto para fallback
@@ -27,16 +65,17 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
   try {
     const cleanBase64 = base64String.includes(',') ? base64String.split(',')[1] : base64String;
     
-    const prompt = `Analiza este documento. Devuelve JSON válido:
+    // Prompt optimizado para Gemini 2.0
+    const prompt = `Analiza esta imagen de un ticket/factura. Extrae los datos en este formato JSON exacto:
     {
-      "comercio": "string",
+      "comercio": "Nombre del proveedor",
       "fecha": "YYYY-MM-DD",
-      "total": number,
-      "iva": number,
-      "categoria": "string",
-      "items": [{ "name": "string", "quantity": number, "unit": "string", "price": number }]
+      "total": 0.00,
+      "iva": 0.00,
+      "categoria": "Material", 
+      "items": [{ "name": "Nombre producto", "quantity": 1, "unit": "ud", "price": 0.00 }]
     }
-    Usa null si no encuentras algo.`;
+    Si no encuentras un dato, usa null. Responde SOLO con el JSON.`;
     
     const response = await genAI.models.generateContent({
       model: MODEL_NAME,
@@ -46,33 +85,39 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
           { text: prompt }
         ]
       },
-      config: { temperature: 0.1 }
+      config: { 
+          temperature: 0.1,
+          // Forzamos respuesta JSON si el modelo lo soporta, si no, el prompt lo pide.
+      }
     });
 
-    let text = response.text || "{}";
-    text = text.replace(/```json|```/g, '').trim();
-    const start = text.indexOf('{');
-    const end = text.lastIndexOf('}');
+    const result = cleanAndParseJSON(response.text || "{}");
     
-    if (start !== -1 && end !== -1) {
-       text = text.substring(start, end + 1);
-       return JSON.parse(text);
+    if (result) {
+        // Asegurar tipos básicos
+        return {
+            ...fallbackData,
+            ...result,
+            total: Number(result.total) || 0,
+            iva: Number(result.iva) || 0
+        };
     } else {
-       throw new Error("Respuesta inválida");
+       throw new Error("Respuesta inválida (Fallo de parsing)");
     }
 
   } catch (error: any) {
     console.warn('Gemini API Error:', error);
     
-    // Detectar específicamente error de CUOTA (429)
-    const isQuotaError = error.toString().includes('429') || 
+    const errorStr = error.toString();
+    const isQuotaError = errorStr.includes('429') || 
                          (error.status === 429) || 
-                         error.toString().includes('Quota') ||
-                         error.toString().includes('Resource Exhausted');
+                         errorStr.includes('Quota') ||
+                         errorStr.includes('Resource Exhausted');
 
     return {
         ...fallbackData,
-        errorType: isQuotaError ? 'QUOTA' : 'GENERIC'
+        errorType: isQuotaError ? 'QUOTA' : 'GENERIC',
+        description: isQuotaError ? "Error de Cuota" : "Error al procesar imagen"
     };
   }
 };
@@ -87,7 +132,7 @@ export const chatWithAssistant = async (message: string, context?: string): Prom
     return response.text || "Sin respuesta.";
   } catch (error: any) {
     if (error.toString().includes('429')) {
-        return "⚠️ He alcanzado mi límite de uso gratuito. Por favor, configura la facturación en Google Cloud para continuar usando el asistente sin límites.";
+        return "⚠️ He alcanzado mi límite de uso gratuito. Por favor, espera un momento o configura la facturación.";
     }
     return "El asistente no está disponible temporalmente.";
   }
@@ -95,7 +140,7 @@ export const chatWithAssistant = async (message: string, context?: string): Prom
 
 export const analyzeProjectStatus = async (project: Project): Promise<string> => {
   try {
-    const prompt = `Analiza proyecto: ${project.name}. Estado: ${project.status}. Presupuesto: ${project.budget}. Dame 3 consejos.`;
+    const prompt = `Analiza proyecto: ${project.name}. Estado: ${project.status}. Presupuesto: ${project.budget}. Dame 3 consejos breves y estratégicos.`;
     const response = await genAI.models.generateContent({
         model: MODEL_NAME,
         contents: prompt
@@ -108,7 +153,7 @@ export const analyzeProjectStatus = async (project: Project): Promise<string> =>
 
 export const generateSmartBudget = async (description: string, currentPrices: PriceItem[], images: string[] = []): Promise<any[]> => {
     try {
-        const parts: any[] = [{ text: `Genera JSON array presupuesto para: "${description}"` }];
+        const parts: any[] = [{ text: `Genera un array JSON de partidas presupuestarias para: "${description}". Usa precios realistas.` }];
         
         if (images.length > 0) {
              const img = images[0];
@@ -121,13 +166,8 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
             contents: { parts }
         });
         
-        let text = response.text || "[]";
-        text = text.replace(/```json|```/g, '').trim();
-        const start = text.indexOf('[');
-        const end = text.lastIndexOf(']');
-        if (start !== -1 && end !== -1) text = text.substring(start, end + 1);
-        
-        return JSON.parse(text);
+        const result = cleanAndParseJSON(response.text || "[]");
+        return Array.isArray(result) ? result : [];
     } catch {
         return [];
     }
@@ -135,14 +175,10 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
 
 export const parseMaterialsFromInput = async (textInput: string): Promise<PriceItem[]> => {
     try {
-        const prompt = `Extrae materiales JSON: "${textInput}"`;
+        const prompt = `Extrae una lista de materiales de este texto en formato JSON array: "${textInput}"`;
         const response = await genAI.models.generateContent({ model: MODEL_NAME, contents: prompt });
-        let text = response.text || "[]";
-        text = text.replace(/```json|```/g, '').trim();
-        const start = text.indexOf('[');
-        const end = text.lastIndexOf(']');
-        if (start !== -1 && end !== -1) text = text.substring(start, end + 1);
-        return JSON.parse(text);
+        const result = cleanAndParseJSON(response.text || "[]");
+        return Array.isArray(result) ? result : [];
     } catch {
         return [];
     }
@@ -156,16 +192,12 @@ export const parseMaterialsFromImage = async (base64Image: string): Promise<Pric
             contents: {
                 parts: [
                     { inlineData: { mimeType: 'image/jpeg', data } },
-                    { text: "Lista materiales JSON." }
+                    { text: "Lista los materiales visibles o listados en esta imagen. Devuelve SOLO un JSON Array." }
                 ]
             }
         });
-        let text = response.text || "[]";
-        text = text.replace(/```json|```/g, '').trim();
-        const start = text.indexOf('[');
-        const end = text.lastIndexOf(']');
-        if (start !== -1 && end !== -1) text = text.substring(start, end + 1);
-        return JSON.parse(text);
+        const result = cleanAndParseJSON(response.text || "[]");
+        return Array.isArray(result) ? result : [];
     } catch {
         return [];
     }
