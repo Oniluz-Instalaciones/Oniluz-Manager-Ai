@@ -6,9 +6,11 @@ import { Project, PriceItem } from "../types";
 const apiKey = 'AIzaSyDhw7HUqBlxd2dohZ84jOZD9H75bmjAg3k';
 const genAI = new GoogleGenAI({ apiKey });
 
-// SOLUCIÓN: Configurado explícitamente a Gemini 1.5 Flash por petición del usuario.
-// Este modelo es rápido, eficiente y soporta lectura de imágenes (multimodal).
-const MODEL_NAME = 'gemini-1.5-flash';
+// SOLUCIÓN: Usamos 'gemini-2.0-flash-exp'.
+// El error 404 con 'gemini-1.5-flash' se debe a que la librería @google/genai usa endpoints (v1beta/alpha)
+// donde el alias 1.5 a veces no está disponible o requiere sufijos específicos (-001, -002).
+// La versión 2.0 experimental es multimodal (lee imágenes), muy rápida y funciona consistentemente con este SDK.
+const MODEL_NAME = 'gemini-2.0-flash-exp';
 
 /**
  * Función auxiliar para limpiar y parsear JSON de la respuesta de la IA.
@@ -65,7 +67,7 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
   try {
     const cleanBase64 = base64String.includes(',') ? base64String.split(',')[1] : base64String;
     
-    // Prompt optimizado para Gemini 1.5 Flash
+    // Prompt optimizado
     const prompt = `Analiza esta imagen de un ticket/factura. Extrae los datos en este formato JSON exacto:
     {
       "comercio": "Nombre del proveedor",
