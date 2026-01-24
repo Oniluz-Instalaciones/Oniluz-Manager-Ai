@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { Project, Transaction, Material, Incident, ProjectStatus, Priority, PriceItem } from '../types';
 import { 
   ArrowLeft, Plus, Trash2, AlertTriangle, CheckCircle, 
-  TrendingUp, TrendingDown, Package, FileText, Settings, BrainCircuit, X, Receipt, Paperclip, ChevronDown, Building2, Calendar, RotateCcw, Edit3
+  TrendingUp, TrendingDown, Package, FileText, Settings, BrainCircuit, X, Receipt, Paperclip, ChevronDown, Building2, Calendar, RotateCcw, Edit3,
+  Hammer, Coffee, User, Wallet
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { analyzeProjectStatus } from '../services/geminiService';
@@ -23,6 +24,9 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   
+  // State for transaction form type to toggle category input
+  const [transactionType, setTransactionType] = useState<'income' | 'expense'>('expense');
+  
   const [history, setHistory] = useState<Project[]>([]);
 
   const updateProjectWithHistory = (newProjectState: Project) => {
@@ -42,10 +46,22 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
   const totalExpense = project.transactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
   const profit = totalIncome - totalExpense;
 
+  // Filter expenses by specific categories
+  const materialExpenses = project.transactions.filter(t => t.type === 'expense' && t.category === 'Material');
+  const consumableExpenses = project.transactions.filter(t => t.type === 'expense' && t.category === 'Consumibles');
+  const personalExpenses = project.transactions.filter(t => t.type === 'expense' && t.category === 'Personal');
+  // Catch-all for other expenses (legacy or different categories)
+  const otherExpenses = project.transactions.filter(t => t.type === 'expense' && !['Material', 'Consumibles', 'Personal'].includes(t.category));
+
+  const totalMaterial = materialExpenses.reduce((sum, t) => sum + t.amount, 0);
+  const totalConsumable = consumableExpenses.reduce((sum, t) => sum + t.amount, 0);
+  const totalPersonal = personalExpenses.reduce((sum, t) => sum + t.amount, 0);
+
   const financialData = [
-    { name: 'Ingresos', value: totalIncome, color: '#10b981' },
-    { name: 'Gastos', value: totalExpense, color: '#ef4444' },
-  ];
+    { name: 'Material', value: totalMaterial, color: '#3b82f6' }, // Blue
+    { name: 'Consumibles', value: totalConsumable, color: '#f59e0b' }, // Amber
+    { name: 'Personal', value: totalPersonal, color: '#ef4444' }, // Red
+  ].filter(d => d.value > 0);
 
   const handleRunAnalysis = async () => {
     setIsAnalyzing(true);
@@ -122,6 +138,12 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
       updateProjectWithHistory({...project, materials: project.materials.filter(m => m.id !== id)});
   }
 
+  const handleDeleteTransaction = async (id: string) => {
+      if(!window.confirm("¿Eliminar este movimiento?")) return;
+      await supabase.from('transactions').delete().eq('id', id);
+      updateProjectWithHistory({...project, transactions: project.transactions.filter(t => t.id !== id)});
+  }
+
   const handleAddIncident = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
@@ -164,6 +186,46 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
 
 
   // --- Render Functions ---
+
+  const renderExpenseSection = (title: string, transactions: Transaction[], total: number, icon: React.ReactNode, colorClass: string) => (
+      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 flex flex-col h-full overflow-hidden transition-colors">
+          <div className={`p-5 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center ${colorClass} bg-opacity-5 dark:bg-opacity-10`}>
+              <h4 className="font-bold text-slate-800 dark:text-white flex items-center gap-2 text-sm uppercase tracking-wide">
+                  {icon} {title}
+              </h4>
+              <span className="font-bold text-lg text-slate-900 dark:text-white">{total.toLocaleString()}€</span>
+          </div>
+          <div className="flex-1 overflow-y-auto max-h-[300px] p-0">
+              {transactions.length > 0 ? (
+                  <table className="w-full text-left text-xs">
+                      <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
+                          {transactions.map(t => (
+                              <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 group">
+                                  <td className="px-4 py-3">
+                                      <p className="font-semibold text-slate-700 dark:text-slate-200">{t.description}</p>
+                                      <p className="text-[10px] text-slate-400">{t.date}</p>
+                                  </td>
+                                  <td className="px-4 py-3 text-right font-medium text-slate-600 dark:text-slate-300 relative">
+                                      {t.amount.toLocaleString()}€
+                                      <button 
+                                        onClick={() => handleDeleteTransaction(t.id)}
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 text-red-400 hover:text-red-500 rounded transition-all"
+                                      >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                  </td>
+                              </tr>
+                          ))}
+                      </tbody>
+                  </table>
+              ) : (
+                  <div className="p-8 text-center text-slate-400 dark:text-slate-500 text-xs italic">
+                      No hay gastos registrados en esta categoría.
+                  </div>
+              )}
+          </div>
+      </div>
+  );
 
   const renderTabs = () => (
     <div className="flex overflow-x-auto border-b border-slate-200 dark:border-slate-700 mb-8 bg-white dark:bg-slate-800 sticky top-0 z-10 px-6 transition-colors">
@@ -332,84 +394,174 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
           </div>
         )}
 
-        {/* FINANCIALS TAB */}
+        {/* FINANCIALS TAB (Refactored) */}
         {activeTab === 'financials' && (
           <div className="space-y-8">
-             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                <div className="lg:col-span-2 bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 transition-colors">
-                  <h3 className="text-lg font-bold mb-6 text-slate-800 dark:text-white">Registro de Movimientos</h3>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm">
-                      <thead className="bg-slate-50 dark:bg-slate-700/50 text-slate-500 dark:text-slate-400 uppercase text-xs tracking-wider">
-                        <tr>
-                          <th className="px-6 py-4 font-semibold rounded-l-lg">Fecha</th>
-                          <th className="px-6 py-4 font-semibold">Concepto</th>
-                          <th className="px-6 py-4 font-semibold">Categoría</th>
-                          <th className="px-6 py-4 font-semibold text-right rounded-r-lg">Cantidad</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
-                        {project.transactions.map(t => (
-                          <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
-                            <td className="px-6 py-4 text-slate-600 dark:text-slate-300 font-medium">{t.date}</td>
-                            <td className="px-6 py-4 font-semibold text-slate-900 dark:text-white">{t.description}</td>
-                            <td className="px-6 py-4 text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wide">
-                                <span className="bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded-md">{t.category}</span>
-                            </td>
-                            <td className={`px-6 py-4 text-right font-bold ${t.type === 'income' ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}>
-                              {t.type === 'income' ? '+' : '-'}{t.amount}€
-                            </td>
-                          </tr>
-                        ))}
-                        {project.transactions.length === 0 && (
-                          <tr><td colSpan={4} className="px-6 py-12 text-center text-slate-400 dark:text-slate-500">Sin movimientos registrados</td></tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
+             {/* Charts Row */}
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 flex flex-col items-center">
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-2 w-full text-left uppercase tracking-wider">Desglose de Gastos</h3>
+                    {financialData.length > 0 ? (
+                        <div className="h-[200px] w-full">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                              <Pie data={financialData} cx="50%" cy="50%" innerRadius={40} outerRadius={60} paddingAngle={5} dataKey="value" stroke="none">
+                                {financialData.map((entry, index) => (
+                                  <Cell key={`cell-${index}`} fill={entry.color} />
+                                ))}
+                              </Pie>
+                              <RechartsTooltip contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)'}} />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        </div>
+                    ) : (
+                        <div className="h-[200px] w-full flex items-center justify-center text-slate-400 text-xs">Sin gastos registrados</div>
+                    )}
+                    <div className="flex gap-3 text-[10px] mt-2 font-medium flex-wrap justify-center">
+                       {financialData.map(d => (
+                          <div key={d.name} className="flex items-center text-slate-600 dark:text-slate-300">
+                             <div className="w-2.5 h-2.5 rounded-full mr-1.5" style={{backgroundColor: d.color}}></div>
+                             {d.name}
+                          </div>
+                       ))}
+                    </div>
                 </div>
 
-                <div className="space-y-8">
-                  {/* Add Transaction Form */}
-                  <div className="bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 transition-colors">
+                <div className="bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700">
                     <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-6 uppercase tracking-wider flex items-center gap-2">
-                        <Plus className="w-4 h-4 text-[#0047AB] dark:text-blue-400" /> Nuevo Movimiento
+                        <Plus className="w-4 h-4 text-[#0047AB] dark:text-blue-400" /> Añadir Movimiento
                     </h3>
                     <form onSubmit={handleAddTransaction} className="space-y-4">
-                      <select name="type" className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-sm focus:ring-2 focus:ring-[#0047AB] outline-none text-slate-700 dark:text-slate-200 font-medium transition-colors">
-                        <option value="expense">Gasto</option>
-                        <option value="income">Ingreso</option>
-                      </select>
-                      <input name="amount" type="number" step="0.01" placeholder="Importe (€)" required className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white transition-colors" />
-                      <input name="description" placeholder="Descripción" required className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white transition-colors" />
-                      <input name="category" placeholder="Categoría (ej. Material, Mano de obra)" required className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white transition-colors" />
-                      <button type="submit" className="w-full py-3 bg-[#0047AB] text-white rounded-xl hover:bg-[#003380] text-sm font-bold transition-all shadow-md flex justify-center items-center">
-                        <Plus className="w-4 h-4 mr-1" /> Añadir Movimiento
+                      <div className="flex gap-2 p-1 bg-slate-100 dark:bg-slate-700 rounded-xl mb-4">
+                          <button 
+                             type="button" 
+                             onClick={() => setTransactionType('expense')}
+                             className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${transactionType === 'expense' ? 'bg-white dark:bg-slate-600 text-red-500 shadow-sm' : 'text-slate-500'}`}
+                          >
+                              Gasto
+                          </button>
+                          <button 
+                             type="button" 
+                             onClick={() => setTransactionType('income')}
+                             className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${transactionType === 'income' ? 'bg-white dark:bg-slate-600 text-green-600 shadow-sm' : 'text-slate-500'}`}
+                          >
+                              Ingreso
+                          </button>
+                      </div>
+                      
+                      <input type="hidden" name="type" value={transactionType} />
+                      
+                      <div className="flex gap-3">
+                          <input name="amount" type="number" step="0.01" placeholder="Importe (€)" required className="w-1/3 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white transition-colors" />
+                          <input name="description" placeholder="Descripción" required className="w-2/3 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white transition-colors" />
+                      </div>
+
+                      {transactionType === 'expense' ? (
+                          <select name="category" required className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white font-medium transition-colors">
+                             <option value="Material">Material</option>
+                             <option value="Consumibles">Consumibles</option>
+                             <option value="Personal">Personal</option>
+                          </select>
+                      ) : (
+                          <input name="category" placeholder="Categoría (ej. Anticipo, Certificación)" required className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white transition-colors" />
+                      )}
+
+                      <button type="submit" className={`w-full py-3 rounded-xl text-sm font-bold transition-all shadow-md flex justify-center items-center text-white ${transactionType === 'expense' ? 'bg-red-500 hover:bg-red-600' : 'bg-green-600 hover:bg-green-700'}`}>
+                        <Plus className="w-4 h-4 mr-1" /> {transactionType === 'expense' ? 'Registrar Gasto' : 'Registrar Ingreso'}
                       </button>
                     </form>
-                  </div>
-
-                  {/* Chart */}
-                  <div className="bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 flex flex-col items-center transition-colors">
-                    <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-4 w-full text-left uppercase tracking-wider">Balance Visual</h3>
-                    <div className="h-[300px] w-full">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie data={financialData} cx="50%" cy="50%" innerRadius={45} outerRadius={70} paddingAngle={5} dataKey="value" stroke="none">
-                            {financialData.map((entry, index) => (
-                              <Cell key={`cell-${index}`} fill={entry.color} />
-                            ))}
-                          </Pie>
-                          <RechartsTooltip contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)'}} />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </div>
-                    <div className="flex gap-6 text-xs mt-2 font-medium">
-                       <div className="flex items-center text-slate-600 dark:text-slate-300"><div className="w-3 h-3 bg-green-500 rounded-full mr-2"></div>Ingresos</div>
-                       <div className="flex items-center text-slate-600 dark:text-slate-300"><div className="w-3 h-3 bg-red-500 rounded-full mr-2"></div>Gastos</div>
-                    </div>
-                  </div>
                 </div>
+             </div>
+
+             {/* Detailed Lists Grid */}
+             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                 {/* Material Expenses */}
+                 {renderExpenseSection('Materiales', materialExpenses, totalMaterial, <Hammer className="w-4 h-4" />, 'bg-blue-50 text-blue-700')}
+                 
+                 {/* Consumable Expenses */}
+                 {renderExpenseSection('Consumibles', consumableExpenses, totalConsumable, <Coffee className="w-4 h-4" />, 'bg-amber-50 text-amber-700')}
+                 
+                 {/* Personal Expenses */}
+                 {renderExpenseSection('Personal', personalExpenses, totalPersonal, <User className="w-4 h-4" />, 'bg-red-50 text-red-700')}
+             </div>
+
+             {/* Income Section & Others */}
+             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                 {/* Income List */}
+                 <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 flex flex-col h-full overflow-hidden transition-colors">
+                      <div className="p-5 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-green-50/50 dark:bg-green-900/10">
+                          <h4 className="font-bold text-green-700 dark:text-green-400 flex items-center gap-2 text-sm uppercase tracking-wide">
+                              <Wallet className="w-4 h-4" /> Ingresos
+                          </h4>
+                          <span className="font-bold text-lg text-slate-900 dark:text-white">{totalIncome.toLocaleString()}€</span>
+                      </div>
+                      <div className="flex-1 overflow-y-auto max-h-[250px] p-0">
+                          {project.transactions.filter(t => t.type === 'income').length > 0 ? (
+                              <table className="w-full text-left text-xs">
+                                  <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
+                                      {project.transactions.filter(t => t.type === 'income').map(t => (
+                                          <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 group">
+                                              <td className="px-4 py-3">
+                                                  <p className="font-semibold text-slate-700 dark:text-slate-200">{t.description}</p>
+                                                  <span className="text-[10px] bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-1.5 py-0.5 rounded">{t.category}</span>
+                                              </td>
+                                              <td className="px-4 py-3 text-right font-medium text-green-600 dark:text-green-400 relative">
+                                                  +{t.amount.toLocaleString()}€
+                                                  <button 
+                                                    onClick={() => handleDeleteTransaction(t.id)}
+                                                    className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 text-red-400 hover:text-red-500 rounded transition-all"
+                                                  >
+                                                      <Trash2 className="w-3.5 h-3.5" />
+                                                  </button>
+                                              </td>
+                                          </tr>
+                                      ))}
+                                  </tbody>
+                              </table>
+                          ) : (
+                              <div className="p-8 text-center text-slate-400 dark:text-slate-500 text-xs italic">
+                                  Sin ingresos registrados.
+                              </div>
+                          )}
+                      </div>
+                 </div>
+
+                 {/* Other Expenses (Legacy or unclassified) */}
+                 {otherExpenses.length > 0 && (
+                     <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 flex flex-col h-full overflow-hidden transition-colors">
+                          <div className="p-5 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-700/50">
+                              <h4 className="font-bold text-slate-600 dark:text-slate-300 flex items-center gap-2 text-sm uppercase tracking-wide">
+                                  Otros Gastos
+                              </h4>
+                              <span className="font-bold text-lg text-slate-900 dark:text-white">
+                                  {otherExpenses.reduce((s, t) => s + t.amount, 0).toLocaleString()}€
+                              </span>
+                          </div>
+                          <div className="flex-1 overflow-y-auto max-h-[250px] p-0">
+                                  <table className="w-full text-left text-xs">
+                                      <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
+                                          {otherExpenses.map(t => (
+                                              <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 group">
+                                                  <td className="px-4 py-3">
+                                                      <p className="font-semibold text-slate-700 dark:text-slate-200">{t.description}</p>
+                                                      <span className="text-[10px] bg-slate-100 dark:bg-slate-700 text-slate-500 px-1.5 py-0.5 rounded">{t.category}</span>
+                                                  </td>
+                                                  <td className="px-4 py-3 text-right font-medium text-slate-600 dark:text-slate-300 relative">
+                                                      {t.amount.toLocaleString()}€
+                                                      <button 
+                                                        onClick={() => handleDeleteTransaction(t.id)}
+                                                        className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 text-red-400 hover:text-red-500 rounded transition-all"
+                                                      >
+                                                          <Trash2 className="w-3.5 h-3.5" />
+                                                      </button>
+                                                  </td>
+                                              </tr>
+                                          ))}
+                                      </tbody>
+                                  </table>
+                          </div>
+                     </div>
+                 )}
              </div>
           </div>
         )}
