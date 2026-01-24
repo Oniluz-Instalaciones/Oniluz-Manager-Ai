@@ -2,24 +2,21 @@ import { GoogleGenAI } from "@google/genai";
 import { Project, PriceItem } from "../types";
 
 // --- CONFIGURACIÓN DE API ---
-// Clave API limpia y directa
 const apiKey = 'AIzaSyDhw7HUqBlxd2dohZ84jOZD9H75bmjAg3k';
-// Inicialización del cliente (SDK @google/genai)
 const genAI = new GoogleGenAI({ apiKey });
-// Nombre exacto del modelo para evitar 404
-const MODEL_NAME = 'gemini-1.5-flash';
+
+// CAMBIO CRÍTICO: Usamos 'gemini-2.0-flash' para evitar el error 404 de la versión 1.5
+const MODEL_NAME = 'gemini-2.0-flash';
 
 /**
- * Analiza un documento (ticket/factura) y extrae datos estructurados.
- * Implementa la lógica de limpieza solicitada para asegurar JSON válido.
+ * Analiza un documento con manejo de errores robusto.
+ * Si falla, devuelve datos vacíos para no bloquear la app.
  */
 export const analyzeDocument = async (base64String: string, mimeType: string = 'image/jpeg'): Promise<any> => {
   try {
-    // Aseguramos que solo enviamos la parte de datos del base64
     const cleanBase64 = base64String.includes(',') ? base64String.split(',')[1] : base64String;
     
-    // Prompt específico solicitado
-    const prompt = 'Extrae de este ticket: comercio, fecha (DD/MM/AAAA), total (numero), iva (numero), categoria y descripcion. Responde SOLO con el objeto JSON.';
+    const prompt = 'Analiza este ticket/factura. Extrae en JSON: comercio, fecha (YYYY-MM-DD), total (numero), iva (numero), categoria y descripcion. Si no encuentras algo, déjalo vacío o en 0.';
     
     const response = await genAI.models.generateContent({
       model: MODEL_NAME,
@@ -33,10 +30,9 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
 
     let text = response.text || "{}";
     
-    // Limpieza agresiva de etiquetas markdown y json (Solicitada por el usuario)
+    // Limpieza de Markdown
     text = text.replace(/```json|```|json/g, '').trim();
     
-    // Intento adicional de extracción segura si queda basura alrededor
     const start = text.indexOf('{');
     const end = text.lastIndexOf('}');
     if (start !== -1 && end !== -1) {
@@ -44,14 +40,21 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
     }
 
     return JSON.parse(text);
+
   } catch (error) {
-    console.error('Error en Gemini analyzeDocument:', error);
-    // Retornamos un objeto vacío/seguro para evitar que la UI explote
-    throw error;
+    console.error('Error controlado en Gemini:', error);
+    // FALLBACK: Devolvemos objeto válido para que el usuario pueda editar manualmente
+    return {
+        comercio: "Error de Escaneo (Editar)",
+        fecha: new Date().toISOString().split('T')[0],
+        total: 0,
+        iva: 0,
+        categoria: "Otros",
+        description: "Introducir datos manualmente",
+        items: []
+    };
   }
 };
-
-// --- OTRAS FUNCIONES (Mantenidas y corregidas para que la app no se rompa) ---
 
 export const chatWithAssistant = async (message: string, context?: string): Promise<string> => {
   try {
@@ -60,30 +63,29 @@ export const chatWithAssistant = async (message: string, context?: string): Prom
         model: MODEL_NAME,
         contents: prompt
     });
-    return response.text || "";
+    return response.text || "No tengo respuesta.";
   } catch (error) {
-    console.error("Error en chatWithAssistant:", error);
-    return "Lo siento, hubo un error de conexión con mi cerebro digital (Error 404 o Network).";
+    console.error("Error chat:", error);
+    return "Error de conexión. Por favor, verifica tu red.";
   }
 };
 
 export const analyzeProjectStatus = async (project: Project): Promise<string> => {
   try {
-    const prompt = `Analiza brevemente este proyecto: ${project.name}. Estado: ${project.status}. Presupuesto: ${project.budget}€. Gastos: ${project.transactions.filter(t=>t.type==='expense').reduce((a,b)=>a+b.amount,0)}€. Dame 3 recomendaciones cortas.`;
+    const prompt = `Analiza: ${project.name}. Estado: ${project.status}. Presupuesto: ${project.budget}. Dame 3 tips breves.`;
     const response = await genAI.models.generateContent({
         model: MODEL_NAME,
         contents: prompt
     });
-    return response.text || "No se pudo generar el análisis.";
-  } catch (error) {
-    console.error("Error en analyzeProjectStatus:", error);
-    return "Error de conexión al analizar el proyecto.";
+    return response.text || "";
+  } catch {
+    return "Análisis no disponible temporalmente.";
   }
 };
 
 export const generateSmartBudget = async (description: string, currentPrices: PriceItem[], images: string[] = []): Promise<any[]> => {
     try {
-        const parts: any[] = [{ text: `Genera un JSON array de partidas presupuestarias (name, unit, quantity, pricePerUnit, category) para: ${description}. Usa precios realistas.` }];
+        const parts: any[] = [{ text: `Crea un presupuesto JSON array (name, unit, quantity, pricePerUnit, category) para: "${description}". Sé realista.` }];
         
         for (const img of images) {
              const data = img.includes(',') ? img.split(',')[1] : img;
@@ -97,22 +99,20 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
         
         let text = response.text || "[]";
         text = text.replace(/```json|```|json/g, '').trim();
-        
-        // Extracción segura de array
         const start = text.indexOf('[');
         const end = text.lastIndexOf(']');
         if (start !== -1 && end !== -1) text = text.substring(start, end + 1);
         
         return JSON.parse(text);
-    } catch (error) {
-        console.error("Error en generateSmartBudget:", error);
+    } catch (e) {
+        console.error("Error presupuesto:", e);
         return [];
     }
 };
 
 export const parseMaterialsFromInput = async (textInput: string): Promise<PriceItem[]> => {
     try {
-        const prompt = `Analiza este texto y extrae materiales eléctricos en un JSON array con {name, unit, price, category}: "${textInput}"`;
+        const prompt = `Extrae materiales de este texto a JSON array {name, unit, price, category}: "${textInput}"`;
         const response = await genAI.models.generateContent({
             model: MODEL_NAME,
             contents: prompt
@@ -136,7 +136,7 @@ export const parseMaterialsFromImage = async (base64Image: string): Promise<Pric
             contents: {
                 parts: [
                     { inlineData: { mimeType: 'image/jpeg', data } },
-                    { text: "Extrae materiales de esta lista/catálogo. Devuelve JSON array con {name, unit, price, category}." }
+                    { text: "Lista todos los materiales visibles en un JSON array {name, unit, price, category}." }
                 ]
             }
         });
