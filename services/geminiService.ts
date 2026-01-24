@@ -6,9 +6,9 @@ import { Project, PriceItem } from "../types";
 const apiKey = 'AIzaSyDhw7HUqBlxd2dohZ84jOZD9H75bmjAg3k';
 const genAI = new GoogleGenAI({ apiKey });
 
-// SOLUCIÓN: Actualizamos al modelo más reciente y estable disponible.
-// 'gemini-1.5-flash-latest' causaba errores 404.
-const MODEL_NAME = 'gemini-2.0-flash-exp';
+// SOLUCIÓN: Configurado explícitamente a Gemini 1.5 Flash por petición del usuario.
+// Este modelo es rápido, eficiente y soporta lectura de imágenes (multimodal).
+const MODEL_NAME = 'gemini-1.5-flash';
 
 /**
  * Función auxiliar para limpiar y parsear JSON de la respuesta de la IA.
@@ -65,7 +65,7 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
   try {
     const cleanBase64 = base64String.includes(',') ? base64String.split(',')[1] : base64String;
     
-    // Prompt optimizado para Gemini 2.0
+    // Prompt optimizado para Gemini 1.5 Flash
     const prompt = `Analiza esta imagen de un ticket/factura. Extrae los datos en este formato JSON exacto:
     {
       "comercio": "Nombre del proveedor",
@@ -87,7 +87,6 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
       },
       config: { 
           temperature: 0.1,
-          // Forzamos respuesta JSON si el modelo lo soporta, si no, el prompt lo pide.
       }
     });
 
