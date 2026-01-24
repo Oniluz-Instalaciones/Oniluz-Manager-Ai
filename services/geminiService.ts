@@ -5,22 +5,30 @@ import { Project, PriceItem } from "../types";
 const apiKey = 'AIzaSyDhw7HUqBlxd2dohZ84jOZD9H75bmjAg3k';
 const genAI = new GoogleGenAI({ apiKey });
 
-// SOLUCIÓN AL ERROR 429:
-// Usamos 'gemini-1.5-flash' porque 'gemini-2.0-flash' tiene límite 0 en el tier gratuito actual.
-// Con el SDK @google/genai configurado correctamente, este modelo NO dará error 404.
-const MODEL_NAME = 'gemini-1.5-flash';
+// CAMBIO CRÍTICO: 'gemini-1.5-flash-latest' es la referencia correcta y estable para el Free Tier 
+// en la versión v1beta de la API. Evita el 404 de 'gemini-1.5-flash' y el 429 de '2.0-flash'.
+const MODEL_NAME = 'gemini-1.5-flash-latest';
 
 /**
  * Analiza un documento.
- * Si la API falla (429 Quota, 404, Internet), devuelve un objeto por defecto
- * para permitir la entrada manual de datos sin bloquear la app.
+ * Devuelve un objeto JSON con los datos extraídos o valores por defecto si falla.
  */
 export const analyzeDocument = async (base64String: string, mimeType: string = 'image/jpeg'): Promise<any> => {
   try {
     const cleanBase64 = base64String.includes(',') ? base64String.split(',')[1] : base64String;
     
-    // Prompt optimizado para reducir tokens y latencia
-    const prompt = 'Extrae en JSON: comercio, fecha (YYYY-MM-DD), total (numero), iva (numero), categoria (Material/Combustible/Dieta/Otros). Si no está claro, usa null.';
+    // Prompt ajustado para mayor precisión en JSON
+    const prompt = `Analiza este documento (ticket/factura).
+    Responde ÚNICAMENTE con un objeto JSON válido con esta estructura:
+    {
+      "comercio": "Nombre del proveedor",
+      "fecha": "YYYY-MM-DD",
+      "total": 0.00,
+      "iva": 0.00,
+      "categoria": "Material",
+      "items": [{ "name": "item", "quantity": 1, "unit": "ud", "price": 0 }]
+    }
+    Si algún dato no es visible, usa null o 0. No uses markdown.`;
     
     const response = await genAI.models.generateContent({
       model: MODEL_NAME,
@@ -31,38 +39,38 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
         ]
       },
       config: {
-        // Limitamos tokens de salida para ahorrar cuota
-        maxOutputTokens: 300, 
-        temperature: 0.2
+        temperature: 0.1, // Baja temperatura para datos precisos
       }
     });
 
     let text = response.text || "{}";
     
-    // Limpieza de Markdown
-    text = text.replace(/```json|```|json/g, '').trim();
+    // Limpieza agresiva: elimina bloques de código markdown ```json ... ``` y espacios
+    text = text.replace(/```json|```/g, '').trim();
     
+    // Busca el primer '{' y el último '}' para aislar el JSON de cualquier texto extra
     const start = text.indexOf('{');
     const end = text.lastIndexOf('}');
+    
     if (start !== -1 && end !== -1) {
        text = text.substring(start, end + 1);
+    } else {
+       throw new Error("No se encontró JSON válido en la respuesta");
     }
 
     return JSON.parse(text);
 
   } catch (error) {
-    console.warn('Gemini API Fallback (Quota/Network):', error);
+    console.warn('Gemini API Fallback:', error);
     
-    // FALLBACK ROBUSTO:
-    // Si falla la IA, devolvemos esto para que se abra el formulario y el usuario escriba.
-    // Esto evita la pantalla blanca o el spinner infinito.
+    // Retornamos un objeto "vacío" seguro para que la UI no falle y permita edición manual
     return {
-        comercio: "", // Se deja vacío para que el usuario escriba
+        comercio: "",
         fecha: new Date().toISOString().split('T')[0],
         total: 0,
         iva: 0,
         categoria: "Material",
-        description: "",
+        description: "Error de escaneo - Introducir manualmente",
         items: []
     };
   }
@@ -70,7 +78,7 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
 
 export const chatWithAssistant = async (message: string, context?: string): Promise<string> => {
   try {
-    const prompt = context ? `Contexto:\n${context}\n\nUsuario: ${message}` : message;
+    const prompt = context ? `Contexto previo:\n${context}\n\nUsuario: ${message}` : message;
     const response = await genAI.models.generateContent({
         model: MODEL_NAME,
         contents: prompt
@@ -78,28 +86,27 @@ export const chatWithAssistant = async (message: string, context?: string): Prom
     return response.text || "No tengo respuesta en este momento.";
   } catch (error) {
     console.error("Error chat:", error);
-    return "Lo siento, he superado mi cuota de uso gratuita temporalmente. Por favor, inténtalo de nuevo en unos minutos.";
+    return "Lo siento, el servicio de IA no está disponible en este momento (posible límite de cuota).";
   }
 };
 
 export const analyzeProjectStatus = async (project: Project): Promise<string> => {
   try {
-    const prompt = `Analiza proyecto: ${project.name}. Estado: ${project.status}. Presupuesto: ${project.budget}. 3 consejos breves.`;
+    const prompt = `Analiza proyecto: ${project.name}. Estado: ${project.status}. Presupuesto: ${project.budget}. Dame 3 consejos breves.`;
     const response = await genAI.models.generateContent({
         model: MODEL_NAME,
         contents: prompt
     });
     return response.text || "";
   } catch {
-    return "Análisis no disponible (Cuota excedida o sin conexión).";
+    return "Análisis no disponible.";
   }
 };
 
 export const generateSmartBudget = async (description: string, currentPrices: PriceItem[], images: string[] = []): Promise<any[]> => {
     try {
-        const parts: any[] = [{ text: `Crea presupuesto JSON array (name, unit, quantity, pricePerUnit, category) para: "${description}".` }];
+        const parts: any[] = [{ text: `Genera JSON array de partidas para: "${description}". Formato: [{name, unit, quantity, pricePerUnit, category}].` }];
         
-        // Solo enviamos la primera imagen para ahorrar cuota si hay muchas
         if (images.length > 0) {
              const img = images[0];
              const data = img.includes(',') ? img.split(',')[1] : img;
@@ -112,14 +119,13 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
         });
         
         let text = response.text || "[]";
-        text = text.replace(/```json|```|json/g, '').trim();
+        text = text.replace(/```json|```/g, '').trim();
         const start = text.indexOf('[');
         const end = text.lastIndexOf(']');
         if (start !== -1 && end !== -1) text = text.substring(start, end + 1);
         
         return JSON.parse(text);
-    } catch (e) {
-        console.error("Error presupuesto:", e);
+    } catch {
         return [];
     }
 };
@@ -132,7 +138,7 @@ export const parseMaterialsFromInput = async (textInput: string): Promise<PriceI
             contents: prompt
         });
         let text = response.text || "[]";
-        text = text.replace(/```json|```|json/g, '').trim();
+        text = text.replace(/```json|```/g, '').trim();
         const start = text.indexOf('[');
         const end = text.lastIndexOf(']');
         if (start !== -1 && end !== -1) text = text.substring(start, end + 1);
@@ -155,7 +161,7 @@ export const parseMaterialsFromImage = async (base64Image: string): Promise<Pric
             }
         });
         let text = response.text || "[]";
-        text = text.replace(/```json|```|json/g, '').trim();
+        text = text.replace(/```json|```/g, '').trim();
         const start = text.indexOf('[');
         const end = text.lastIndexOf(']');
         if (start !== -1 && end !== -1) text = text.substring(start, end + 1);
