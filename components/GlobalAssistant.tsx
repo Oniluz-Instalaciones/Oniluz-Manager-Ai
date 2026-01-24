@@ -14,12 +14,21 @@ interface Message {
   timestamp: Date;
 }
 
+const SYSTEM_INSTRUCTION = `Actúa como un gestor de tareas experto. Mi objetivo es procesar listas de datos sin exceder los límites de la cuota gratuita de Google AI Studio.
+
+Tus Reglas de Operación:
+1. Conciencia de Velocidad: Tu límite es de 15 solicitudes por minuto (Flash). No intentes procesar todo en una sola respuesta gigante si excede los tokens.
+2. Procesamiento por Lotes (Batching): Si la lista es larga, divídela. Procesa un grupo y luego indica: "Lote completado. Por favor, espera 10 segundos antes de pedirme el siguiente para evitar el error 429".
+3. Gestión de Errores: Si detectas que la respuesta se corta, detente y resume.
+4. Formato: Entrega resultados estructurados (JSON o Tabla) para copiar y pegar.
+5. Lleva un conteo visible de cuántas solicitudes hemos gastado en esta sesión.`;
+
 const GlobalAssistant: React.FC<GlobalAssistantProps> = ({ onClose, isOpen }) => {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
       role: 'assistant',
-      text: '¡Hola! Soy Oniluz AI. ¿En qué puedo ayudarte hoy con tus proyectos eléctricos?',
+      text: '¡Hola! Soy tu Gestor de Tareas Experto. Envíame tus listas de datos (materiales, gastos, etc.) y las procesaré por lotes para respetar tu cuota gratuita.',
       timestamp: new Date()
     }
   ]);
@@ -50,10 +59,11 @@ const GlobalAssistant: React.FC<GlobalAssistantProps> = ({ onClose, isOpen }) =>
     setInputValue('');
     setIsLoading(true);
 
-    // Build context from previous messages for better continuity
-    const context = messages.slice(-5).map(m => `${m.role === 'user' ? 'Usuario' : 'Asistente'}: ${m.text}`).join('\n');
+    // Build context including the System Instruction and recent history
+    const conversationHistory = messages.slice(-8).map(m => `${m.role === 'user' ? 'Usuario' : 'Asistente'}: ${m.text}`).join('\n');
+    const fullContext = `${SYSTEM_INSTRUCTION}\n\nHistorial de conversación:\n${conversationHistory}`;
     
-    const responseText = await chatWithAssistant(newMessage.text, context);
+    const responseText = await chatWithAssistant(newMessage.text, fullContext);
 
     const botResponse: Message = {
       id: (Date.now() + 1).toString(),
@@ -79,8 +89,8 @@ const GlobalAssistant: React.FC<GlobalAssistantProps> = ({ onClose, isOpen }) =>
               <Sparkles className="w-5 h-5 text-yellow-300" />
             </div>
             <div>
-              <h3 className="font-bold text-lg leading-tight">Asistente Oniluz</h3>
-              <p className="text-[10px] text-blue-100 opacity-90">Potenciado por Gemini 1.5 Flash</p>
+              <h3 className="font-bold text-lg leading-tight">Gestor de Tareas AI</h3>
+              <p className="text-[10px] text-blue-100 opacity-90">Modo: Batching & Quota Safe</p>
             </div>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-white/20 rounded-full transition-colors">
@@ -119,7 +129,7 @@ const GlobalAssistant: React.FC<GlobalAssistantProps> = ({ onClose, isOpen }) =>
                 </div>
                 <div className="bg-white dark:bg-slate-800 p-3 rounded-2xl rounded-bl-none border border-slate-100 dark:border-slate-700 flex items-center gap-2">
                    <Loader2 className="w-4 h-4 animate-spin text-[#0047AB]" />
-                   <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">Pensando...</span>
+                   <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">Procesando lote...</span>
                 </div>
              </div>
           )}
@@ -132,7 +142,7 @@ const GlobalAssistant: React.FC<GlobalAssistantProps> = ({ onClose, isOpen }) =>
             type="text" 
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
-            placeholder="Pregunta sobre stock, normativa o finanzas..."
+            placeholder="Pega tu lista de datos aquí..."
             className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white transition-colors"
           />
           <button 
