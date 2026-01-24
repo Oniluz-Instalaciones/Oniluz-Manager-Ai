@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Project, ProjectStatus, Transaction, ProjectDocument, ProjectType, PvData, Material } from '../types';
-import { Plus, Search, Building2, MapPin, Camera, PieChart, Database, Upload, FileText, Menu, Moon, Sun, ChevronRight, X, Zap, Sun as SunIcon, Battery, Calendar, HardHat, Sparkles } from 'lucide-react';
+import { Plus, Search, Building2, MapPin, Camera, PieChart, Database, Upload, FileText, Menu, Moon, Sun, ChevronRight, X, Zap, Sun as SunIcon, Battery, Calendar, HardHat, Sparkles, LogOut } from 'lucide-react';
 import ScannerModal from './ScannerModal';
 import GlobalAssistant from './GlobalAssistant';
 
@@ -14,11 +14,12 @@ interface ProjectListProps {
   onOpenCalendar: () => void;
   isDarkMode: boolean;
   onToggleDarkMode: () => void;
+  onLogout: () => void;
 }
 
 const ProjectList: React.FC<ProjectListProps> = ({ 
   projects, onSelectProject, onAddProject, onUpdateProject, 
-  onOpenGlobalFinance, onOpenPriceDb, onOpenCalendar, isDarkMode, onToggleDarkMode 
+  onOpenGlobalFinance, onOpenPriceDb, onOpenCalendar, isDarkMode, onToggleDarkMode, onLogout
 }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalType, setModalType] = useState<ProjectType>('General'); // Track which type we are creating
@@ -241,7 +242,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
                                   </button>
                               </div>
                           </div>
-                          <div className="p-4 bg-slate-50 dark:bg-slate-800/50">
+                          <div className="p-4 bg-slate-50 dark:bg-slate-800/50 space-y-4">
                               <div className="flex items-center justify-between">
                                   <span className="text-sm font-semibold text-slate-600 dark:text-slate-400 flex items-center gap-2">
                                       {isDarkMode ? <Moon className="w-4 h-4" /> : <SunIcon className="w-4 h-4" />}
@@ -254,6 +255,12 @@ const ProjectList: React.FC<ProjectListProps> = ({
                                       <div className={`w-4 h-4 bg-white rounded-full absolute top-1 transition-transform shadow-sm ${isDarkMode ? 'left-7' : 'left-1'}`}></div>
                                   </button>
                               </div>
+                              <button 
+                                  onClick={onLogout}
+                                  className="w-full flex items-center justify-center p-2.5 rounded-xl bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 hover:border-red-100 transition-all font-semibold text-sm gap-2"
+                              >
+                                  <LogOut className="w-4 h-4" /> Cerrar Sesión
+                              </button>
                           </div>
                       </div>
                   )}
