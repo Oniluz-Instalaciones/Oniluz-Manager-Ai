@@ -1,7 +1,5 @@
 import { supabase } from '../lib/supabase';
-
-// Helper to cast auth to any to support v1 method calls despite v2 types if present in environment
-const auth = supabase.auth as any;
+import { Session } from '@supabase/supabase-js';
 
 /**
  * Obtiene la sesión actual almacenada localmente.
@@ -9,10 +7,12 @@ const auth = supabase.auth as any;
  */
 export const getCurrentSession = async () => {
   try {
-    // Check if session() exists (v1) or fallback to null (or maybe getSession if v2 was actually there)
-    // The errors indicate getSession is missing, so we use session().
-    const session = auth.session ? auth.session() : null;
-    return session;
+    const { data, error } = await supabase.auth.getSession();
+    if (error) {
+        console.warn("Error verificando sesión:", error.message);
+        return null;
+    }
+    return data.session;
   } catch (error) {
     console.error('Error recuperando sesión:', error);
     return null;
@@ -23,20 +23,19 @@ export const getCurrentSession = async () => {
  * Inicia sesión con email y contraseña.
  */
 export const signInWithEmail = async (email: string, password: string) => {
-  // Use v1 syntax: signIn instead of signInWithPassword
-  const { user, session, error } = await auth.signIn({
+  // Supabase v2 usa signInWithPassword
+  const { data, error } = await supabase.auth.signInWithPassword({
     email,
     password,
   });
-  // Return structure compatible with expected usage { data: { ... }, error }
-  return { data: { user, session }, error };
+  return { data, error };
 };
 
 /**
  * Cierra la sesión actual.
  */
 export const signOut = async () => {
-  const { error } = await auth.signOut();
+  const { error } = await supabase.auth.signOut();
   if (error) console.error('Error al cerrar sesión:', error);
 };
 
@@ -44,10 +43,10 @@ export const signOut = async () => {
  * Suscribe a los cambios de estado de autenticación (Login, Logout, Token Refresh).
  * Retorna la suscripción para poder desuscribirse al desmontar componentes.
  */
-export const onAuthStateChange = (callback: (session: any) => void) => {
-  // v1 returns { data: Subscription, error }
-  const { data } = auth.onAuthStateChange((_event: any, session: any) => {
+export const onAuthStateChange = (callback: (session: Session | null) => void) => {
+  const { data } = supabase.auth.onAuthStateChange((_event, session) => {
     callback(session);
   });
-  return data;
+  // En v2, onAuthStateChange devuelve un objeto con la propiedad 'subscription'
+  return data.subscription;
 };
