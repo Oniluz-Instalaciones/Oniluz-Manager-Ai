@@ -3,7 +3,8 @@ import { Project, PriceItem } from "../types";
 
 // --- CONFIGURACIÓN DE API ---
 // NOTA: Se recomienda usar variables de entorno para la API Key.
-const apiKey = 'AIzaAIzaSyAPt-4D6bA9qLK-BrijbJBcmnBU1ojXOA8';
+// CORRECCIÓN: Se ha eliminado el 'AIza' duplicado al inicio de la clave.
+const apiKey = 'AIzaSyAPt-4D6bA9qLK-BrijbJBcmnBU1ojXOA8';
 const genAI = new GoogleGenAI({ apiKey });
 
 // SOLUCIÓN: Usamos 'gemini-2.0-flash-exp'.
