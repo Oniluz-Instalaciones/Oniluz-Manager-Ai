@@ -97,12 +97,13 @@ const ProjectList: React.FC<ProjectListProps> = ({
     // PV Specific Data extraction
     let pvData: PvData | undefined;
     if (modalType === 'Photovoltaic') {
+        const batteryCapacity = Number(formData.get('batteryCapacity')) || 0;
         pvData = {
             peakPower: Number(formData.get('peakPower')),
             modulesCount: Number(formData.get('modulesCount')),
             inverterModel: formData.get('inverterModel') as string,
-            hasBattery: formData.get('hasBattery') === 'on',
-            batteryCapacity: Number(formData.get('batteryCapacity')) || 0,
+            hasBattery: batteryCapacity > 0, // Auto-detect based on capacity selection
+            batteryCapacity: batteryCapacity,
             installationType: formData.get('installationType') as any
         };
     }
@@ -482,31 +483,51 @@ const ProjectList: React.FC<ProjectListProps> = ({
                         <div className="flex gap-4">
                             <div className="w-1/2">
                               <label className="text-[10px] font-bold text-amber-700/70 dark:text-amber-400 uppercase">Potencia Pico (kWp)</label>
-                              <input name="peakPower" type="number" step="0.1" required className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-700 rounded-lg text-sm" />
+                              <select name="peakPower" required className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-700 rounded-lg text-sm outline-none text-slate-900 dark:text-white cursor-pointer">
+                                  <option value="3.0">3.0 kWp</option>
+                                  <option value="4.0">4.0 kWp</option>
+                                  <option value="5.0">5.0 kWp</option>
+                                  <option value="6.0">6.0 kWp</option>
+                                  <option value="8.0">8.0 kWp</option>
+                                  <option value="10.0">10.0 kWp</option>
+                                  <option value="12.0">12.0 kWp</option>
+                                  <option value="15.0">15.0 kWp</option>
+                                  <option value="20.0">20.0 kWp</option>
+                                  <option value="30.0">30.0 kWp</option>
+                                  <option value="50.0">50.0 kWp</option>
+                                  <option value="100.0">100.0 kWp</option>
+                              </select>
                             </div>
                             <div className="w-1/2">
                               <label className="text-[10px] font-bold text-amber-700/70 dark:text-amber-400 uppercase">Nº Módulos</label>
-                              <input name="modulesCount" type="number" required className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-700 rounded-lg text-sm" />
+                              <input name="modulesCount" type="number" required className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-700 rounded-lg text-sm text-slate-900 dark:text-white" />
                             </div>
                         </div>
                         <div>
                               <label className="text-[10px] font-bold text-amber-700/70 dark:text-amber-400 uppercase">Modelo Inversor</label>
-                              <input name="inverterModel" className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-700 rounded-lg text-sm" />
+                              <input name="inverterModel" className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-700 rounded-lg text-sm text-slate-900 dark:text-white" />
                         </div>
                         <div className="flex gap-4 items-center">
                             <div className="w-1/2">
                               <label className="text-[10px] font-bold text-amber-700/70 dark:text-amber-400 uppercase">Tipo Instalación</label>
-                              <select name="installationType" className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-700 rounded-lg text-sm">
+                              <select name="installationType" className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-700 rounded-lg text-sm text-slate-900 dark:text-white">
                                   <option value="Residential">Residencial</option>
                                   <option value="Industrial">Industrial</option>
                                   <option value="Solar Farm">Huerto Solar</option>
                               </select>
                             </div>
-                            <div className="w-1/2 pt-4">
-                              <label className="flex items-center gap-2 cursor-pointer">
-                                  <input name="hasBattery" type="checkbox" className="w-4 h-4 text-amber-500 rounded focus:ring-amber-500" />
-                                  <span className="text-sm font-bold text-slate-700 dark:text-slate-300">Incluye Batería</span>
-                              </label>
+                            <div className="w-1/2">
+                                <label className="text-[10px] font-bold text-amber-700/70 dark:text-amber-400 uppercase">Almacenamiento (Batería)</label>
+                                <select name="batteryCapacity" className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-700 rounded-lg text-sm outline-none text-slate-900 dark:text-white cursor-pointer">
+                                  <option value="0">No incluye</option>
+                                  <option value="5">5 kWh</option>
+                                  <option value="10">10 kWh</option>
+                                  <option value="15">15 kWh</option>
+                                  <option value="20">20 kWh</option>
+                                  <option value="30">30 kWh</option>
+                                  <option value="40">40 kWh</option>
+                                  <option value="50">50+ kWh</option>
+                              </select>
                             </div>
                         </div>
                     </div>
