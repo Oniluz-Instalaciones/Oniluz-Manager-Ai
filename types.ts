@@ -18,10 +18,12 @@ export type ProjectType = 'General' | 'Photovoltaic';
 export interface PvData {
   peakPower: number; // kWp
   modulesCount: number;
-  inverterModel: string;
   hasBattery: boolean;
   batteryCapacity?: number; // kWh
   installationType: 'Residential' | 'Industrial' | 'Solar Farm';
+  contractedPower?: number; // kW
+  annualConsumption?: number; // kWh
+  roofType?: 'Teja' | 'Plano' | 'Sandwich';
 }
 
 export interface Transaction {

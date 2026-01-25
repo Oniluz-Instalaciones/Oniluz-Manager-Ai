@@ -107,10 +107,13 @@ const ProjectList: React.FC<ProjectListProps> = ({
         pvData = {
             peakPower: totalKwp,
             modulesCount: modulesCount,
-            inverterModel: formData.get('inverterModel') as string,
+            // Inverter Model removed
             hasBattery: batteryCapacity > 0, // Auto-detect based on capacity selection
             batteryCapacity: batteryCapacity,
-            installationType: formData.get('installationType') as any
+            installationType: formData.get('installationType') as any,
+            contractedPower: Number(formData.get('contractedPower')) || 0,
+            annualConsumption: Number(formData.get('annualConsumption')) || 0,
+            roofType: formData.get('roofType') as any
         };
     }
 
@@ -511,8 +514,8 @@ const ProjectList: React.FC<ProjectListProps> = ({
                   </div>
                 </div>
                 <div>
-                  <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Ubicación</label>
-                  <input name="location" required className="w-full mt-2 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] focus:border-[#0047AB] text-slate-900 dark:text-white transition-all" />
+                  <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Ubicación ({modalType === 'Photovoltaic' ? 'Provincia / CP' : 'Dirección'})</label>
+                  <input name="location" required className="w-full mt-2 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] focus:border-[#0047AB] text-slate-900 dark:text-white transition-all" placeholder={modalType === 'Photovoltaic' ? "Ej: Madrid, 28001" : "Ej: Calle Principal 123"} />
                 </div>
 
                 {/* Specific PV Fields */}
@@ -540,10 +543,28 @@ const ProjectList: React.FC<ProjectListProps> = ({
                               <input name="modulesCount" type="number" required className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-700 rounded-lg text-sm text-slate-900 dark:text-white" />
                             </div>
                         </div>
-                        <div>
-                              <label className="text-[10px] font-bold text-amber-700/70 dark:text-amber-400 uppercase">Modelo Inversor</label>
-                              <input name="inverterModel" className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-700 rounded-lg text-sm text-slate-900 dark:text-white" />
+                        
+                        {/* NUEVOS CAMPOS SOLICITADOS */}
+                        <div className="flex gap-4">
+                             <div className="w-1/2">
+                                <label className="text-[10px] font-bold text-amber-700/70 dark:text-amber-400 uppercase">Potencia Contratada (kW)</label>
+                                <input name="contractedPower" type="number" step="0.01" className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-700 rounded-lg text-sm text-slate-900 dark:text-white" />
+                             </div>
+                             <div className="w-1/2">
+                                <label className="text-[10px] font-bold text-amber-700/70 dark:text-amber-400 uppercase">Consumo Anual (kWh)</label>
+                                <input name="annualConsumption" type="number" className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-700 rounded-lg text-sm text-slate-900 dark:text-white" />
+                             </div>
                         </div>
+                        
+                        <div>
+                             <label className="text-[10px] font-bold text-amber-700/70 dark:text-amber-400 uppercase">Tipo de Tejado</label>
+                             <select name="roofType" className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-700 rounded-lg text-sm text-slate-900 dark:text-white cursor-pointer">
+                                 <option value="Teja">Teja</option>
+                                 <option value="Plano">Plano</option>
+                                 <option value="Sandwich">Panel Sándwich</option>
+                             </select>
+                        </div>
+                        
                         <div className="flex gap-4 items-center">
                             <div className="w-1/2">
                               <label className="text-[10px] font-bold text-amber-700/70 dark:text-amber-400 uppercase">Tipo Instalación</label>

@@ -27,14 +27,16 @@ export const INITIAL_PROJECTS: Project[] = [
     pvData: {
         peakPower: 9.0,
         modulesCount: 20,
-        inverterModel: 'Huawei SUN2000-5KTL',
         hasBattery: true,
         batteryCapacity: 10,
-        installationType: 'Residential'
+        installationType: 'Residential',
+        contractedPower: 5.75,
+        annualConsumption: 8500,
+        roofType: 'Teja'
     },
     name: 'Instalación Solar Residencial - Villa Verde',
     client: 'Comunidad Villa Verde',
-    location: 'Av. Las Palmeras 45, Madrid',
+    location: 'Av. Las Palmeras 45, Madrid (28001)',
     status: ProjectStatus.IN_PROGRESS,
     progress: 45,
     startDate: '2026-10-15',

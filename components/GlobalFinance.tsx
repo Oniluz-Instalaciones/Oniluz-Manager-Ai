@@ -16,7 +16,7 @@ interface GlobalFinanceProps {
 const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdateProject }) => {
   // --- State for Filters ---
   const [dateRange, setDateRange] = useState<{ start: string; end: string }>({
-    start: '2023-01-01',
+    start: '2025-01-01',
     end: '2030-12-31'
   });
   const [selectedProject, setSelectedProject] = useState<string>('ALL');
