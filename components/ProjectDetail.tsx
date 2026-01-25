@@ -746,22 +746,76 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
 
          {/* SETTINGS TAB */}
          {activeTab === 'settings' && (
-           <div className="max-w-xl mx-auto space-y-8">
+           <div className="max-w-3xl mx-auto space-y-8">
               
-              {/* General Settings */}
+              {/* General Settings Form */}
               <div className="bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 transition-colors">
                  <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6 flex items-center gap-2">
-                    <Settings className="w-5 h-5 text-[#0047AB] dark:text-blue-400" /> Datos Generales
+                    <Edit3 className="w-5 h-5 text-[#0047AB] dark:text-blue-400" /> Editar Datos del Proyecto
                  </h3>
-                 <div>
-                     <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-2">Nombre del Proyecto</label>
-                     <input 
-                         type="text" 
-                         value={project.name}
-                         onChange={(e) => updateProjectWithHistory({ ...project, name: e.target.value })}
-                         className="w-full p-4 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white font-bold text-lg transition-all"
-                     />
-                     <p className="text-xs text-slate-400 mt-2">El nombre se actualizará automáticamente en toda la aplicación.</p>
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                     <div className="col-span-full">
+                         <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-2">Nombre del Proyecto</label>
+                         <input 
+                             type="text" 
+                             value={project.name}
+                             onChange={(e) => updateProjectWithHistory({ ...project, name: e.target.value })}
+                             className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white font-bold transition-all"
+                         />
+                     </div>
+                     
+                     <div className="col-span-full md:col-span-1">
+                         <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-2">Cliente</label>
+                         <input 
+                             type="text" 
+                             value={project.client}
+                             onChange={(e) => updateProjectWithHistory({ ...project, client: e.target.value })}
+                             className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white transition-all"
+                         />
+                     </div>
+
+                     <div className="col-span-full md:col-span-1">
+                         <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-2">Ubicación</label>
+                         <input 
+                             type="text" 
+                             value={project.location}
+                             onChange={(e) => updateProjectWithHistory({ ...project, location: e.target.value })}
+                             className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white transition-all"
+                         />
+                     </div>
+
+                     <div className="col-span-full md:col-span-1">
+                         <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-2">Fecha Inicio</label>
+                         <input 
+                             type="date" 
+                             value={project.startDate}
+                             onChange={(e) => updateProjectWithHistory({ ...project, startDate: e.target.value })}
+                             className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white transition-all"
+                         />
+                     </div>
+
+                     <div className="col-span-full md:col-span-1">
+                         <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-2">Fecha Fin Estimada</label>
+                         <input 
+                             type="date" 
+                             value={project.endDate || ''}
+                             onChange={(e) => updateProjectWithHistory({ ...project, endDate: e.target.value })}
+                             className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white transition-all"
+                         />
+                     </div>
+
+                     <div className="col-span-full">
+                         <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-2">Descripción</label>
+                         <textarea 
+                             rows={4}
+                             value={project.description}
+                             onChange={(e) => updateProjectWithHistory({ ...project, description: e.target.value })}
+                             className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white transition-all resize-none"
+                         />
+                     </div>
+                 </div>
+                 <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/10 rounded-lg text-xs text-blue-700 dark:text-blue-300">
+                    Los cambios se guardan automáticamente al modificar los campos.
                  </div>
               </div>
 

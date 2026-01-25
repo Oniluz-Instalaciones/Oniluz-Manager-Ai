@@ -213,12 +213,18 @@ const App: React.FC = () => {
   const handleUpdateProject = (updatedProject: Project) => {
      setProjects(projects.map(p => p.id === updatedProject.id ? updatedProject : p));
 
+     // IMPORTANT: We update ALL fields to ensure edits in ProjectDetail are saved
      supabase.from('projects').update({
          name: updatedProject.name,
+         client: updatedProject.client,
+         location: updatedProject.location,
          status: updatedProject.status,
          progress: updatedProject.progress,
+         start_date: updatedProject.startDate || null,
          end_date: updatedProject.endDate || null,
          description: updatedProject.description,
+         budget: updatedProject.budget,
+         pv_data: updatedProject.pvData
      }).eq('id', updatedProject.id).then(({ error }) => {
          if (error) console.error("Error updating project root:", error);
      });
