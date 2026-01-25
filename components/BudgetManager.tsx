@@ -55,8 +55,12 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
             // Filter only images for analysis as Gemini Flash handles images best via base64
             const docImages = includeDocs ? (project.documents || []).filter(d => d.type === 'image').map(d => d.data) : [];
 
+            // Combine project context with user prompt
+            const contextPrompt = `Contexto del Proyecto: Nombre "${project.name}", Tipo "${project.type}", Ubicación "${project.location}".
+            Solicitud del usuario: ${aiPrompt}`;
+
             // Pass the dynamic database and images to the AI service
-            const items = await generateSmartBudget(aiPrompt, priceDatabase, docImages);
+            const items = await generateSmartBudget(contextPrompt, priceDatabase, docImages);
             const enrichedItems: BudgetItem[] = items.map((item: any) => ({
                 id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
                 name: item.name,
@@ -283,13 +287,13 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                     <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-slate-800 dark:to-slate-800/50 p-6 rounded-2xl border border-blue-100 dark:border-slate-700 shadow-sm relative overflow-hidden transition-colors">
                         <div className="absolute top-0 right-0 w-32 h-32 bg-blue-200/20 dark:bg-blue-500/10 rounded-full blur-3xl -mr-16 -mt-16"></div>
                         <h3 className="text-sm font-bold text-[#0047AB] dark:text-blue-400 mb-4 flex items-center relative z-10">
-                            <Wand2 className="w-4 h-4 mr-2" /> Generador Inteligente
+                            <Wand2 className="w-4 h-4 mr-2" /> Generador Inteligente (Experto REBT)
                         </h3>
                         <div className="flex flex-col gap-4 relative z-10">
                             <textarea 
                                 value={aiPrompt}
                                 onChange={(e) => setAiPrompt(e.target.value)}
-                                placeholder="Describe la instalación o deja que analice los documentos..."
+                                placeholder="Describe la instalación (ej: Reforma integral piso 90m2 con aire acondicionado y cocina eléctrica)..."
                                 className="w-full p-4 text-sm bg-white dark:bg-slate-900 border border-blue-100 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-[#0047AB] outline-none resize-none h-24 shadow-sm text-slate-700 dark:text-slate-200 transition-colors"
                             />
                             <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
@@ -309,7 +313,7 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                                     className="bg-[#0047AB] text-white px-6 py-2.5 rounded-xl hover:bg-[#003380] disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 font-semibold shadow-md shadow-blue-900/10 w-full sm:w-auto justify-center"
                                 >
                                     {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
-                                    {isGenerating ? 'Generando...' : 'Generar Partidas'}
+                                    {isGenerating ? 'Calculando s/ Reglamento...' : 'Generar Partidas'}
                                 </button>
                             </div>
                         </div>

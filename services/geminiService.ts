@@ -294,13 +294,35 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
     return apiQueue.add(async () => {
         try {
             // Contexto de precios para que la IA use precios reales
-            const priceContext = currentPrices.slice(0, 50).map(p => `${p.name}: ${p.price}€/${p.unit}`).join('\n');
+            const priceContext = currentPrices.slice(0, 100).map(p => `- ${p.name} (Categoría: ${p.category}): ${p.price}€/${p.unit}`).join('\n');
             
-            const prompt = `Genera un presupuesto detallado (lista de partidas) para: "${description}".
-            Usa estos precios de referencia si aplican:\n${priceContext}
+            const prompt = `Actúa como un INGENIERO ELÉCTRICO EXPERTO EN EL REBT (Reglamento Electrotécnico para Baja Tensión de España).
+            Tu tarea es generar un presupuesto técnico y detallado para: "${description}".
+
+            ### REGLAS OBLIGATORIAS (REBT ESPAÑA):
+            1. CLASIFICACIÓN: Determina si es Electrificación Básica (C1-C5) o Elevada (C1-C12, aire acondicionado, calefacción, etc.) según la descripción.
+            2. CIRCUITOS Y CABLEADO: Debes calcular las secciones mínimas y protecciones:
+               - Iluminación (C1): Cable 1.5mm², PIA 10A.
+               - Tomas uso general (C2): Cable 2.5mm², PIA 16A.
+               - Cocina/Horno (C3): Cable 6mm², PIA 25A.
+               - Lavadora/Termo (C4): Cable 4mm², PIA 20A.
+               - Baños/Cocina Humeda (C5): Cable 2.5mm², PIA 16A.
+               - Estimación de metraje: Calcula metros lógicos de cable (Fase+Neutro+Tierra) considerando el tamaño implícito de la obra + 15% seguridad.
+            3. CUADRO GENERAL (CGMP): Incluye IGA, Diferenciales (30mA) y Sobretensiones si aplica.
+            4. MECANISMOS: Calcula número aproximado de cajas universales, enchufes e interruptores.
+
+            ### POLÍTICA DE PRECIOS (PRIORIDAD ESTRICTA):
+            1. BUSCA EN LA BASE DE DATOS PROPIA (abajo). Si el material necesario existe (aunque el nombre varíe ligeramente), USA ESE NOMBRE EXACTO y SU PRECIO.
+            2. Si NO existe en la base de datos: Estima un precio de mercado realista en España para 2024/2025.
+
+            ### BASE DE DATOS PROPIA:
+            ${priceContext}
+
+            ### FORMATO DE SALIDA:
+            Devuelve ÚNICAMENTE un Array JSON válido con objetos: 
+            [{ "name": "Nombre técnico exacto", "quantity": numero_estimado, "unit": "m/ud/h", "pricePerUnit": precio, "category": "Material/Mano de Obra" }]
             
-            Devuelve SOLO un Array JSON con objetos: { "name": string, "quantity": number, "unit": string, "pricePerUnit": number, "category": string }.
-            Sin markdown.`;
+            No incluyas markdown, solo el JSON.`;
 
             const parts: any[] = [{ text: prompt }];
             
@@ -311,7 +333,10 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
 
             const operation = () => genAI.models.generateContent({
                 model: MODEL_NAME,
-                contents: { parts }
+                contents: { parts },
+                config: {
+                    temperature: 0.2, // Baja temperatura para rigor técnico
+                }
             });
 
             const response = await retryOperation(operation);
