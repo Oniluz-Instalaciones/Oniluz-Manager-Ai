@@ -22,7 +22,9 @@ const apiKey = getClientApiKey();
 // Inicializamos cliente local solo si hay key, sino usaremos fallback
 const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
 
-const MODEL_FLASH = 'gemini-2.5-flash';
+// CAMBIO CRÍTICO: Usamos gemini-3-flash-preview para evitar el límite de 20 req/día del 2.5
+// Si este falla, se podría probar 'gemini-2.0-flash'
+const MODEL_FLASH = 'gemini-3-flash-preview';
 
 // --- Unified Request Handler ---
 
@@ -171,13 +173,27 @@ const retryOperation = async <T>(operation: () => Promise<T>, retries = 3, delay
     try {
         return await operation();
     } catch (error: any) {
-        const isQuotaError = error.message?.includes('429') || error.status === 429;
-        const isServerError = error.message?.includes('500') || error.message?.includes('503') || error.status >= 500;
+        const msg = error.message || '';
+        const isQuotaError = msg.includes('429') || error.status === 429;
+        const isServerError = msg.includes('500') || msg.includes('503') || error.status >= 500;
+
+        // Detectar tiempo de espera sugerido por Google (ej: "Please retry in 56.25s")
+        const waitMatch = msg.match(/retry in ([0-9.]+)s/);
+        let waitTime = delay;
+        
+        if (waitMatch && waitMatch[1]) {
+            const seconds = parseFloat(waitMatch[1]);
+            // Si Google pide esperar más de 10 segundos, no reintentamos automáticamente para no bloquear la UI
+            if (seconds > 10) {
+                 throw new Error(`Cuota excedida. Google pide esperar ${Math.ceil(seconds)} segundos. Inténtalo más tarde.`);
+            }
+            waitTime = seconds * 1000 + 1000; // Esperar lo que dice + 1s buffer
+        }
 
         if (retries > 0 && (isQuotaError || isServerError)) {
-            console.warn(`Reintentando IA (${error.status})... Quedan ${retries}`);
-            await new Promise(r => setTimeout(r, delay));
-            return retryOperation(operation, retries - 1, delay * 2);
+            console.warn(`Reintentando IA (${error.status})... Esperando ${waitTime}ms. Quedan ${retries}`);
+            await new Promise(r => setTimeout(r, waitTime));
+            return retryOperation(operation, retries - 1, waitTime * 2); // Backoff exponencial si no hay tiempo específico
         }
         throw error;
     }
@@ -243,8 +259,9 @@ export const analyzeProjectStatus = async (project: Project): Promise<string> =>
                  { temperature: 0.5 }
              ));
              return response.text || "No se pudo generar análisis.";
-         } catch (e) {
-             return "Servicio no disponible. Verifique API Key.";
+         } catch (e: any) {
+             if (e.message.includes('Cuota excedida')) return "Límite de IA alcanzado. Espera un minuto.";
+             return "Servicio no disponible temporalmente.";
          }
     });
 };
@@ -270,6 +287,7 @@ export const analyzeDocument = async (base64Data: string, mimeType: string) => {
             
             return cleanAndParseJSON(response.text || "{}");
         } catch (e: any) {
+            if (e.message.includes('Cuota')) return { errorType: 'QUOTA', description: e.message };
             return { errorType: 'GENERIC', description: e.message };
         }
      });
@@ -326,8 +344,9 @@ export const chatWithAssistant = async (message: string, context: string): Promi
                 `${context}\n\nUsuario: ${message}`
             ));
             return response.text || "Sin respuesta.";
-        } catch (e) {
-            return "Error de conexión. Inténtalo más tarde.";
+        } catch (e: any) {
+            if (e.message.includes('Cuota')) return "He alcanzado mi límite de respuestas por minuto. Por favor, pregúntame de nuevo en unos segundos.";
+            return "Error de conexión con el servicio inteligente.";
         }
     });
 };

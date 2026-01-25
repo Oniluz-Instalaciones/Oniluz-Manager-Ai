@@ -24,8 +24,9 @@ export default async function handler(req: Request) {
     const genAI = new GoogleGenAI({ apiKey });
     
     // Llamada segura a Google Gemini desde el servidor
+    // Default model changed to gemini-3-flash-preview for better quota handling
     const response = await genAI.models.generateContent({
-        model: model || 'gemini-2.5-flash',
+        model: model || 'gemini-3-flash-preview',
         contents,
         config
     });
