@@ -17,8 +17,8 @@ const getClientApiKey = (): string | undefined => {
 const apiKey = getClientApiKey();
 const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
 
-// Use a stable preview model
-const MODEL_FLASH = 'gemini-2.5-flash-preview'; 
+// UPDATED: Use the latest supported model as per guidelines to avoid 404
+const MODEL_FLASH = 'gemini-3-flash-preview'; 
 
 // --- Helpers ---
 
@@ -52,11 +52,10 @@ const cleanAndParseJSON = (text: string): any => {
 const optimizeImage = async (base64Str: string, maxWidth = 512): Promise<string> => {
     return new Promise((resolve) => {
         if (typeof Image === 'undefined' || base64Str.startsWith('http')) {
-            resolve(base64Str); // Can't optimize URLs or server-side easily without sharp
+            resolve(base64Str); 
             return;
         }
 
-        // Remove prefix if present for processing
         const cleanStr = base64Str.includes(',') ? base64Str.split(',')[1] : base64Str;
 
         const img = new Image();
@@ -78,7 +77,6 @@ const optimizeImage = async (base64Str: string, maxWidth = 512): Promise<string>
             const ctx = canvas.getContext('2d');
             if (ctx) {
                 ctx.drawImage(img, 0, 0, width, height);
-                // Return Raw Base64 without prefix for Gemini API
                 resolve(canvas.toDataURL('image/jpeg', 0.6).split(',')[1]);
             } else {
                 resolve(cleanStr);
@@ -88,7 +86,25 @@ const optimizeImage = async (base64Str: string, maxWidth = 512): Promise<string>
     });
 };
 
-// Queue system to prevent rate limiting issues
+// Retry mechanism for robust API calls
+const retryOperation = async <T>(operation: () => Promise<T>, retries = 3, delay = 1000): Promise<T> => {
+    try {
+        return await operation();
+    } catch (error: any) {
+        const msg = error.message || '';
+        const isQuotaError = msg.includes('429') || error.status === 429;
+        const isServerError = msg.includes('500') || msg.includes('503') || error.status >= 500;
+        
+        // Don't retry 404 (Not Found) or 400 (Bad Request) as they are likely permanent
+        if (retries > 0 && (isQuotaError || isServerError)) {
+            console.warn(`Reintentando operación IA (${error.status})... Intento ${4 - retries}`);
+            await new Promise(r => setTimeout(r, delay));
+            return retryOperation(operation, retries - 1, delay * 2);
+        }
+        throw error;
+    }
+};
+
 class RequestQueue {
     private queue: (() => Promise<any>)[] = [];
     private working = false;
@@ -147,10 +163,8 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
     return apiQueue.add(async () => {
         const priceContext = currentPrices.slice(0, 50).map(p => `- ${p.name}: ${p.price}€/${p.unit}`).join('\n');
         
-        // Parts construction
         const parts: any[] = [];
         
-        // Add Images first (best practice)
         if (images.length > 0) {
              try {
                  const rawImg = images[0];
@@ -171,9 +185,9 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
         
         parts.push({ text: prompt });
 
-        // STRATEGY 1: Strict Schema (Best Quality)
+        // STRATEGY 1: Strict Schema with Retry
         try {
-            const response = await callGenAI(
+            const response = await retryOperation(() => callGenAI(
                 MODEL_FLASH,
                 { parts },
                 { 
@@ -194,29 +208,29 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
                         }
                     }
                 }
-            );
+            ));
             
             if (response.text) return JSON.parse(response.text);
         } catch (error) {
             console.warn("Schema strategy failed, trying text fallback...", error);
         }
 
-        // STRATEGY 2: Text Fallback (Aggressive cleaning)
+        // STRATEGY 2: Text Fallback with Retry
         try {
-            const response = await callGenAI(
+            const response = await retryOperation(() => callGenAI(
                 MODEL_FLASH,
                 { parts },
-                { temperature: 0.3 } // No schema, just text
-            );
+                { temperature: 0.3 }
+            ));
             const items = cleanAndParseJSON(response.text || "[]");
             if (Array.isArray(items) && items.length > 0) return items;
         } catch (error) {
             console.error("Text fallback failed", error);
         }
 
-        // FALLBACK MANUAL (Last Resort)
+        // FALLBACK MANUAL
         return [{
-            name: "Partida generada manualmente (IA no disponible)",
+            name: "Partida generada manualmente (Error IA: " + (ai ? "Conexión" : "Sin Key") + ")",
             quantity: 1,
             unit: "ud",
             pricePerUnit: 0,
@@ -233,8 +247,7 @@ export const analyzeDocument = async (base64Data: string, mimeType: string) => {
             
             const prompt = `Analiza este documento (factura/albarán). Extrae fecha, total, IVA, proveedor y lista de materiales en JSON.`;
 
-            // Try with schema first
-            const response = await callGenAI(
+            const response = await retryOperation(() => callGenAI(
                 MODEL_FLASH,
                 {
                     parts: [
@@ -267,7 +280,7 @@ export const analyzeDocument = async (base64Data: string, mimeType: string) => {
                         }
                     }
                 }
-            );
+            ));
             
             return JSON.parse(response.text || "{}");
         } catch (e: any) {
@@ -279,11 +292,11 @@ export const analyzeDocument = async (base64Data: string, mimeType: string) => {
 export const parseMaterialsFromInput = async (text: string): Promise<PriceItem[]> => {
      return apiQueue.add(async () => {
          try {
-             const response = await callGenAI(
+             const response = await retryOperation(() => callGenAI(
                  MODEL_FLASH,
                  `Extrae lista de materiales de: "${text}". JSON Array format.`,
                  { responseMimeType: "application/json" }
-             );
+             ));
              const res = cleanAndParseJSON(response.text || "[]");
              return Array.isArray(res) ? res.map((i: any) => ({...i, id: Date.now().toString() + Math.random()})) : [];
          } catch (e) {
@@ -297,7 +310,7 @@ export const parseMaterialsFromImage = async (base64Data: string): Promise<Price
         try {
             if (base64Data.startsWith('http')) return [];
             const optimized = await optimizeImage(base64Data);
-            const response = await callGenAI(
+            const response = await retryOperation(() => callGenAI(
                 MODEL_FLASH,
                 {
                     parts: [
@@ -306,7 +319,7 @@ export const parseMaterialsFromImage = async (base64Data: string): Promise<Price
                     ]
                 },
                 { responseMimeType: "application/json" }
-            );
+            ));
             const res = cleanAndParseJSON(response.text || "[]");
             return Array.isArray(res) ? res.map((i: any) => ({...i, id: Date.now().toString() + Math.random()})) : [];
         } catch (e) {
@@ -319,7 +332,7 @@ export const analyzeProjectStatus = async (project: Project): Promise<string> =>
     return apiQueue.add(async () => {
          try {
              const prompt = `Analiza proyecto: ${project.name}. Presupuesto: ${project.budget}. Estado: ${project.status}. Resumen ejecutivo breve.`;
-             const response = await callGenAI(MODEL_FLASH, prompt, { maxOutputTokens: 500 });
+             const response = await retryOperation(() => callGenAI(MODEL_FLASH, prompt, { maxOutputTokens: 500 }));
              return response.text || "No se pudo generar análisis.";
          } catch (e) {
              return "Servicio no disponible.";
@@ -330,7 +343,7 @@ export const analyzeProjectStatus = async (project: Project): Promise<string> =>
 export const chatWithAssistant = async (message: string, context: string): Promise<string> => {
     return apiQueue.add(async () => {
         try {
-            const response = await callGenAI(MODEL_FLASH, `${context}\n\nUsuario: ${message}`);
+            const response = await retryOperation(() => callGenAI(MODEL_FLASH, `${context}\n\nUsuario: ${message}`));
             return response.text || "Sin respuesta.";
         } catch (e) {
             return "Error de conexión con el asistente.";
