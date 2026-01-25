@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Project, Transaction, Material } from '../types';
-import { ArrowLeft, TrendingUp, TrendingDown, DollarSign, Calendar, Filter, Download, PieChart as PieIcon, BarChart3, Search, X, Camera, ExternalLink } from 'lucide-react';
+import { ArrowLeft, TrendingUp, TrendingDown, DollarSign, Calendar, Filter, Download, PieChart as PieIcon, BarChart3, Search, X, Camera, ExternalLink, Briefcase } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, 
   AreaChart, Area, PieChart, Pie, Legend 
@@ -15,9 +15,10 @@ interface GlobalFinanceProps {
 
 const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdateProject }) => {
   // --- State for Filters ---
+  // CORRECCIÓN: Ampliamos el rango por defecto (2023-2030) para asegurar que se vean datos de prueba o futuros
   const [dateRange, setDateRange] = useState<{ start: string; end: string }>({
-    start: new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0], // Jan 1st of current year
-    end: new Date().toISOString().split('T')[0] // Today
+    start: '2023-01-01',
+    end: '2030-12-31'
   });
   const [selectedProject, setSelectedProject] = useState<string>('ALL');
   const [filterType, setFilterType] = useState<'ALL' | 'income' | 'expense'>('ALL');
@@ -26,6 +27,7 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
   // --- Data Processing ---
 
   // 1. Flatten all transactions with project context
+  // Esto toma TODOS los gastos de CADA obra y los junta en una sola lista maestra
   const allTransactions = useMemo(() => {
     return projects.flatMap(p => p.transactions.map(t => ({ 
       ...t, 
@@ -66,8 +68,8 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
     const sorted = [...filteredTransactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
     sorted.forEach(t => {
-      // Group by Month (YYYY-MM) or Day depending on range? Let's do Month for global view usually
-      const key = t.date.substring(0, 7); // YYYY-MM
+      // Group by Month (YYYY-MM)
+      const key = t.date.substring(0, 7); 
       if (!grouped[key]) grouped[key] = { date: key, income: 0, expense: 0 };
       if (t.type === 'income') grouped[key].income += t.amount;
       else grouped[key].expense += t.amount;
@@ -87,28 +89,6 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
     
     return Object.keys(grouped).map(key => ({ name: key, value: grouped[key] })).sort((a, b) => b.value - a.value);
   }, [filteredTransactions]);
-
-  // 6. Per Project Breakdown
-  const projectFinancials = useMemo(() => {
-      return projects.map(p => {
-          // Calculate using filtered transactions to respect date range
-          const pTrans = filteredTransactions.filter(t => t.projectId === p.id);
-          const inc = pTrans.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
-          const exp = pTrans.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
-          
-          return {
-              id: p.id,
-              name: p.name,
-              status: p.status,
-              income: inc,
-              expense: exp,
-              profit: inc - exp,
-              margin: inc > 0 ? ((inc - exp) / inc) * 100 : 0,
-              hasActivity: pTrans.length > 0
-          };
-      }).filter(p => selectedProject === 'ALL' || p.id === selectedProject) // Show only selected project if filtered
-        .filter(p => p.hasActivity); // Only show projects with activity in this period
-  }, [projects, filteredTransactions, selectedProject]);
 
   // Colors for Charts
   const COLORS = ['#0047AB', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
@@ -147,7 +127,6 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
         };
         onUpdateProject(updatedProject);
         setIsScannerOpen(false);
-        // Opcional: Podríamos mostrar un mensaje de éxito, pero el modal ya hace alert o visual feedback
     }
   };
 
@@ -161,7 +140,7 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
             </button>
             <div>
                 <h1 className="text-3xl font-extrabold text-slate-900 dark:text-white">Finanzas Globales</h1>
-                <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Análisis económico y rentabilidad</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Consolidado de todas las obras</p>
             </div>
         </div>
         <div className="flex items-center gap-3">
@@ -169,13 +148,13 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
                 onClick={() => setIsScannerOpen(true)}
                 className="flex items-center gap-2 bg-[#0047AB] text-white px-5 py-2.5 rounded-xl font-bold hover:bg-[#003380] transition-colors shadow-lg shadow-blue-900/10"
             >
-                <Camera className="w-5 h-5" /> <span className="hidden sm:inline">Escanear / Añadir</span>
+                <Camera className="w-5 h-5" /> <span className="hidden sm:inline">Escanear Gasto</span>
             </button>
             <button 
                 onClick={handleExportCSV}
                 className="flex items-center gap-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 px-4 py-2.5 rounded-xl font-bold hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
             >
-                <Download className="w-4 h-4" /> <span className="hidden sm:inline">Exportar CSV</span>
+                <Download className="w-4 h-4" /> <span className="hidden sm:inline">CSV</span>
             </button>
         </div>
       </div>
@@ -185,7 +164,7 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
          <div className="flex flex-col sm:flex-row gap-4 w-full lg:w-auto">
              <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900/50 p-1.5 rounded-xl border border-slate-200 dark:border-slate-700">
                  <div className="px-3 py-1.5 text-xs font-bold uppercase text-slate-400 flex items-center gap-2 border-r border-slate-200 dark:border-slate-700">
-                     <Calendar className="w-3.5 h-3.5" /> Periodo
+                     <Calendar className="w-3.5 h-3.5" /> Rango
                  </div>
                  <input 
                     type="date" 
@@ -204,14 +183,14 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
 
              <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900/50 p-1.5 rounded-xl border border-slate-200 dark:border-slate-700 flex-1 sm:flex-none">
                  <div className="px-3 py-1.5 text-xs font-bold uppercase text-slate-400 flex items-center gap-2 border-r border-slate-200 dark:border-slate-700">
-                     <Filter className="w-3.5 h-3.5" /> Filtrar
+                     <Filter className="w-3.5 h-3.5" /> Obra
                  </div>
                  <select 
                     value={selectedProject}
                     onChange={(e) => setSelectedProject(e.target.value)}
                     className="bg-transparent border-none text-sm font-bold text-black dark:text-white focus:ring-0 cursor-pointer w-full sm:w-40"
                  >
-                     <option value="ALL" className="text-black bg-white dark:bg-slate-800 dark:text-white">Todas las obras</option>
+                     <option value="ALL" className="text-black bg-white dark:bg-slate-800 dark:text-white">Todas</option>
                      {projects.map(p => <option key={p.id} value={p.id} className="text-black bg-white dark:bg-slate-800 dark:text-white">{p.name.substring(0, 20)}...</option>)}
                  </select>
              </div>
@@ -247,7 +226,7 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
              <div className="absolute top-0 right-0 p-4 opacity-10">
                  <TrendingUp className="w-16 h-16 text-green-500" />
              </div>
-             <p className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider z-10">Ingresos Totales</p>
+             <p className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider z-10">Ingresos Totales (Obras)</p>
              <div>
                 <p className="text-3xl font-extrabold text-slate-900 dark:text-white z-10">{totalIncome.toLocaleString()}€</p>
                 <p className="text-xs text-green-600 dark:text-green-400 font-bold mt-1 bg-green-50 dark:bg-green-900/20 inline-block px-2 py-0.5 rounded-md">
@@ -260,7 +239,7 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
              <div className="absolute top-0 right-0 p-4 opacity-10">
                  <TrendingDown className="w-16 h-16 text-red-500" />
              </div>
-             <p className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider z-10">Gastos Totales</p>
+             <p className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider z-10">Gastos Totales (Obras)</p>
              <div>
                 <p className="text-3xl font-extrabold text-slate-900 dark:text-white z-10">{totalExpense.toLocaleString()}€</p>
                 <p className="text-xs text-red-500 dark:text-red-400 font-bold mt-1 bg-red-50 dark:bg-red-900/20 inline-block px-2 py-0.5 rounded-md">
@@ -358,130 +337,59 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
             </div>
         </div>
 
-        {/* Breakdown by Project Table */}
+        {/* REVERTED TO LIST VIEW: Detailed Transactions List */}
         <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 overflow-hidden transition-colors">
            <div className="p-8 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center">
              <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                 <BarChart3 className="w-5 h-5 text-[#0047AB] dark:text-blue-400" /> Desglose: Finanzas por Obra
-             </h3>
-             <span className="text-xs text-slate-400 font-medium hidden sm:block">Basado en periodo seleccionado</span>
-           </div>
-           <div className="overflow-x-auto">
-               <table className="w-full text-left text-sm">
-                   <thead className="bg-slate-50 dark:bg-slate-700/50 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 uppercase text-xs tracking-wider">
-                       <tr>
-                           <th className="px-6 py-4 font-bold">Proyecto</th>
-                           <th className="px-6 py-4 font-bold text-center">Estado</th>
-                           <th className="px-6 py-4 font-bold text-right">Ingresos</th>
-                           <th className="px-6 py-4 font-bold text-right">Gastos</th>
-                           <th className="px-6 py-4 font-bold text-right">Beneficio</th>
-                           <th className="px-6 py-4 font-bold text-right">Margen</th>
-                       </tr>
-                   </thead>
-                   <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
-                       {projectFinancials.map(p => (
-                           <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
-                               <td className="px-6 py-4 font-bold text-slate-800 dark:text-white truncate max-w-[200px]">{p.name}</td>
-                               <td className="px-6 py-4 text-center">
-                                   <span className={`text-[10px] px-2 py-1 rounded-full uppercase font-bold ${
-                                       p.status === 'En Curso' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
-                                       p.status === 'Completado' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
-                                       'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
-                                   }`}>
-                                       {p.status}
-                                   </span>
-                               </td>
-                               <td className="px-6 py-4 text-right text-green-600 dark:text-green-400 font-mono font-medium">{p.income.toLocaleString()}€</td>
-                               <td className="px-6 py-4 text-right text-red-500 dark:text-red-400 font-mono font-medium">{p.expense.toLocaleString()}€</td>
-                               <td className={`px-6 py-4 text-right font-mono font-bold ${p.profit >= 0 ? 'text-[#0047AB] dark:text-blue-400' : 'text-orange-500'}`}>
-                                   {p.profit.toLocaleString()}€
-                               </td>
-                               <td className="px-6 py-4 text-right">
-                                   <div className="flex items-center justify-end gap-2">
-                                       <div className="w-16 h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-                                           <div 
-                                              className={`h-full ${p.margin >= 20 ? 'bg-green-500' : p.margin >= 10 ? 'bg-blue-500' : 'bg-orange-500'}`} 
-                                              style={{width: `${Math.min(Math.max(p.margin, 0), 100)}%`}}
-                                           ></div>
-                                       </div>
-                                       <span className="text-xs font-bold text-slate-600 dark:text-slate-400 w-8">{p.margin.toFixed(0)}%</span>
-                                   </div>
-                               </td>
-                           </tr>
-                       ))}
-                       {projectFinancials.length === 0 && (
-                           <tr>
-                               <td colSpan={6} className="px-6 py-10 text-center text-slate-400 dark:text-slate-500 font-medium">
-                                   No hay actividad en el periodo seleccionado para los filtros actuales.
-                               </td>
-                           </tr>
-                       )}
-                   </tbody>
-               </table>
-           </div>
-        </div>
-
-        {/* Detailed Transactions List (Refactored to Table for Better Visibility) */}
-        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 overflow-hidden transition-colors">
-           <div className="p-8 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center">
-             <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                 <ExternalLink className="w-5 h-5 text-[#0047AB] dark:text-blue-400" /> Registro Detallado de Movimientos
+                 <ExternalLink className="w-5 h-5 text-[#0047AB] dark:text-blue-400" /> Últimos Movimientos
              </h3>
              <span className="bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold px-3 py-1 rounded-full">
                  {filteredTransactions.length} registros
              </span>
            </div>
            
-           <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                    <thead className="bg-slate-50 dark:bg-slate-700/50 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 uppercase text-xs tracking-wider">
-                        <tr>
-                            <th className="px-6 py-4 font-bold w-32">Fecha</th>
-                            <th className="px-6 py-4 font-bold">Obra (Proyecto)</th>
-                            <th className="px-6 py-4 font-bold">Detalle / Concepto</th>
-                            <th className="px-6 py-4 font-bold">Categoría</th>
-                            <th className="px-6 py-4 font-bold text-center">Tipo</th>
-                            <th className="px-6 py-4 font-bold text-right">Importe</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                        {filteredTransactions.slice(0, 50).map(t => (
-                            <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors group">
-                                <td className="px-6 py-4 text-slate-600 dark:text-slate-300 whitespace-nowrap font-mono text-xs">
-                                    {t.date}
-                                </td>
-                                <td className="px-6 py-4">
-                                    <div className="font-bold text-slate-800 dark:text-white text-xs truncate max-w-[200px]" title={t.projectName}>
-                                        {t.projectName}
+           <div className="divide-y divide-slate-100 dark:divide-slate-700">
+                {filteredTransactions.length > 0 ? (
+                    filteredTransactions.slice(0, 50).map(t => (
+                        <div key={t.id} className="p-6 flex flex-col md:flex-row items-start md:items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors gap-4">
+                            <div className="flex items-center gap-4">
+                                <div className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 ${
+                                    t.type === 'income' 
+                                    ? 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400' 
+                                    : 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400'
+                                }`}>
+                                    {t.type === 'income' ? <TrendingUp className="w-6 h-6" /> : <TrendingDown className="w-6 h-6" />}
+                                </div>
+                                <div>
+                                    <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 mb-1">
+                                        <h4 className="font-bold text-slate-900 dark:text-white text-base">{t.description}</h4>
+                                        <span className="text-[10px] uppercase font-bold text-slate-500 bg-slate-100 dark:bg-slate-700 dark:text-slate-400 px-2 py-0.5 rounded-md w-fit">
+                                            {t.category}
+                                        </span>
                                     </div>
-                                </td>
-                                <td className="px-6 py-4">
-                                    <span className="font-medium text-slate-700 dark:text-slate-200">{t.description}</span>
-                                </td>
-                                <td className="px-6 py-4">
-                                    <span className="text-[10px] uppercase font-bold text-slate-500 bg-slate-100 dark:bg-slate-700 dark:text-slate-400 px-2 py-1 rounded-md">
-                                        {t.category}
-                                    </span>
-                                </td>
-                                <td className="px-6 py-4 text-center">
-                                    <div className={`inline-flex p-1.5 rounded-lg ${t.type === 'income' ? 'bg-green-50 dark:bg-green-900/20 text-green-600' : 'bg-red-50 dark:bg-red-900/20 text-red-500'}`}>
-                                        {t.type === 'income' ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+                                    <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                                        <span className="font-mono">{t.date}</span>
+                                        <span>•</span>
+                                        <span className="flex items-center gap-1 text-[#0047AB] dark:text-blue-400 font-medium">
+                                            <Briefcase className="w-3 h-3" /> {t.projectName}
+                                        </span>
                                     </div>
-                                </td>
-                                <td className={`px-6 py-4 text-right font-bold font-mono ${t.type === 'income' ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}>
-                                    {t.type === 'income' ? '+' : '-'}{t.amount.toLocaleString()}€
-                                </td>
-                            </tr>
-                        ))}
-                        {filteredTransactions.length === 0 && (
-                            <tr>
-                                <td colSpan={6} className="px-6 py-12 text-center text-slate-400 dark:text-slate-500 font-medium">
-                                    No se encontraron movimientos que coincidan con los filtros.
-                                </td>
-                            </tr>
-                        )}
-                    </tbody>
-                </table>
+                                </div>
+                            </div>
+                            <div className={`text-xl font-extrabold font-mono ${
+                                t.type === 'income' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
+                            }`}>
+                                {t.type === 'income' ? '+' : '-'}{t.amount.toLocaleString()}€
+                            </div>
+                        </div>
+                    ))
+                ) : (
+                    <div className="p-12 text-center text-slate-400 dark:text-slate-500 flex flex-col items-center">
+                        <Filter className="w-12 h-12 mb-3 opacity-20" />
+                        <p className="font-medium">No se encontraron movimientos en este periodo.</p>
+                        <p className="text-xs mt-1">Prueba a ampliar el rango de fechas.</p>
+                    </div>
+                )}
            </div>
            
            {filteredTransactions.length > 50 && (
