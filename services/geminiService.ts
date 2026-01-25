@@ -6,26 +6,129 @@ import { Project, PriceItem } from "../types";
 const apiKey = 'AIzaSyAPt-4D6bA9qLK-BrijbJBcmnBU1ojXOA8';
 const genAI = new GoogleGenAI({ apiKey });
 
-// SOLUCIÓN: Usamos 'gemini-2.0-flash'.
-// La versión estable tiene mejores límites de cuota que la versión experimental (-exp).
-const MODEL_NAME = 'gemini-2.0-flash';
+// Usamos 'gemini-1.5-flash' por su balance velocidad/coste/cuota.
+const MODEL_NAME = 'gemini-1.5-flash';
+
+// --- SISTEMA DE CACHÉ ---
+const responseCache = new Map<string, { timestamp: number, data: any }>();
+const CACHE_TTL = 1000 * 60 * 5; // 5 minutos de caché para análisis idénticos
+
+// --- SISTEMA DE COLA (Rate Limiting) ---
+// Evita lanzar múltiples peticiones simultáneas que bloqueen la API gratuita
+class RequestQueue {
+    private queue: (() => Promise<void>)[] = [];
+    private processing = false;
+
+    async add<T>(operation: () => Promise<T>): Promise<T> {
+        return new Promise<T>((resolve, reject) => {
+            this.queue.push(async () => {
+                try {
+                    const result = await operation();
+                    resolve(result);
+                } catch (err) {
+                    reject(err);
+                }
+            });
+            this.process();
+        });
+    }
+
+    private async process() {
+        if (this.processing || this.queue.length === 0) return;
+        this.processing = true;
+        
+        while (this.queue.length > 0) {
+            const op = this.queue.shift();
+            if (op) {
+                await op();
+                // Pequeña pausa entre peticiones para dar respiro a la cuota
+                await new Promise(r => setTimeout(r, 1000)); 
+            }
+        }
+        
+        this.processing = false;
+    }
+}
+
+const apiQueue = new RequestQueue();
+
+// --- UTILIDADES DE OPTIMIZACIÓN ---
+
+/**
+ * Comprime imágenes antes de enviarlas para ahorrar tokens masivamente.
+ * Redimensiona a max 1024px y reduce calidad JPEG.
+ */
+const optimizeImage = (base64Str: string): Promise<string> => {
+    return new Promise((resolve) => {
+        // Si no es imagen, devolver tal cual
+        if (!base64Str.startsWith('data:image')) {
+             return resolve(base64Str.includes(',') ? base64Str.split(',')[1] : base64Str);
+        }
+
+        const img = new Image();
+        img.src = base64Str;
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            let width = img.width;
+            let height = img.height;
+            const MAX_SIZE = 1024; // Reducción drástica de tokens
+
+            if (width > height) {
+                if (width > MAX_SIZE) {
+                    height *= MAX_SIZE / width;
+                    width = MAX_SIZE;
+                }
+            } else {
+                if (height > MAX_SIZE) {
+                    width *= MAX_SIZE / height;
+                    height = MAX_SIZE;
+                }
+            }
+
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx?.drawImage(img, 0, 0, width, height);
+            
+            // Comprimir a JPEG 0.7
+            const optimizedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+            resolve(optimizedBase64.split(',')[1]); // Devolver solo la data sin header
+        };
+        img.onerror = () => {
+            // Fallback si falla la carga
+            resolve(base64Str.includes(',') ? base64Str.split(',')[1] : base64Str);
+        };
+    });
+};
+
+/**
+ * Wrapper con reintentos exponenciales para manejar errores 429.
+ */
+const retryOperation = async <T>(operation: () => Promise<T>, retries = 3, delay = 2000): Promise<T> => {
+    try {
+        return await operation();
+    } catch (error: any) {
+        const isQuota = error.toString().includes('429') || (error.status === 429);
+        if (retries > 0 && isQuota) {
+            console.warn(`Cuota excedida (429). Reintentando en ${delay}ms...`);
+            await new Promise(r => setTimeout(r, delay));
+            return retryOperation(operation, retries - 1, delay * 2);
+        }
+        throw error;
+    }
+};
 
 /**
  * Función auxiliar para limpiar y parsear JSON de la respuesta de la IA.
  */
 const cleanAndParseJSON = (text: string): any => {
     try {
-        // 1. Eliminar bloques de código Markdown
         let cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
-        
-        // 2. Encontrar el primer '{' o '[' y el último '}' o ']'
         const firstOpenBrace = cleanText.indexOf('{');
         const firstOpenBracket = cleanText.indexOf('[');
-        
         let start = -1;
         let end = -1;
 
-        // Determinar si esperamos un objeto o un array
         if (firstOpenBrace !== -1 && (firstOpenBracket === -1 || firstOpenBrace < firstOpenBracket)) {
             start = firstOpenBrace;
             end = cleanText.lastIndexOf('}');
@@ -38,8 +141,6 @@ const cleanAndParseJSON = (text: string): any => {
             cleanText = cleanText.substring(start, end + 1);
             return JSON.parse(cleanText);
         }
-        
-        // Intento directo si no se encontraron estructuras claras
         return JSON.parse(cleanText);
     } catch (e) {
         console.error("Error parseando JSON de Gemini:", e);
@@ -47,11 +148,9 @@ const cleanAndParseJSON = (text: string): any => {
     }
 };
 
-/**
- * Analiza un documento (Ticket, Factura, Albarán).
- */
+// --- FUNCIONES PÚBLICAS ---
+
 export const analyzeDocument = async (base64String: string, mimeType: string = 'image/jpeg'): Promise<any> => {
-  // Objeto por defecto para fallback
   const fallbackData = {
     comercio: "",
     fecha: new Date().toISOString().split('T')[0],
@@ -62,145 +161,161 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
     items: []
   };
 
-  try {
-    const cleanBase64 = base64String.includes(',') ? base64String.split(',')[1] : base64String;
-    
-    // Prompt optimizado
-    const prompt = `Analiza esta imagen de un ticket/factura. Extrae los datos en este formato JSON exacto:
-    {
-      "comercio": "Nombre del proveedor",
-      "fecha": "YYYY-MM-DD",
-      "total": 0.00,
-      "iva": 0.00,
-      "categoria": "Material", 
-      "items": [{ "name": "Nombre producto", "quantity": 1, "unit": "ud", "price": 0.00 }]
-    }
-    Si no encuentras un dato, usa null. Responde SOLO con el JSON.`;
-    
-    const response = await genAI.models.generateContent({
-      model: MODEL_NAME,
-      contents: {
-        parts: [
-          { inlineData: { mimeType: mimeType, data: cleanBase64 } },
-          { text: prompt }
-        ]
-      },
-      config: { 
-          temperature: 0.1,
-      }
-    });
+  return apiQueue.add(async () => {
+      try {
+        // OPTIMIZACIÓN: Reducir tamaño de imagen antes de enviar
+        const cleanBase64 = await optimizeImage(base64String);
+        
+        const prompt = `Analiza ticket/factura. JSON exacto:
+        {
+          "comercio": "Proveedor",
+          "fecha": "YYYY-MM-DD",
+          "total": 0.00,
+          "iva": 0.00,
+          "categoria": "Material", 
+          "items": [{ "name": "Producto", "quantity": 1, "unit": "ud", "price": 0.00 }]
+        }
+        Si falta dato usa null. SOLO JSON.`;
+        
+        const operation = () => genAI.models.generateContent({
+          model: MODEL_NAME,
+          contents: {
+            parts: [
+              { inlineData: { mimeType: 'image/jpeg', data: cleanBase64 } }, // Forzamos jpeg optimizado
+              { text: prompt }
+            ]
+          },
+          config: { temperature: 0.1 }
+        });
 
-    const result = cleanAndParseJSON(response.text || "{}");
-    
-    if (result) {
-        // Asegurar tipos básicos
+        const response = await retryOperation(operation);
+        const result = cleanAndParseJSON(response.text || "{}");
+        
+        if (result) {
+            return {
+                ...fallbackData,
+                ...result,
+                total: Number(result.total) || 0,
+                iva: Number(result.iva) || 0
+            };
+        } else {
+           throw new Error("Fallo de parsing");
+        }
+      } catch (error: any) {
+        console.warn('Gemini API Error:', error);
+        const errorStr = error.toString();
+        const isQuotaError = errorStr.includes('429') || (error.status === 429);
         return {
             ...fallbackData,
-            ...result,
-            total: Number(result.total) || 0,
-            iva: Number(result.iva) || 0
+            errorType: isQuotaError ? 'QUOTA' : 'GENERIC',
+            description: isQuotaError ? "Límite de cuota." : "Error procesando"
         };
-    } else {
-       throw new Error("Respuesta inválida (Fallo de parsing)");
-    }
-
-  } catch (error: any) {
-    console.warn('Gemini API Error:', error);
-    
-    const errorStr = error.toString();
-    // Detección mejorada de errores de cuota (429)
-    const isQuotaError = errorStr.includes('429') || 
-                         (error.status === 429) || 
-                         errorStr.includes('Quota') ||
-                         errorStr.includes('Resource Exhausted') ||
-                         (error.body && error.body.includes('429'));
-
-    return {
-        ...fallbackData,
-        errorType: isQuotaError ? 'QUOTA' : 'GENERIC',
-        description: isQuotaError ? "Límite de cuota alcanzado. Espera un momento." : "Error al procesar imagen"
-    };
-  }
+      }
+  });
 };
 
 export const chatWithAssistant = async (message: string, context?: string): Promise<string> => {
-  try {
-    const prompt = context ? `Contexto:\n${context}\n\nUsuario: ${message}` : message;
-    const response = await genAI.models.generateContent({
-        model: MODEL_NAME,
-        contents: prompt
-    });
-    return response.text || "Sin respuesta.";
-  } catch (error: any) {
-    if (error.toString().includes('429') || (error.status === 429)) {
-        return "⚠️ He alcanzado mi límite de uso gratuito por minuto. Por favor, espera unos segundos antes de preguntar de nuevo.";
-    }
-    return "El asistente no está disponible temporalmente.";
-  }
+  return apiQueue.add(async () => {
+      try {
+        const prompt = context ? `Contexto:\n${context}\n\nUsuario: ${message}` : message;
+        const response = await retryOperation(() => genAI.models.generateContent({
+            model: MODEL_NAME,
+            contents: prompt
+        }));
+        return response.text || "Sin respuesta.";
+      } catch (error: any) {
+        if (error.toString().includes('429') || (error.status === 429)) {
+            return "⚠️ Tráfico alto. Por favor espera 30 segundos.";
+        }
+        return "El asistente no está disponible.";
+      }
+  });
 };
 
 export const analyzeProjectStatus = async (project: Project): Promise<string> => {
-  try {
-    const prompt = `Analiza proyecto: ${project.name}. Estado: ${project.status}. Presupuesto: ${project.budget}. Dame 3 consejos breves y estratégicos.`;
-    const response = await genAI.models.generateContent({
-        model: MODEL_NAME,
-        contents: prompt
-    });
-    return response.text || "";
-  } catch (error: any) {
-     if (error.toString().includes('429')) return "Análisis pausado (Límite de velocidad). Inténtalo en 1 minuto.";
-     return "Análisis no disponible.";
+  // OPTIMIZACIÓN: Cachear resultado si el proyecto no ha cambiado significativamente
+  // Usamos un hash simple basado en ID + Status + Budget
+  const cacheKey = `status-${project.id}-${project.status}-${project.budget}`;
+  const cached = responseCache.get(cacheKey);
+  
+  if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
+      console.log("Sirviendo análisis desde caché");
+      return cached.data;
   }
+
+  return apiQueue.add(async () => {
+      try {
+        const prompt = `Analiza proyecto: ${project.name}. Estado: ${project.status}. Presupuesto: ${project.budget}. 3 consejos breves.`;
+        const response = await retryOperation(() => genAI.models.generateContent({
+            model: MODEL_NAME,
+            contents: prompt
+        }));
+        
+        const text = response.text || "";
+        // Guardar en caché
+        responseCache.set(cacheKey, { timestamp: Date.now(), data: text });
+        return text;
+      } catch (error: any) {
+         if (error.toString().includes('429')) return "Análisis pausado (Límite). Inténtalo luego.";
+         return "Análisis no disponible.";
+      }
+  });
 };
 
 export const generateSmartBudget = async (description: string, currentPrices: PriceItem[], images: string[] = []): Promise<any[]> => {
-    try {
-        const parts: any[] = [{ text: `Genera un array JSON de partidas presupuestarias para: "${description}". Usa precios realistas.` }];
-        
-        if (images.length > 0) {
-             const img = images[0];
-             const data = img.includes(',') ? img.split(',')[1] : img;
-             parts.push({ inlineData: { mimeType: 'image/jpeg', data } });
-        }
+    return apiQueue.add(async () => {
+        try {
+            const parts: any[] = [{ text: `Genera JSON array partidas presupuestarias para: "${description}".` }];
+            
+            if (images.length > 0) {
+                 // Optimizar solo la primera imagen para ahorrar contexto
+                 const optimizedImg = await optimizeImage(images[0]);
+                 parts.push({ inlineData: { mimeType: 'image/jpeg', data: optimizedImg } });
+            }
 
-        const response = await genAI.models.generateContent({
-            model: MODEL_NAME,
-            contents: { parts }
-        });
-        
-        const result = cleanAndParseJSON(response.text || "[]");
-        return Array.isArray(result) ? result : [];
-    } catch {
-        return [];
-    }
+            const response = await retryOperation(() => genAI.models.generateContent({
+                model: MODEL_NAME,
+                contents: { parts }
+            }));
+            
+            const result = cleanAndParseJSON(response.text || "[]");
+            return Array.isArray(result) ? result : [];
+        } catch {
+            return [];
+        }
+    });
 };
 
 export const parseMaterialsFromInput = async (textInput: string): Promise<PriceItem[]> => {
-    try {
-        const prompt = `Extrae una lista de materiales de este texto en formato JSON array: "${textInput}"`;
-        const response = await genAI.models.generateContent({ model: MODEL_NAME, contents: prompt });
-        const result = cleanAndParseJSON(response.text || "[]");
-        return Array.isArray(result) ? result : [];
-    } catch {
-        return [];
-    }
+    return apiQueue.add(async () => {
+        try {
+            const prompt = `Extrae materiales de este texto en JSON array: "${textInput}"`;
+            const response = await retryOperation(() => genAI.models.generateContent({ model: MODEL_NAME, contents: prompt }));
+            const result = cleanAndParseJSON(response.text || "[]");
+            return Array.isArray(result) ? result : [];
+        } catch {
+            return [];
+        }
+    });
 };
 
 export const parseMaterialsFromImage = async (base64Image: string): Promise<PriceItem[]> => {
-    try {
-        const data = base64Image.includes(',') ? base64Image.split(',')[1] : base64Image;
-        const response = await genAI.models.generateContent({
-            model: MODEL_NAME,
-            contents: {
-                parts: [
-                    { inlineData: { mimeType: 'image/jpeg', data } },
-                    { text: "Lista los materiales visibles o listados en esta imagen. Devuelve SOLO un JSON Array." }
-                ]
-            }
-        });
-        const result = cleanAndParseJSON(response.text || "[]");
-        return Array.isArray(result) ? result : [];
-    } catch {
-        return [];
-    }
+    return apiQueue.add(async () => {
+        try {
+            const cleanData = await optimizeImage(base64Image);
+            const response = await retryOperation(() => genAI.models.generateContent({
+                model: MODEL_NAME,
+                contents: {
+                    parts: [
+                        { inlineData: { mimeType: 'image/jpeg', data: cleanData } },
+                        { text: "Lista materiales visibles. Devuelve SOLO JSON Array." }
+                    ]
+                }
+            }));
+            const result = cleanAndParseJSON(response.text || "[]");
+            return Array.isArray(result) ? result : [];
+        } catch {
+            return [];
+        }
+    });
 };
