@@ -1,7 +1,32 @@
 import { GoogleGenAI } from "@google/genai";
 import { Project, PriceItem } from '../types';
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Función segura para obtener la API Key sin romper la ejecución en navegadores
+const getApiKey = (): string => {
+  try {
+    // Intento 1: Vite (import.meta.env) - Estándar moderno
+    // @ts-ignore
+    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_KEY) {
+      // @ts-ignore
+      return import.meta.env.VITE_API_KEY;
+    }
+    
+    // Intento 2: process.env (si está definido mediante polyfill o config de bundler)
+    if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
+      return process.env.API_KEY;
+    }
+  } catch (e) {
+    console.warn("No se pudo acceder a las variables de entorno de forma estándar.");
+  }
+  
+  // Fallback: Evita el crash inicial, aunque las llamadas fallarán si no hay key.
+  return ''; 
+};
+
+const apiKey = getApiKey();
+// Inicialización segura: Si no hay key, se inicializa con string vacío para no romper la app al cargar,
+// pero las llamadas fallarán controladamente.
+const ai = new GoogleGenAI({ apiKey: apiKey || 'MISSING_KEY' });
 
 // Models
 const MODEL_FLASH = 'gemini-2.5-flash';
@@ -99,6 +124,8 @@ const retryOperation = async <T>(operation: () => Promise<T>, retries = 3): Prom
 export const generateSmartBudget = async (description: string, currentPrices: PriceItem[], images: string[] = []): Promise<any[]> => {
     return apiQueue.add(async () => {
         try {
+            if (!apiKey) throw new Error("API Key no configurada");
+
             const priceContext = currentPrices.slice(0, 100).map(p => `- ${p.name} (Categoría: ${p.category}): ${p.price}€/${p.unit}`).join('\n');
             
             const prompt = `Actúa como un INGENIERO ELÉCTRICO EXPERTO EN EL REBT (Reglamento Electrotécnico para Baja Tensión de España).
@@ -152,7 +179,8 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
             const response = await retryOperation(operation);
             const result = cleanAndParseJSON(response.text || "[]");
             return Array.isArray(result) ? result : [];
-        } catch {
+        } catch (e) {
+            console.error("Error generating budget:", e);
             return [];
         }
     });
@@ -161,6 +189,8 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
 export const analyzeProjectStatus = async (project: Project): Promise<string> => {
     return apiQueue.add(async () => {
          try {
+             if (!apiKey) return "API Key no configurada. No se puede realizar el análisis.";
+
              const prompt = `Analiza el estado de este proyecto de construcción/instalación:
              Proyecto: ${project.name}
              Cliente: ${project.client}
@@ -186,6 +216,8 @@ export const analyzeProjectStatus = async (project: Project): Promise<string> =>
 export const analyzeDocument = async (base64Data: string, mimeType: string) => {
      return apiQueue.add(async () => {
         try {
+            if (!apiKey) return { errorType: 'GENERIC', description: 'API Key missing' };
+
             const cleanBase64 = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
             
             const prompt = `Analiza este documento (factura o albarán).
@@ -220,6 +252,8 @@ export const analyzeDocument = async (base64Data: string, mimeType: string) => {
 export const parseMaterialsFromInput = async (text: string): Promise<PriceItem[]> => {
      return apiQueue.add(async () => {
          try {
+             if (!apiKey) return [];
+
              const prompt = `Extrae una lista de materiales de este texto.
              Texto: "${text}"
              
@@ -243,6 +277,8 @@ export const parseMaterialsFromInput = async (text: string): Promise<PriceItem[]
 export const parseMaterialsFromImage = async (base64Data: string): Promise<PriceItem[]> => {
     return apiQueue.add(async () => {
         try {
+            if (!apiKey) return [];
+
             const cleanBase64 = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
             const prompt = `Extrae una lista de materiales de esta imagen (tarifa de precios o catálogo).
             Devuelve un array JSON de objetos: { "name": string, "unit": string, "price": number, "category": string }.`;
@@ -269,6 +305,8 @@ export const parseMaterialsFromImage = async (base64Data: string): Promise<Price
 export const chatWithAssistant = async (message: string, context: string): Promise<string> => {
     return apiQueue.add(async () => {
         try {
+            if (!apiKey) return "Lo siento, no estoy configurado correctamente (Falta API Key).";
+
             const response = await ai.models.generateContent({
                 model: MODEL_FLASH,
                 contents: `${context}\n\nUsuario: ${message}`,
