@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import { Project, PriceItem } from '../types';
 
 // --- Configuration & Initialization ---
@@ -14,7 +14,7 @@ const getClientApiKey = (): string | undefined => {
   } catch (e) {
     // ignore error
   }
-  // 3. Hardcoded fallback provided by user
+  // 3. Hardcoded fallback provided by user (Note: Ideally should be env var)
   return 'AIzaSyAPt-4D6bA9qLK-BrijbJBcmnBU1ojXOA8';
 };
 
@@ -105,93 +105,6 @@ class RequestQueue {
 }
 const apiQueue = new RequestQueue();
 
-const cleanAndParseJSON = (text: string) => {
-    if (!text) return [];
-
-    // 1. First attempt: Standard strict parsing
-    // Remove markdown code blocks if present
-    let cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    
-    // If it starts with markdown output like "Here is the JSON:", remove that line
-    if (!cleanText.startsWith('[') && !cleanText.startsWith('{')) {
-        const firstBracket = cleanText.indexOf('[');
-        const firstBrace = cleanText.indexOf('{');
-        const start = (firstBracket !== -1 && (firstBrace === -1 || firstBracket < firstBrace)) 
-            ? firstBracket 
-            : firstBrace;
-        
-        if (start !== -1) {
-            cleanText = cleanText.substring(start);
-        }
-    }
-
-    try {
-        return JSON.parse(cleanText);
-    } catch (e) {
-        // Standard parsing failed.
-        // It is likely truncated or has trailing garbage.
-    }
-
-    // 2. Second attempt: Robust Object Extraction
-    // Scan the string for complete JSON objects {...} and assemble them into an array.
-    try {
-        const jsonObjects: any[] = [];
-        let braceCount = 0;
-        let startIndex = -1;
-        
-        // Simple state machine to extract top-level objects
-        for (let i = 0; i < cleanText.length; i++) {
-            const char = cleanText[i];
-            
-            if (char === '{') {
-                if (braceCount === 0) startIndex = i;
-                braceCount++;
-            } else if (char === '}') {
-                braceCount--;
-                if (braceCount === 0 && startIndex !== -1) {
-                    // We found a potentially complete object
-                    const jsonStr = cleanText.substring(startIndex, i + 1);
-                    try {
-                        const obj = JSON.parse(jsonStr);
-                        jsonObjects.push(obj);
-                    } catch (err) {
-                        // ignore malformed fragments
-                    }
-                    startIndex = -1;
-                }
-            }
-        }
-        
-        if (jsonObjects.length > 0) {
-            console.warn("JSON was truncated, but recovered " + jsonObjects.length + " objects.");
-            return jsonObjects;
-        }
-
-    } catch (e) {
-        console.error("Failed to recover JSON via extraction:", e);
-    }
-
-    // 3. Final fallback: Try to close a truncated array
-    try {
-        const lastBracket = cleanText.lastIndexOf(']');
-        const firstBracket = cleanText.indexOf('[');
-        if (firstBracket !== -1 && lastBracket === -1) {
-             // Array started but never ended. 
-             // Try to find the last closing brace '}' and add ']'
-             const lastBrace = cleanText.lastIndexOf('}');
-             if (lastBrace !== -1) {
-                 const reconstructed = cleanText.substring(firstBracket, lastBrace + 1) + ']';
-                 return JSON.parse(reconstructed);
-             }
-        }
-    } catch (e) {
-        // give up
-    }
-
-    console.error("Failed to parse JSON response:", text);
-    return [];
-};
-
 const optimizeImage = async (base64Str: string, maxWidth = 512): Promise<string> => {
     return new Promise((resolve) => {
         if (typeof Image === 'undefined' || base64Str.startsWith('http')) {
@@ -266,15 +179,12 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
         try {
             const priceContext = currentPrices.slice(0, 80).map(p => `- ${p.name}: ${p.price}€/${p.unit}`).join('\n');
             
-            const prompt = `Actúa como INGENIERO ELÉCTRICO (REBT España). Genera partidas para: "${description}".
+            const prompt = `Actúa como INGENIERO ELÉCTRICO (REBT España). Genera un presupuesto detallado para: "${description}".
             
-            REGLAS:
-            1. Desglosa cables por color (Azul, Marrón, Tierra) si aplica.
-            2. Usa precios de la BD si existen, si no estima.
-            3. Devuelve JSON Array: [{ "name": string, "quantity": number, "unit": string, "pricePerUnit": number, "category": "Material"|"Mano de Obra" }]
+            Usa los siguientes precios de referencia de la base de datos si aplican:
+            ${priceContext}
             
-            BD PRECIOS:
-            ${priceContext}`;
+            Si faltan elementos esenciales para la instalación descrita, añádelos estimando precios de mercado.`;
 
             const parts: any[] = [{ text: prompt }];
             
@@ -292,13 +202,28 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
                 { 
                     temperature: 0.2, 
                     responseMimeType: "application/json",
-                    maxOutputTokens: 8192 // Increased to prevent truncation
+                    responseSchema: {
+                        type: Type.ARRAY,
+                        items: {
+                            type: Type.OBJECT,
+                            properties: {
+                                name: { type: Type.STRING },
+                                quantity: { type: Type.NUMBER },
+                                unit: { type: Type.STRING },
+                                pricePerUnit: { type: Type.NUMBER },
+                                category: { type: Type.STRING }
+                            },
+                            required: ["name", "quantity", "unit", "pricePerUnit", "category"]
+                        }
+                    },
+                    maxOutputTokens: 8192 
                 }
             ));
             
             if (!response.text) throw new Error("Respuesta vacía de IA");
             
-            const result = cleanAndParseJSON(response.text);
+            // Con responseSchema, la respuesta es JSON puro garantizado
+            const result = JSON.parse(response.text);
             return Array.isArray(result) ? result : [];
             
         } catch (e: any) {
@@ -332,7 +257,7 @@ export const analyzeDocument = async (base64Data: string, mimeType: string) => {
             const cleanBase64 = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
             const optimizedBase64 = mimeType.startsWith('image') ? await optimizeImage(base64Data) : cleanBase64;
             
-            const prompt = `Analiza documento (factura/albarán). JSON con: comercio, total (number), iva (number), fecha (YYYY-MM-DD), categoria, items array {name, quantity, price, unit}.`;
+            const prompt = `Analiza documento (factura/albarán). Extrae datos.`;
 
             const response = await retryOperation(() => callGenAI(
                 MODEL_FLASH,
@@ -342,10 +267,37 @@ export const analyzeDocument = async (base64Data: string, mimeType: string) => {
                         { inlineData: { mimeType: mimeType.startsWith('image') ? 'image/jpeg' : mimeType, data: optimizedBase64 } }
                     ]
                 },
-                { responseMimeType: "application/json", maxOutputTokens: 2048 }
+                { 
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: Type.OBJECT,
+                        properties: {
+                            comercio: { type: Type.STRING },
+                            total: { type: Type.NUMBER },
+                            iva: { type: Type.NUMBER },
+                            fecha: { type: Type.STRING, description: "YYYY-MM-DD" },
+                            categoria: { type: Type.STRING },
+                            items: {
+                                type: Type.ARRAY,
+                                items: {
+                                    type: Type.OBJECT,
+                                    properties: {
+                                        name: { type: Type.STRING },
+                                        quantity: { type: Type.NUMBER },
+                                        price: { type: Type.NUMBER },
+                                        unit: { type: Type.STRING }
+                                    },
+                                    required: ["name", "quantity", "price"]
+                                }
+                            }
+                        },
+                        required: ["total", "items"]
+                    },
+                    maxOutputTokens: 2048 
+                }
             ));
             
-            return cleanAndParseJSON(response.text || "{}");
+            return JSON.parse(response.text || "{}");
         } catch (e: any) {
             if (e.message.includes('Cuota')) return { errorType: 'QUOTA', description: e.message };
             return { errorType: 'GENERIC', description: e.message };
@@ -356,13 +308,29 @@ export const analyzeDocument = async (base64Data: string, mimeType: string) => {
 export const parseMaterialsFromInput = async (text: string): Promise<PriceItem[]> => {
      return apiQueue.add(async () => {
          try {
-             const prompt = `Extrae materiales de: "${text}". JSON array: {name, unit, price, category}.`;
+             const prompt = `Extrae materiales de: "${text}".`;
              const response = await retryOperation(() => callGenAI(
                  MODEL_FLASH,
                  prompt,
-                 { responseMimeType: "application/json", maxOutputTokens: 4096 }
+                 { 
+                     responseMimeType: "application/json",
+                     responseSchema: {
+                         type: Type.ARRAY,
+                         items: {
+                             type: Type.OBJECT,
+                             properties: {
+                                 name: { type: Type.STRING },
+                                 unit: { type: Type.STRING },
+                                 price: { type: Type.NUMBER },
+                                 category: { type: Type.STRING }
+                             },
+                             required: ["name", "unit", "price", "category"]
+                         }
+                     },
+                     maxOutputTokens: 4096 
+                 }
              ));
-             const res = cleanAndParseJSON(response.text || "[]");
+             const res = JSON.parse(response.text || "[]");
              return Array.isArray(res) ? res.map((i: any) => ({...i, id: Date.now().toString() + Math.random()})) : [];
          } catch (e) {
              return [];
@@ -375,7 +343,7 @@ export const parseMaterialsFromImage = async (base64Data: string): Promise<Price
         try {
             if (base64Data.startsWith('http')) return [];
             const optimized = await optimizeImage(base64Data);
-            const prompt = `Extrae materiales de imagen. JSON array: {name, unit, price, category}.`;
+            const prompt = `Extrae materiales de imagen.`;
             
             const response = await retryOperation(() => callGenAI(
                 MODEL_FLASH,
@@ -385,10 +353,26 @@ export const parseMaterialsFromImage = async (base64Data: string): Promise<Price
                         { inlineData: { mimeType: 'image/jpeg', data: optimized } }
                     ]
                 },
-                { responseMimeType: "application/json", maxOutputTokens: 4096 }
+                { 
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: Type.ARRAY,
+                        items: {
+                            type: Type.OBJECT,
+                            properties: {
+                                name: { type: Type.STRING },
+                                unit: { type: Type.STRING },
+                                price: { type: Type.NUMBER },
+                                category: { type: Type.STRING }
+                            },
+                            required: ["name", "unit", "price", "category"]
+                        }
+                    },
+                    maxOutputTokens: 4096 
+                }
             ));
             
-            const res = cleanAndParseJSON(response.text || "[]");
+            const res = JSON.parse(response.text || "[]");
             return Array.isArray(res) ? res.map((i: any) => ({...i, id: Date.now().toString() + Math.random()})) : [];
         } catch (e) {
             return [];
