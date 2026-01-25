@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { PriceItem } from '../types';
-import { ArrowLeft, Search, Plus, Save, Trash2, Wand2, Loader2, Database, Download, Upload, X, ImageIcon, Edit3, Tag } from 'lucide-react';
+import { ArrowLeft, Search, Plus, Save, Trash2, Wand2, Loader2, Database, Download, Upload, X, ImageIcon } from 'lucide-react';
 import { parseMaterialsFromInput, parseMaterialsFromImage } from '../services/geminiService';
 
 interface PriceDatabaseProps {
@@ -40,7 +40,6 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
       unit: formData.get('unit') as string,
       price: Number(formData.get('price')),
       category: formData.get('category') as string,
-      discount: Number(formData.get('discount')) || 0,
     };
 
     if (editingItem) {
@@ -100,169 +99,95 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex flex-col font-sans transition-colors duration-300">
       {/* Header */}
-      <div className="bg-white dark:bg-slate-800 shadow-sm px-6 sm:px-8 py-6 flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-slate-100 dark:border-slate-700 transition-colors gap-4">
-        <div className="flex items-center w-full sm:w-auto">
-            <button onClick={onBack} className="mr-4 sm:mr-6 p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 transition-colors">
+      <div className="bg-white dark:bg-slate-800 shadow-sm px-8 py-6 flex items-center justify-between border-b border-slate-100 dark:border-slate-700 transition-colors">
+        <div className="flex items-center">
+            <button onClick={onBack} className="mr-6 p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 transition-colors">
             <ArrowLeft className="w-6 h-6" />
             </button>
             <div>
-                <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white flex items-center gap-3">
+                <h1 className="text-3xl font-extrabold text-slate-900 dark:text-white flex items-center gap-3">
                     <Database className="text-[#0047AB] dark:text-blue-400" /> Base de Precios
                 </h1>
                 <p className="text-sm text-slate-500 dark:text-slate-400 font-medium mt-1">Gestión de tarifas y materiales</p>
             </div>
         </div>
-        <div className="flex gap-3 w-full sm:w-auto">
+        <div className="flex gap-3">
             <button 
                 onClick={() => setShowAiModal(true)}
-                className="flex-1 sm:flex-none justify-center bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 border border-purple-100 dark:border-purple-800 px-4 py-2.5 rounded-xl hover:bg-purple-100 dark:hover:bg-purple-900/50 transition-colors flex items-center font-bold shadow-sm text-sm"
+                className="bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 border border-purple-100 dark:border-purple-800 px-5 py-2.5 rounded-xl hover:bg-purple-100 dark:hover:bg-purple-900/50 transition-colors flex items-center font-bold shadow-sm"
             >
-                <Wand2 className="w-4 h-4 mr-2" /> <span className="hidden sm:inline">Importar IA</span><span className="sm:hidden">IA</span>
+                <Wand2 className="w-4 h-4 mr-2" /> Importar con IA
             </button>
             <button 
-                onClick={() => setEditingItem({ id: '', name: '', unit: 'ud', price: 0, category: 'Material', discount: 50 })}
-                className="flex-1 sm:flex-none justify-center bg-[#0047AB] text-white px-4 py-2.5 rounded-xl hover:bg-[#003380] transition-colors flex items-center font-bold shadow-lg shadow-blue-900/10 text-sm"
+                onClick={() => setEditingItem({ id: '', name: '', unit: 'ud', price: 0, category: 'Material' })}
+                className="bg-[#0047AB] text-white px-5 py-2.5 rounded-xl hover:bg-[#003380] transition-colors flex items-center font-bold shadow-lg shadow-blue-900/10"
             >
-                <Plus className="w-5 h-5 mr-2" /> Añadir <span className="hidden sm:inline ml-1">Manual</span>
+                <Plus className="w-5 h-5 mr-2" /> Añadir Manual
             </button>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 sm:p-8 max-w-7xl mx-auto w-full">
+      <div className="flex-1 overflow-y-auto p-8 max-w-7xl mx-auto w-full">
         
         {/* Search */}
-        <div className="relative mb-6 sm:mb-8">
+        <div className="relative mb-8">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
             <input 
                 type="text" 
-                placeholder="Buscar material o categoría..." 
+                placeholder="Buscar material..." 
                 className="w-full pl-12 pr-4 py-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl focus:ring-2 focus:ring-[#0047AB] outline-none transition-all shadow-sm text-slate-900 dark:text-white placeholder-slate-400"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
             />
         </div>
 
-        {/* List Container */}
-        <div className="bg-transparent sm:bg-white dark:sm:bg-slate-800 sm:rounded-2xl sm:shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] sm:border border-slate-100 dark:border-slate-700 overflow-hidden transition-colors">
-            
-            {/* Desktop Table View */}
-            <table className="w-full text-left text-sm hidden md:table">
+        {/* List */}
+        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 overflow-hidden transition-colors">
+            <table className="w-full text-left text-sm">
                 <thead className="bg-slate-50 dark:bg-slate-700/50 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 uppercase text-xs tracking-wider">
                     <tr>
                         <th className="px-6 py-4 font-bold">Nombre</th>
                         <th className="px-6 py-4 font-bold">Categoría</th>
                         <th className="px-6 py-4 font-bold">Unidad</th>
-                        <th className="px-6 py-4 font-bold text-right">Precio Base</th>
-                        <th className="px-6 py-4 font-bold text-center">Dto. %</th>
-                        <th className="px-6 py-4 font-bold text-right">Precio Neto</th>
+                        <th className="px-6 py-4 font-bold text-right">Precio Unitario</th>
                         <th className="px-6 py-4 font-bold text-right">Acciones</th>
                     </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-50 dark:divide-slate-700 bg-white dark:bg-slate-800">
-                    {filteredItems.map(item => {
-                        const discount = item.discount || 0;
-                        const netPrice = item.price * (1 - discount / 100);
-                        return (
-                            <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 group transition-colors">
-                                <td className="px-6 py-4 font-bold text-slate-800 dark:text-white">{item.name}</td>
-                                <td className="px-6 py-4 text-slate-500 dark:text-slate-400">
-                                    <span className="bg-slate-100 dark:bg-slate-700 px-2.5 py-1 rounded-md text-xs font-bold uppercase tracking-wide text-slate-600 dark:text-slate-300">
-                                        {item.category}
-                                    </span>
-                                </td>
-                                <td className="px-6 py-4 text-slate-500 dark:text-slate-400 font-medium">{item.unit}</td>
-                                <td className="px-6 py-4 text-right font-mono text-slate-500 dark:text-slate-400">
-                                    {discount > 0 ? (
-                                        <span className="line-through text-xs">{item.price.toFixed(2)}€</span>
-                                    ) : (
-                                        <span>{item.price.toFixed(2)}€</span>
-                                    )}
-                                </td>
-                                <td className="px-6 py-4 text-center">
-                                    {discount > 0 ? (
-                                        <span className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-2 py-0.5 rounded text-xs font-bold">
-                                            -{discount}%
-                                        </span>
-                                    ) : (
-                                        <span className="text-slate-300">-</span>
-                                    )}
-                                </td>
-                                <td className="px-6 py-4 text-right font-mono font-bold text-slate-900 dark:text-white text-base">
-                                    {netPrice.toFixed(2)}€
-                                </td>
-                                <td className="px-6 py-4 text-right">
-                                    <div className="flex justify-end gap-3 opacity-0 group-hover:opacity-100 transition-all">
-                                        <button onClick={() => setEditingItem(item)} className="text-[#0047AB] dark:text-blue-400 hover:text-[#003380] dark:hover:text-blue-300 font-bold bg-blue-50 dark:bg-blue-900/30 px-3 py-1.5 rounded-lg">Editar</button>
-                                        <button onClick={() => handleDelete(item.id)} className="text-slate-400 hover:text-red-500 p-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg"><Trash2 className="w-5 h-5" /></button>
-                                    </div>
-                                </td>
-                            </tr>
-                        );
-                    })}
-                </tbody>
-            </table>
-
-            {/* Mobile Card View */}
-            <div className="md:hidden space-y-4">
-                {filteredItems.map(item => {
-                    const discount = item.discount || 0;
-                    const netPrice = item.price * (1 - discount / 100);
-                    return (
-                        <div key={item.id} className="p-5 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl shadow-sm hover:shadow-md transition-all">
-                            <div className="flex justify-between items-start mb-3 gap-4">
-                                <div className="font-bold text-slate-800 dark:text-white text-base leading-snug">{item.name}</div>
-                                <div className="text-right shrink-0">
-                                    <div className="font-mono font-extrabold text-[#0047AB] dark:text-blue-400 text-lg">
-                                        {netPrice.toFixed(2)}€
-                                    </div>
-                                    <div className="text-xs text-slate-400 font-medium">/ {item.unit}</div>
-                                    {discount > 0 && (
-                                        <div className="mt-1 flex items-center justify-end gap-1.5">
-                                            <span className="text-[10px] text-slate-400 line-through">{item.price.toFixed(2)}€</span>
-                                            <span className="text-[10px] bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-1 rounded font-bold">-{discount}%</span>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                            <div className="flex justify-between items-center pt-3 border-t border-slate-50 dark:border-slate-700">
-                                <span className="bg-slate-100 dark:bg-slate-700 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide text-slate-600 dark:text-slate-300">
+                <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
+                    {filteredItems.map(item => (
+                        <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 group transition-colors">
+                            <td className="px-6 py-4 font-bold text-slate-800 dark:text-white">{item.name}</td>
+                            <td className="px-6 py-4 text-slate-500 dark:text-slate-400">
+                                <span className="bg-slate-100 dark:bg-slate-700 px-2.5 py-1 rounded-md text-xs font-bold uppercase tracking-wide text-slate-600 dark:text-slate-300">
                                     {item.category}
                                 </span>
-                                <div className="flex gap-2">
-                                    <button 
-                                        onClick={() => setEditingItem(item)} 
-                                        className="p-2 text-[#0047AB] dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 rounded-lg hover:bg-blue-100 transition-colors"
-                                        title="Editar"
-                                    >
-                                        <Edit3 className="w-4 h-4" />
-                                    </button>
-                                    <button 
-                                        onClick={() => handleDelete(item.id)} 
-                                        className="p-2 text-red-500 bg-red-50 dark:bg-red-900/20 rounded-lg hover:bg-red-100 transition-colors"
-                                        title="Eliminar"
-                                    >
-                                        <Trash2 className="w-4 h-4" />
-                                    </button>
+                            </td>
+                            <td className="px-6 py-4 text-slate-500 dark:text-slate-400 font-medium">{item.unit}</td>
+                            <td className="px-6 py-4 text-right font-mono font-bold text-slate-900 dark:text-white text-base">{item.price.toFixed(2)}€</td>
+                            <td className="px-6 py-4 text-right">
+                                <div className="flex justify-end gap-3 opacity-0 group-hover:opacity-100 transition-all">
+                                    <button onClick={() => setEditingItem(item)} className="text-[#0047AB] dark:text-blue-400 hover:text-[#003380] dark:hover:text-blue-300 font-bold bg-blue-50 dark:bg-blue-900/30 px-3 py-1.5 rounded-lg">Editar</button>
+                                    <button onClick={() => handleDelete(item.id)} className="text-slate-400 hover:text-red-500 p-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg"><Trash2 className="w-5 h-5" /></button>
                                 </div>
-                            </div>
-                        </div>
-                    );
-                })}
-            </div>
-
-            {/* No Results Message */}
-            {filteredItems.length === 0 && (
-                <div className="px-6 py-16 text-center text-slate-400 dark:text-slate-500 font-medium bg-white dark:bg-slate-800 sm:bg-transparent">
-                    No se encontraron resultados para tu búsqueda.
-                </div>
-            )}
+                            </td>
+                        </tr>
+                    ))}
+                    {filteredItems.length === 0 && (
+                        <tr>
+                            <td colSpan={5} className="px-6 py-16 text-center text-slate-400 dark:text-slate-500 font-medium">
+                                No se encontraron resultados.
+                            </td>
+                        </tr>
+                    )}
+                </tbody>
+            </table>
         </div>
       </div>
 
       {/* Edit Modal */}
       {editingItem && (
           <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-50 backdrop-blur-md">
-              <div className="bg-white dark:bg-slate-800 rounded-2xl w-full max-w-md p-8 shadow-2xl border border-slate-100 dark:border-slate-700 transition-colors animate-in zoom-in-95 duration-200">
+              <div className="bg-white dark:bg-slate-800 rounded-2xl w-full max-w-md p-8 shadow-2xl border border-slate-100 dark:border-slate-700 transition-colors">
                   <h2 className="text-2xl font-bold mb-6 text-slate-900 dark:text-white">{editingItem.id ? 'Editar Material' : 'Nuevo Material'}</h2>
                   <form onSubmit={handleSaveItem} className="space-y-5">
                       <div>
@@ -270,15 +195,11 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
                           <input name="name" defaultValue={editingItem.name} required className="w-full mt-2 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-[#0047AB] transition-colors" />
                       </div>
                       <div className="flex gap-4">
-                          <div className="w-1/3">
-                              <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Precio Base (€)</label>
+                          <div className="w-1/2">
+                              <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Precio (€)</label>
                               <input name="price" type="number" step="0.01" defaultValue={editingItem.price} required className="w-full mt-2 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-[#0047AB] transition-colors" />
                           </div>
-                          <div className="w-1/3">
-                              <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Dto. (%)</label>
-                              <input name="discount" type="number" min="0" max="100" defaultValue={editingItem.discount ?? 0} className="w-full mt-2 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-[#0047AB] transition-colors" />
-                          </div>
-                          <div className="w-1/3">
+                          <div className="w-1/2">
                               <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Unidad</label>
                               <input name="unit" defaultValue={editingItem.unit} required className="w-full mt-2 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-[#0047AB] transition-colors" />
                           </div>

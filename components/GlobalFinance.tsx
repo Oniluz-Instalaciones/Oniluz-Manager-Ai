@@ -1,47 +1,44 @@
 import React, { useState, useMemo } from 'react';
-import { Project, Transaction, Material } from '../types';
-import { ArrowLeft, TrendingUp, TrendingDown, DollarSign, Calendar, Filter, Download, PieChart as PieIcon, BarChart3, Search, X, Camera, ExternalLink, Briefcase, Package } from 'lucide-react';
+import { Project, Transaction } from '../types';
+import { ArrowLeft, TrendingUp, TrendingDown, DollarSign, Calendar, Filter, Download, PieChart as PieIcon, BarChart3, Search, X } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, 
   AreaChart, Area, PieChart, Pie, Legend 
 } from 'recharts';
-import ScannerModal from './ScannerModal';
 
 interface GlobalFinanceProps {
   projects: Project[];
   onBack: () => void;
-  onUpdateProject: (project: Project) => void;
 }
 
-const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdateProject }) => {
+const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
   // --- State for Filters ---
   const [dateRange, setDateRange] = useState<{ start: string; end: string }>({
-    start: '2025-01-01',
-    end: '2030-12-31'
+    start: new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0], // Jan 1st of current year
+    end: new Date().toISOString().split('T')[0] // Today
   });
   const [selectedProject, setSelectedProject] = useState<string>('ALL');
   const [filterType, setFilterType] = useState<'ALL' | 'income' | 'expense'>('ALL');
-  const [isScannerOpen, setIsScannerOpen] = useState(false);
 
   // --- Data Processing ---
 
-  // 1. Flatten ONLY Real Transactions for Cash Flow
+  // 1. Flatten all transactions with project context
   const allTransactions = useMemo(() => {
     return projects.flatMap(p => p.transactions.map(t => ({ 
       ...t, 
-      amount: Number(t.amount) || 0, // Ensure number
-      projectName: p.name, 
-      projectStatus: p.status,
+      projectName: p.name,
+      projectStatus: p.status 
     })));
   }, [projects]);
 
   // 2. Apply Filters
   const filteredTransactions = useMemo(() => {
     return allTransactions.filter(t => {
-      const tDate = new Date(t.date || new Date());
+      const tDate = new Date(t.date);
       const startDate = dateRange.start ? new Date(dateRange.start) : new Date('2000-01-01');
       const endDate = dateRange.end ? new Date(dateRange.end) : new Date('2100-01-01');
       
+      // Fix date comparison to include the end date day
       endDate.setHours(23, 59, 59, 999);
 
       const matchDate = tDate >= startDate && tDate <= endDate;
@@ -53,14 +50,8 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
   }, [allTransactions, dateRange, selectedProject, filterType]);
 
   // 3. Calculate KPI Totals based on Filtered Data
-  const totalIncome = filteredTransactions
-    .filter(t => t.type === 'income')
-    .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
-    
-  const totalExpense = filteredTransactions
-    .filter(t => t.type === 'expense')
-    .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
-    
+  const totalIncome = filteredTransactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
+  const totalExpense = filteredTransactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
   const netProfit = totalIncome - totalExpense;
   const profitMargin = totalIncome > 0 ? (netProfit / totalIncome) * 100 : 0;
 
@@ -72,14 +63,11 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
     const sorted = [...filteredTransactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
     sorted.forEach(t => {
-      const dateStr = t.date || new Date().toISOString().split('T')[0];
-      const key = dateStr.substring(0, 7); // YYYY-MM
-      
+      // Group by Month (YYYY-MM) or Day depending on range? Let's do Month for global view usually
+      const key = t.date.substring(0, 7); // YYYY-MM
       if (!grouped[key]) grouped[key] = { date: key, income: 0, expense: 0 };
-      
-      const val = Number(t.amount) || 0;
-      if (t.type === 'income') grouped[key].income += val;
-      else grouped[key].expense += val;
+      if (t.type === 'income') grouped[key].income += t.amount;
+      else grouped[key].expense += t.amount;
     });
 
     return Object.values(grouped);
@@ -91,12 +79,36 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
     const grouped: Record<string, number> = {};
     expenses.forEach(t => {
         const cat = t.category || 'Otros';
-        const val = Number(t.amount) || 0;
-        grouped[cat] = (grouped[cat] || 0) + val;
+        grouped[cat] = (grouped[cat] || 0) + t.amount;
     });
     
     return Object.keys(grouped).map(key => ({ name: key, value: grouped[key] })).sort((a, b) => b.value - a.value);
   }, [filteredTransactions]);
+
+  // 6. Per Project Breakdown
+  const projectFinancials = useMemo(() => {
+      return projects.map(p => {
+          // Calculate using filtered transactions to respect date range
+          // Note: If 'selectedProject' filter is active, only one row will have data > 0 unless we ignore that filter for this table.
+          // Let's respect the date filter but show all projects rows, calculating their sums within that date range.
+          
+          const pTrans = filteredTransactions.filter(t => t.projectId === p.id);
+          const inc = pTrans.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
+          const exp = pTrans.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
+          
+          return {
+              id: p.id,
+              name: p.name,
+              status: p.status,
+              income: inc,
+              expense: exp,
+              profit: inc - exp,
+              margin: inc > 0 ? ((inc - exp) / inc) * 100 : 0,
+              hasActivity: pTrans.length > 0
+          };
+      }).filter(p => selectedProject === 'ALL' || p.id === selectedProject) // Show only selected project if filtered
+        .filter(p => p.hasActivity); // Only show projects with activity in this period
+  }, [projects, filteredTransactions, selectedProject]);
 
   // Colors for Charts
   const COLORS = ['#0047AB', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
@@ -108,8 +120,8 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
         t.projectName,
         t.type,
         t.category,
-        `"${t.description}"`,
-        (Number(t.amount) || 0).toFixed(2)
+        `"${t.description}"`, // Quote description to handle commas
+        t.amount.toFixed(2)
     ]);
 
     const csvContent = "data:text/csv;charset=utf-8," 
@@ -125,19 +137,6 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
     document.body.removeChild(link);
   };
 
-  const handleScanSave = (projectId: string, transaction: Transaction, newMaterials: Material[]) => {
-    const project = projects.find(p => p.id === projectId);
-    if (project) {
-        const updatedProject = {
-            ...project,
-            transactions: [transaction, ...project.transactions],
-            materials: [...project.materials, ...newMaterials]
-        };
-        onUpdateProject(updatedProject);
-        setIsScannerOpen(false);
-    }
-  };
-
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex flex-col font-sans transition-colors duration-300">
       {/* Header */}
@@ -148,23 +147,15 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
             </button>
             <div>
                 <h1 className="text-3xl font-extrabold text-slate-900 dark:text-white">Finanzas Globales</h1>
-                <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Flujo de Caja Real</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Análisis económico y rentabilidad</p>
             </div>
         </div>
-        <div className="flex items-center gap-3">
-            <button 
-                onClick={() => setIsScannerOpen(true)}
-                className="flex items-center gap-2 bg-[#0047AB] text-white px-5 py-2.5 rounded-xl font-bold hover:bg-[#003380] transition-colors shadow-lg shadow-blue-900/10"
-            >
-                <Camera className="w-5 h-5" /> <span className="hidden sm:inline">Escanear Gasto</span>
-            </button>
-            <button 
-                onClick={handleExportCSV}
-                className="flex items-center gap-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 px-4 py-2.5 rounded-xl font-bold hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
-            >
-                <Download className="w-4 h-4" /> <span className="hidden sm:inline">CSV</span>
-            </button>
-        </div>
+        <button 
+            onClick={handleExportCSV}
+            className="flex items-center gap-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 px-4 py-2.5 rounded-xl font-bold hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
+        >
+            <Download className="w-4 h-4" /> <span className="hidden sm:inline">Exportar CSV</span>
+        </button>
       </div>
 
       {/* Filters Bar */}
@@ -172,7 +163,7 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
          <div className="flex flex-col sm:flex-row gap-4 w-full lg:w-auto">
              <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900/50 p-1.5 rounded-xl border border-slate-200 dark:border-slate-700">
                  <div className="px-3 py-1.5 text-xs font-bold uppercase text-slate-400 flex items-center gap-2 border-r border-slate-200 dark:border-slate-700">
-                     <Calendar className="w-3.5 h-3.5" /> Rango
+                     <Calendar className="w-3.5 h-3.5" /> Periodo
                  </div>
                  <input 
                     type="date" 
@@ -191,15 +182,15 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
 
              <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900/50 p-1.5 rounded-xl border border-slate-200 dark:border-slate-700 flex-1 sm:flex-none">
                  <div className="px-3 py-1.5 text-xs font-bold uppercase text-slate-400 flex items-center gap-2 border-r border-slate-200 dark:border-slate-700">
-                     <Filter className="w-3.5 h-3.5" /> Obra
+                     <Filter className="w-3.5 h-3.5" /> Filtrar
                  </div>
                  <select 
                     value={selectedProject}
                     onChange={(e) => setSelectedProject(e.target.value)}
-                    className="bg-transparent border-none text-sm font-bold text-black dark:text-white focus:ring-0 cursor-pointer w-full sm:w-40"
+                    className="bg-transparent border-none text-sm font-semibold text-slate-700 dark:text-slate-200 focus:ring-0 cursor-pointer w-full sm:w-40"
                  >
-                     <option value="ALL" className="text-black bg-white dark:bg-slate-800 dark:text-white">Todas</option>
-                     {projects.map(p => <option key={p.id} value={p.id} className="text-black bg-white dark:bg-slate-800 dark:text-white">{p.name.substring(0, 20)}...</option>)}
+                     <option value="ALL">Todas las obras</option>
+                     {projects.map(p => <option key={p.id} value={p.id}>{p.name.substring(0, 20)}...</option>)}
                  </select>
              </div>
 
@@ -234,11 +225,11 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
              <div className="absolute top-0 right-0 p-4 opacity-10">
                  <TrendingUp className="w-16 h-16 text-green-500" />
              </div>
-             <p className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider z-10">Ingresos (Tickets)</p>
+             <p className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider z-10">Ingresos Totales</p>
              <div>
                 <p className="text-3xl font-extrabold text-slate-900 dark:text-white z-10">{totalIncome.toLocaleString()}€</p>
                 <p className="text-xs text-green-600 dark:text-green-400 font-bold mt-1 bg-green-50 dark:bg-green-900/20 inline-block px-2 py-0.5 rounded-md">
-                    {filteredTransactions.filter(t => t.type === 'income').length} registros
+                    {filteredTransactions.filter(t => t.type === 'income').length} movimientos
                 </p>
              </div>
           </div>
@@ -247,15 +238,11 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
              <div className="absolute top-0 right-0 p-4 opacity-10">
                  <TrendingDown className="w-16 h-16 text-red-500" />
              </div>
-             <div className="z-10 relative">
-                 <p className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider z-10 flex items-center gap-1">
-                     Gastos (Tickets)
-                 </p>
-             </div>
+             <p className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider z-10">Gastos Totales</p>
              <div>
                 <p className="text-3xl font-extrabold text-slate-900 dark:text-white z-10">{totalExpense.toLocaleString()}€</p>
                 <p className="text-xs text-red-500 dark:text-red-400 font-bold mt-1 bg-red-50 dark:bg-red-900/20 inline-block px-2 py-0.5 rounded-md">
-                    {filteredTransactions.filter(t => t.type === 'expense').length} registros
+                    {filteredTransactions.filter(t => t.type === 'expense').length} movimientos
                 </p>
              </div>
           </div>
@@ -277,7 +264,7 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
              <p className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider z-10">Rentabilidad Global</p>
              <div>
                  <p className={`text-3xl font-extrabold z-10 ${profitMargin >= 20 ? 'text-green-600 dark:text-green-400' : profitMargin >= 10 ? 'text-blue-600' : 'text-orange-500'}`}>
-                     {isNaN(profitMargin) ? '0.0' : profitMargin.toFixed(1)}%
+                     {profitMargin.toFixed(1)}%
                  </p>
                  <p className="text-xs text-slate-400 dark:text-slate-500 font-medium mt-1">Margen sobre ingresos</p>
              </div>
@@ -292,10 +279,6 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
                      <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
                          <TrendingUp className="w-5 h-5 text-[#0047AB] dark:text-blue-400" /> Evolución de Flujo de Caja
                      </h3>
-                     <div className="text-xs text-slate-400 flex items-center gap-2">
-                         <span className="w-2 h-2 rounded-full bg-green-500"></span> Ingresos
-                         <span className="w-2 h-2 rounded-full bg-red-500"></span> Gastos
-                     </div>
                  </div>
                  <div className="h-[300px] w-full">
                      <ResponsiveContainer width="100%" height="100%" minWidth={0}>
@@ -353,76 +336,109 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
             </div>
         </div>
 
-        {/* Detailed Transactions List */}
+        {/* Breakdown by Project Table */}
         <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 overflow-hidden transition-colors">
            <div className="p-8 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center">
              <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                 <ExternalLink className="w-5 h-5 text-[#0047AB] dark:text-blue-400" /> Listado de Movimientos (Tickets)
+                 <BarChart3 className="w-5 h-5 text-[#0047AB] dark:text-blue-400" /> Desglose: Finanzas por Obra
              </h3>
-             <span className="bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold px-3 py-1 rounded-full">
-                 {filteredTransactions.length} items
-             </span>
+             <span className="text-xs text-slate-400 font-medium hidden sm:block">Basado en periodo seleccionado</span>
            </div>
-           
-           <div className="divide-y divide-slate-100 dark:divide-slate-700">
-                {filteredTransactions.length > 0 ? (
-                    filteredTransactions.slice(0, 50).map(t => (
-                        <div key={t.id} className="p-6 flex flex-col md:flex-row items-start md:items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors gap-4">
-                            <div className="flex items-center gap-4">
-                                <div className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 ${
-                                    t.type === 'income' 
-                                    ? 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400' 
-                                    : 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400'
-                                }`}>
-                                    {t.type === 'income' ? <TrendingUp className="w-6 h-6" /> : <TrendingDown className="w-6 h-6" />}
-                                </div>
-                                <div>
-                                    <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 mb-1">
-                                        <h4 className="font-bold text-slate-900 dark:text-white text-base">{t.description}</h4>
-                                        <span className={`text-[10px] uppercase font-bold text-slate-500 bg-slate-100 dark:bg-slate-700 dark:text-slate-400 px-2 py-0.5 rounded-md w-fit`}>
-                                            {t.category}
-                                        </span>
-                                    </div>
-                                    <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                                        <span className="font-mono">{t.date}</span>
-                                        <span>•</span>
-                                        <span className="flex items-center gap-1 text-[#0047AB] dark:text-blue-400 font-medium">
-                                            <Briefcase className="w-3 h-3" /> {t.projectName}
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
-                            <div className={`text-xl font-extrabold font-mono ${
-                                t.type === 'income' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
-                            }`}>
-                                {t.type === 'income' ? '+' : '-'}{t.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}€
-                            </div>
-                        </div>
-                    ))
-                ) : (
-                    <div className="p-12 text-center text-slate-400 dark:text-slate-500 flex flex-col items-center">
-                        <Filter className="w-12 h-12 mb-3 opacity-20" />
-                        <p className="font-medium">No se encontraron movimientos.</p>
-                        <p className="text-xs mt-1">Recuerda: El Stock ahora solo se muestra como 'Valor Inventario' y no en este listado.</p>
-                    </div>
-                )}
+           <div className="overflow-x-auto">
+               <table className="w-full text-left text-sm">
+                   <thead className="bg-slate-50 dark:bg-slate-700/50 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 uppercase text-xs tracking-wider">
+                       <tr>
+                           <th className="px-6 py-4 font-bold">Proyecto</th>
+                           <th className="px-6 py-4 font-bold text-center">Estado</th>
+                           <th className="px-6 py-4 font-bold text-right">Ingresos</th>
+                           <th className="px-6 py-4 font-bold text-right">Gastos</th>
+                           <th className="px-6 py-4 font-bold text-right">Beneficio</th>
+                           <th className="px-6 py-4 font-bold text-right">Margen</th>
+                       </tr>
+                   </thead>
+                   <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
+                       {projectFinancials.map(p => (
+                           <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
+                               <td className="px-6 py-4 font-bold text-slate-800 dark:text-white truncate max-w-[200px]">{p.name}</td>
+                               <td className="px-6 py-4 text-center">
+                                   <span className={`text-[10px] px-2 py-1 rounded-full uppercase font-bold ${
+                                       p.status === 'En Curso' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
+                                       p.status === 'Completado' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
+                                       'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
+                                   }`}>
+                                       {p.status}
+                                   </span>
+                               </td>
+                               <td className="px-6 py-4 text-right text-green-600 dark:text-green-400 font-mono font-medium">{p.income.toLocaleString()}€</td>
+                               <td className="px-6 py-4 text-right text-red-500 dark:text-red-400 font-mono font-medium">{p.expense.toLocaleString()}€</td>
+                               <td className={`px-6 py-4 text-right font-mono font-bold ${p.profit >= 0 ? 'text-[#0047AB] dark:text-blue-400' : 'text-orange-500'}`}>
+                                   {p.profit.toLocaleString()}€
+                               </td>
+                               <td className="px-6 py-4 text-right">
+                                   <div className="flex items-center justify-end gap-2">
+                                       <div className="w-16 h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                                           <div 
+                                              className={`h-full ${p.margin >= 20 ? 'bg-green-500' : p.margin >= 10 ? 'bg-blue-500' : 'bg-orange-500'}`} 
+                                              style={{width: `${Math.min(Math.max(p.margin, 0), 100)}%`}}
+                                           ></div>
+                                       </div>
+                                       <span className="text-xs font-bold text-slate-600 dark:text-slate-400 w-8">{p.margin.toFixed(0)}%</span>
+                                   </div>
+                               </td>
+                           </tr>
+                       ))}
+                       {projectFinancials.length === 0 && (
+                           <tr>
+                               <td colSpan={6} className="px-6 py-10 text-center text-slate-400 dark:text-slate-500 font-medium">
+                                   No hay actividad en el periodo seleccionado para los filtros actuales.
+                               </td>
+                           </tr>
+                       )}
+                   </tbody>
+               </table>
            </div>
-           
-           {filteredTransactions.length > 50 && (
-                <div className="p-4 text-center text-xs text-slate-400 border-t border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50">
-                    Mostrando los primeros 50 registros. Utiliza "Exportar CSV" para ver el historial completo.
-                </div>
-           )}
         </div>
 
-        {/* Scanner Modal */}
-        {isScannerOpen && (
-            <ScannerModal 
-              projects={projects}
-              onClose={() => setIsScannerOpen(false)}
-              onSave={handleScanSave}
-            />
-        )}
+        {/* Detailed Transactions List (Filtered) */}
+        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 overflow-hidden transition-colors">
+           <div className="p-8 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center">
+             <h3 className="text-lg font-bold text-slate-900 dark:text-white">Listado de Movimientos Filtrados</h3>
+             <span className="bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold px-3 py-1 rounded-full">
+                 {filteredTransactions.length} registros
+             </span>
+           </div>
+           <div className="divide-y divide-slate-100 dark:divide-slate-700">
+             {filteredTransactions.slice(0, 50).map(t => (
+               <div key={t.id} className="p-6 flex flex-col sm:flex-row sm:items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
+                  <div className="flex items-start gap-4 mb-2 sm:mb-0">
+                    <div className={`p-2.5 rounded-xl mt-0.5 ${t.type === 'income' ? 'bg-green-50 dark:bg-green-900/20 text-green-600' : 'bg-red-50 dark:bg-red-900/20 text-red-500'}`}>
+                      {t.type === 'income' ? <TrendingUp className="w-5 h-5" /> : <TrendingDown className="w-5 h-5" />}
+                    </div>
+                    <div>
+                      <p className="font-bold text-slate-900 dark:text-white text-base">{t.description}</p>
+                      <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 mt-0.5 font-medium">
+                          <span>{t.date}</span>
+                          <span className="text-slate-300 dark:text-slate-600">•</span>
+                          <span className="text-[#0047AB] dark:text-blue-400 font-bold">{t.projectName}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className={`font-bold text-lg text-right ${t.type === 'income' ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}>
+                    {t.type === 'income' ? '+' : '-'}{t.amount.toLocaleString()}€
+                    <span className="block text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide mt-1">{t.category}</span>
+                  </div>
+               </div>
+             ))}
+             {filteredTransactions.length === 0 && (
+               <div className="p-12 text-center text-slate-400 dark:text-slate-500 font-medium">No se encontraron movimientos.</div>
+             )}
+             {filteredTransactions.length > 50 && (
+                 <div className="p-4 text-center text-xs text-slate-400 border-t border-slate-100 dark:border-slate-700">
+                     Mostrando los primeros 50 movimientos. Exporta a CSV para ver todo.
+                 </div>
+             )}
+           </div>
+        </div>
 
       </div>
     </div>

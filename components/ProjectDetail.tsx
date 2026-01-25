@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { Project, Transaction, Material, Incident, ProjectStatus, Priority, PriceItem, Budget } from '../types';
+import { Project, Transaction, Material, Incident, ProjectStatus, Priority, PriceItem } from '../types';
 import { 
   ArrowLeft, Plus, Trash2, AlertTriangle, CheckCircle, 
   TrendingUp, TrendingDown, Package, FileText, Settings, BrainCircuit, X, Receipt, Paperclip, ChevronDown, Building2, Calendar, RotateCcw, Edit3,
-  Hammer, Coffee, User, Wallet, BarChart3, HardHat, MinusCircle
+  Hammer, Coffee, User, Wallet, BarChart3
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { analyzeProjectStatus } from '../services/geminiService';
@@ -27,7 +27,6 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
   // State for transaction form type to toggle category input
   const [transactionType, setTransactionType] = useState<'income' | 'expense'>('expense');
   
-  // State for history management
   const [history, setHistory] = useState<Project[]>([]);
 
   const updateProjectWithHistory = (newProjectState: Project) => {
@@ -76,12 +75,6 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
     const newStatus = e.target.value as ProjectStatus;
     updateProjectWithHistory({ ...project, status: newStatus });
     await supabase.from('projects').update({ status: newStatus }).eq('id', project.id);
-  };
-
-  const handleProgressChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const newProgress = Number(e.target.value);
-      onUpdate({ ...project, progress: newProgress });
-      await supabase.from('projects').update({ progress: newProgress }).eq('id', project.id);
   };
 
   // --- Actions ---
@@ -144,37 +137,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
   const handleDeleteMaterial = async (id: string) => {
       await supabase.from('materials').delete().eq('id', id);
       updateProjectWithHistory({...project, materials: project.materials.filter(m => m.id !== id)});
-  };
-
-  const handleConsumeMaterial = async (id: string) => {
-    const material = project.materials.find(m => m.id === id);
-    if (!material) return;
-
-    const input = window.prompt(`Indica la cantidad de "${material.name}" a descontar del stock (Usado/Gastado):`, "1");
-    if (input === null) return; // Cancelled
-
-    const amount = Number(input);
-    if (isNaN(amount) || amount <= 0) {
-        alert("Cantidad inválida.");
-        return;
-    }
-
-    if (amount > material.quantity) {
-        alert("No hay suficiente stock para descontar esa cantidad.");
-        return;
-    }
-
-    const newQuantity = material.quantity - amount;
-    
-    // Update DB
-    await supabase.from('materials').update({ quantity: newQuantity }).eq('id', id);
-
-    // Update State
-    const updatedMaterials = project.materials.map(m => 
-        m.id === id ? { ...m, quantity: newQuantity } : m
-    );
-    updateProjectWithHistory({ ...project, materials: updatedMaterials });
-  };
+  }
 
   const handleDeleteTransaction = async (id: string) => {
       if(!window.confirm("¿Eliminar este movimiento?")) return;
@@ -374,28 +337,6 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                     <FileText className="w-5 h-5 text-[#0047AB] dark:text-blue-400" /> Detalles del Proyecto
                 </h3>
                 <div className="space-y-4 text-sm">
-                  {/* Progress Slider */}
-                  <div className="pb-5 mb-5 border-b border-slate-50 dark:border-slate-700">
-                     <div className="flex justify-between items-center mb-2">
-                         <span className="text-slate-900 dark:text-white font-bold flex items-center gap-2">
-                             <HardHat className="w-4 h-4 text-[#0047AB] dark:text-blue-400" /> Avance de Obra
-                         </span>
-                         <span className="text-2xl font-bold text-[#0047AB] dark:text-blue-400">{project.progress}%</span>
-                     </div>
-                     <input 
-                        type="range" 
-                        min="0" 
-                        max="100" 
-                        value={project.progress} 
-                        onChange={handleProgressChange}
-                        className="w-full h-2 bg-slate-100 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-[#0047AB] dark:accent-blue-400"
-                     />
-                     <div className="flex justify-between mt-1 text-[10px] text-slate-400 uppercase font-bold">
-                         <span>Inicio</span>
-                         <span>Completado</span>
-                     </div>
-                  </div>
-
                   <div className="flex justify-between py-3 border-b border-slate-50 dark:border-slate-700">
                     <span className="text-slate-500 dark:text-slate-400 font-medium">Ubicación</span>
                     <span className="font-semibold text-slate-900 dark:text-white">{project.location}</span>
@@ -661,15 +602,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
 
         {/* BUDGETS TAB */}
         {activeTab === 'budgets' && (
-           <BudgetManager 
-               project={project} 
-               onUpdate={updateProjectWithHistory} 
-               priceDatabase={priceDatabase}
-               view={project.editingBudgetView || 'list'}
-               setView={(view) => onUpdate({ ...project, editingBudgetView: view })}
-               currentBudget={project.editingBudget || null}
-               setCurrentBudget={(budget) => onUpdate({ ...project, editingBudget: budget })}
-           />
+           <BudgetManager project={project} onUpdate={updateProjectWithHistory} priceDatabase={priceDatabase} />
         )}
 
         {/* DOCUMENTS TAB */}
@@ -722,25 +655,16 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                                <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">Valor est: <span className="text-slate-700 dark:text-slate-200">{(m.quantity * m.pricePerUnit).toLocaleString()}€</span></p>
                              </div>
                           </div>
-                          <div className="flex items-center gap-4 sm:gap-8">
+                          <div className="flex items-center gap-8">
                             <div className="text-right">
                               <p className={`text-lg font-bold ${isLowStock ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-white'}`}>
                                 {m.quantity} <span className="text-xs font-normal text-slate-400 uppercase">{m.unit}</span>
                               </p>
                               {isLowStock && <p className="text-[10px] text-red-500 dark:text-red-400 font-bold bg-red-50 dark:bg-red-900/30 px-2 py-0.5 rounded-full mt-1">Stock Bajo</p>}
                             </div>
-                            <div className="flex gap-2">
-                                <button 
-                                    onClick={() => handleConsumeMaterial(m.id)}
-                                    className="text-amber-500 hover:text-amber-700 p-2 hover:bg-amber-50 dark:hover:bg-amber-900/30 rounded-lg transition-colors"
-                                    title="Descontar Stock (Usado)"
-                                >
-                                    <MinusCircle className="w-5 h-5" />
-                                </button>
-                                <button onClick={() => handleDeleteMaterial(m.id)} className="text-slate-300 hover:text-red-500 transition-colors p-2 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg">
-                                  <Trash2 className="w-5 h-5" />
-                                </button>
-                            </div>
+                            <button onClick={() => handleDeleteMaterial(m.id)} className="text-slate-300 hover:text-red-500 transition-colors p-2 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg">
+                              <Trash2 className="w-5 h-5" />
+                            </button>
                           </div>
                         </div>
                       );
@@ -822,76 +746,22 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
 
          {/* SETTINGS TAB */}
          {activeTab === 'settings' && (
-           <div className="max-w-3xl mx-auto space-y-8">
+           <div className="max-w-xl mx-auto space-y-8">
               
-              {/* General Settings Form */}
+              {/* General Settings */}
               <div className="bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 transition-colors">
                  <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6 flex items-center gap-2">
-                    <Edit3 className="w-5 h-5 text-[#0047AB] dark:text-blue-400" /> Editar Datos del Proyecto
+                    <Settings className="w-5 h-5 text-[#0047AB] dark:text-blue-400" /> Datos Generales
                  </h3>
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                     <div className="col-span-full">
-                         <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-2">Nombre del Proyecto</label>
-                         <input 
-                             type="text" 
-                             value={project.name}
-                             onChange={(e) => updateProjectWithHistory({ ...project, name: e.target.value })}
-                             className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white font-bold transition-all"
-                         />
-                     </div>
-                     
-                     <div className="col-span-full md:col-span-1">
-                         <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-2">Cliente</label>
-                         <input 
-                             type="text" 
-                             value={project.client}
-                             onChange={(e) => updateProjectWithHistory({ ...project, client: e.target.value })}
-                             className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white transition-all"
-                         />
-                     </div>
-
-                     <div className="col-span-full md:col-span-1">
-                         <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-2">Ubicación</label>
-                         <input 
-                             type="text" 
-                             value={project.location}
-                             onChange={(e) => updateProjectWithHistory({ ...project, location: e.target.value })}
-                             className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white transition-all"
-                         />
-                     </div>
-
-                     <div className="col-span-full md:col-span-1">
-                         <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-2">Fecha Inicio</label>
-                         <input 
-                             type="date" 
-                             value={project.startDate}
-                             onChange={(e) => updateProjectWithHistory({ ...project, startDate: e.target.value })}
-                             className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white transition-all"
-                         />
-                     </div>
-
-                     <div className="col-span-full md:col-span-1">
-                         <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-2">Fecha Fin Estimada</label>
-                         <input 
-                             type="date" 
-                             value={project.endDate || ''}
-                             onChange={(e) => updateProjectWithHistory({ ...project, endDate: e.target.value })}
-                             className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white transition-all"
-                         />
-                     </div>
-
-                     <div className="col-span-full">
-                         <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-2">Descripción</label>
-                         <textarea 
-                             rows={4}
-                             value={project.description}
-                             onChange={(e) => updateProjectWithHistory({ ...project, description: e.target.value })}
-                             className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white transition-all resize-none"
-                         />
-                     </div>
-                 </div>
-                 <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/10 rounded-lg text-xs text-blue-700 dark:text-blue-300">
-                    Los cambios se guardan automáticamente al modificar los campos.
+                 <div>
+                     <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-2">Nombre del Proyecto</label>
+                     <input 
+                         type="text" 
+                         value={project.name}
+                         onChange={(e) => updateProjectWithHistory({ ...project, name: e.target.value })}
+                         className="w-full p-4 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white font-bold text-lg transition-all"
+                     />
+                     <p className="text-xs text-slate-400 mt-2">El nombre se actualizará automáticamente en toda la aplicación.</p>
                  </div>
               </div>
 

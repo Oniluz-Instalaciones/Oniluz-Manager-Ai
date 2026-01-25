@@ -1,228 +1,396 @@
 import { GoogleGenAI } from "@google/genai";
-import { Project, PriceItem } from '../types';
+import { Project, PriceItem } from "../types";
 
-// --- CONFIGURACIÓN DE SEGURIDAD ---
+// --- CONFIGURACIÓN DE API ---
+// Se utiliza la librería moderna @google/genai.
+const apiKey = 'AIzaSyAPt-4D6bA9qLK-BrijbJBcmnBU1ojXOA8';
+const genAI = new GoogleGenAI({ apiKey });
 
-// Intentamos obtener la clave de todas las formas posibles (Vite, Process, o Fallback)
-const getApiKey = (): string => {
-  // @ts-ignore
-  if (import.meta?.env?.VITE_API_KEY) return import.meta.env.VITE_API_KEY;
-  // @ts-ignore
-  if (typeof process !== 'undefined' && process.env?.API_KEY) return process.env.API_KEY;
-  
-  // CLAVE DE RESPALDO (Crucial para que no falle si las variables de entorno no cargan en Vercel)
-  return 'AIzaSyAPt-4D6bA9qLK-BrijbJBcmnBU1ojXOA8';
-};
+// MODELO: Actualizado a 'gemini-2.5-flash' por ser el estándar actual de velocidad y estabilidad.
+const MODEL_NAME = 'gemini-2.5-flash';
 
-const apiKey = getApiKey();
-const ai = new GoogleGenAI({ apiKey });
+// --- SISTEMA DE CACHÉ ---
+// Almacena respuestas recientes para no gastar cuota en consultas repetidas.
+const responseCache = new Map<string, { timestamp: number, data: any }>();
+const CACHE_TTL = 1000 * 60 * 5; // 5 minutos de validez
 
-// Usamos el modelo más estable y rápido actualmente
-const MODEL_NAME = 'gemini-3-flash-preview';
+// --- SISTEMA DE COLA (Request Queue) ---
+// Serializa las peticiones para evitar el error 429 (Too Many Requests).
+class RequestQueue {
+    private queue: (() => Promise<void>)[] = [];
+    private processing = false;
 
-// --- UTILIDADES DE LIMPIEZA (FUERZA BRUTA) ---
+    async add<T>(operation: () => Promise<T>): Promise<T> {
+        return new Promise<T>((resolve, reject) => {
+            this.queue.push(async () => {
+                try {
+                    const result = await operation();
+                    resolve(result);
+                } catch (err) {
+                    reject(err);
+                }
+            });
+            this.process();
+        });
+    }
+
+    private async process() {
+        if (this.processing || this.queue.length === 0) return;
+        this.processing = true;
+        
+        while (this.queue.length > 0) {
+            const op = this.queue.shift();
+            if (op) {
+                await op();
+                // Pausa de seguridad entre peticiones para respetar rate limits
+                await new Promise(r => setTimeout(r, 2000)); 
+            }
+        }
+        
+        this.processing = false;
+    }
+}
+
+const apiQueue = new RequestQueue();
+
+// --- UTILIDADES ---
 
 /**
- * Limpia la respuesta de la IA para obtener solo el JSON válido.
- * Elimina bloques de código markdown ```json ... ``` y texto introductorio.
+ * Limpia la respuesta de la IA eliminando bloques de código Markdown (```json ... ```)
+ * y busca el primer objeto JSON válido.
  */
 const cleanAndParseJSON = (text: string): any => {
-    if (!text) return [];
+    try {
+        if (!text) return null;
 
-    let cleanText = text;
+        // 1. Eliminar etiquetas de bloque de código
+        let cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
+        
+        // 2. Encontrar los límites del JSON (por si la IA añade texto introductorio)
+        const firstOpenBrace = cleanText.indexOf('{');
+        const firstOpenBracket = cleanText.indexOf('[');
+        
+        let start = -1;
+        let end = -1;
 
-    // 1. Eliminar bloques de código markdown
-    cleanText = cleanText.replace(/```json/g, '').replace(/```/g, '');
-
-    // 2. Buscar el primer '[' y el último ']' para arrays
-    const firstBracket = cleanText.indexOf('[');
-    const lastBracket = cleanText.lastIndexOf(']');
-
-    if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
-        try {
-            const jsonStr = cleanText.substring(firstBracket, lastBracket + 1);
-            return JSON.parse(jsonStr);
-        } catch (e) {
-            console.warn("Fallo parseo de array, intentando objeto...");
+        // Determinar si buscamos un Objeto {} o un Array []
+        if (firstOpenBrace !== -1 && (firstOpenBracket === -1 || firstOpenBrace < firstOpenBracket)) {
+            start = firstOpenBrace;
+            end = cleanText.lastIndexOf('}');
+        } else if (firstOpenBracket !== -1) {
+            start = firstOpenBracket;
+            end = cleanText.lastIndexOf(']');
         }
-    }
 
-    // 3. Buscar el primer '{' y el último '}' para objetos
-    const firstBrace = cleanText.indexOf('{');
-    const lastBrace = cleanText.lastIndexOf('}');
-
-    if (firstBrace !== -1 && lastBrace !== -1) {
-        try {
-            const jsonStr = cleanText.substring(firstBrace, lastBrace + 1);
-            return JSON.parse(jsonStr);
-        } catch (e) {
-            console.error("No se pudo parsear JSON:", e);
+        if (start !== -1 && end !== -1) {
+            cleanText = cleanText.substring(start, end + 1);
         }
+        
+        return JSON.parse(cleanText);
+    } catch (e) {
+        console.error("Error parseando JSON de Gemini. Texto recibido:", text);
+        return null;
     }
-
-    return [];
 };
 
 /**
- * Optimiza imágenes a Base64 puro para enviar a Gemini
+ * Reduce el tamaño de las imágenes antes de enviarlas para ahorrar tokens y ancho de banda.
  */
-const optimizeImage = async (base64Str: string): Promise<string> => {
+const optimizeImage = (base64Str: string): Promise<string> => {
     return new Promise((resolve) => {
-        if (!base64Str || base64Str.startsWith('http')) {
-            resolve(''); 
-            return;
+        if (!base64Str.startsWith('data:image')) {
+             // Si no tiene cabecera, asumimos que es raw base64 o url, lo devolvemos limpio
+             return resolve(base64Str.includes(',') ? base64Str.split(',')[1] : base64Str);
         }
-        // Eliminar cabeceras data:image...
-        const rawBase64 = base64Str.includes(',') ? base64Str.split(',')[1] : base64Str;
-        resolve(rawBase64);
+
+        const img = new Image();
+        img.src = base64Str;
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            let width = img.width;
+            let height = img.height;
+            
+            // Limitamos a 1024px para balancear calidad/tokens
+            const MAX_SIZE = 1024; 
+
+            if (width > height) {
+                if (width > MAX_SIZE) {
+                    height *= MAX_SIZE / width;
+                    width = MAX_SIZE;
+                }
+            } else {
+                if (height > MAX_SIZE) {
+                    width *= MAX_SIZE / height;
+                    height = MAX_SIZE;
+                }
+            }
+
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx?.drawImage(img, 0, 0, width, height);
+            
+            // Compresión JPEG al 70%
+            const optimizedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+            resolve(optimizedBase64.split(',')[1]); 
+        };
+        img.onerror = () => {
+            resolve(base64Str.includes(',') ? base64Str.split(',')[1] : base64Str);
+        };
     });
 };
 
-// --- FUNCIONES EXPORTADAS ---
-
-export const generateSmartBudget = async (description: string, currentPrices: PriceItem[], images: string[] = []): Promise<any[]> => {
+/**
+ * Wrapper para reintentar automáticamente si hay error de cuota (429).
+ */
+const retryOperation = async <T>(operation: () => Promise<T>, retries = 3, delay = 2000): Promise<T> => {
     try {
-        // Contexto de precios limitado para no saturar
-        const priceContext = currentPrices
-            .slice(0, 40)
-            .map(p => `- ${p.name}: ${p.price}€/${p.unit} (${p.category})`)
-            .join('\n');
-
-        const prompt = `
-            Eres un experto en presupuestos eléctricos.
-            Tarea: Generar partidas para el proyecto: "${description}".
-            
-            Precios de referencia (úsalos si aplican):
-            ${priceContext}
-            
-            INSTRUCCIONES ESTRICTAS:
-            1. Devuelve SOLAMENTE un JSON Array válido.
-            2. NO escribas texto introductorio.
-            3. Formato: [{"name": "...", "quantity": 1, "unit": "ud", "pricePerUnit": 10, "category": "Material"}]
-        `;
-
-        const parts: any[] = [{ text: prompt }];
-
-        // Añadir imagen si existe
-        if (images.length > 0) {
-            const imgData = await optimizeImage(images[0]);
-            if (imgData) {
-                parts.push({ inlineData: { mimeType: 'image/jpeg', data: imgData } });
-            }
-        }
-
-        const response = await ai.models.generateContent({
-            model: MODEL_NAME,
-            contents: { parts },
-            config: {
-                temperature: 0.2, // Baja temperatura para ser preciso
-            }
-        });
-
-        const items = cleanAndParseJSON(response.text || "");
+        return await operation();
+    } catch (error: any) {
+        const errorStr = error.toString();
+        const isQuota = errorStr.includes('429') || (error.status === 429) || errorStr.includes('Resource has been exhausted');
         
-        if (Array.isArray(items) && items.length > 0) {
-            return items;
+        if (retries > 0 && isQuota) {
+            console.warn(`Cuota excedida (429). Reintentando en ${delay}ms... (Intentos restantes: ${retries})`);
+            await new Promise(r => setTimeout(r, delay));
+            return retryOperation(operation, retries - 1, delay * 2); // Backoff exponencial
         }
+        throw error;
+    }
+};
+
+// --- FUNCIONES PÚBLICAS ---
+
+export const analyzeDocument = async (base64String: string, mimeType: string = 'image/jpeg'): Promise<any> => {
+  const fallbackData = {
+    comercio: "",
+    fecha: new Date().toISOString().split('T')[0],
+    total: 0,
+    iva: 0,
+    categoria: "Material",
+    description: "Introducir datos manualmente",
+    items: []
+  };
+
+  // Usamos la cola para evitar saturación
+  return apiQueue.add(async () => {
+      try {
+        const cleanBase64 = await optimizeImage(base64String);
         
-        // Si no devolvió array, intentamos extraer de la propiedad 'items' si devolvió objeto
-        if (items && items.items && Array.isArray(items.items)) {
-            return items.items;
+        const prompt = `Analiza este documento (ticket, factura o albarán). 
+        Extrae la información y devuélvela en un JSON estricto.
+        Si algún campo no es visible, usa null o 0.
+        Formato requerido:
+        {
+          "comercio": "Nombre del proveedor",
+          "fecha": "YYYY-MM-DD",
+          "total": 0.00,
+          "iva": 0.00,
+          "categoria": "Material", 
+          "items": [{ "name": "Nombre producto", "quantity": 1, "unit": "ud", "price": 0.00 }]
+        }`;
+        
+        // Configuración correcta del SDK @google/genai
+        const operation = () => genAI.models.generateContent({
+          model: MODEL_NAME,
+          contents: {
+            parts: [
+              // Estructura correcta para envío de imágenes
+              { inlineData: { mimeType: 'image/jpeg', data: cleanBase64 } }, 
+              { text: prompt }
+            ]
+          },
+          config: { 
+              temperature: 0.1, // Baja temperatura para datos precisos
+          }
+        });
+
+        const response = await retryOperation(operation);
+        const result = cleanAndParseJSON(response.text || "{}");
+        
+        if (result) {
+            return {
+                ...fallbackData,
+                ...result,
+                total: Number(result.total) || 0,
+                iva: Number(result.iva) || 0
+            };
+        } else {
+           throw new Error("La respuesta no contiene un JSON válido");
         }
-
-        throw new Error("Formato inválido");
-
-    } catch (error) {
-        console.error("Error en generateSmartBudget:", error);
-        // Fallback visual para que la app no colapse
-        return [{
-            name: "Partida Manual (Error IA)",
-            quantity: 1,
-            unit: "ud",
-            pricePerUnit: 0,
-            category: "Otros"
-        }];
-    }
+      } catch (error: any) {
+        console.warn('Gemini API Error:', error);
+        const errorStr = error.toString();
+        const isQuotaError = errorStr.includes('429') || (error.status === 429);
+        return {
+            ...fallbackData,
+            errorType: isQuotaError ? 'QUOTA' : 'GENERIC',
+            description: isQuotaError ? "Límite de cuota alcanzado." : "Error al procesar la imagen"
+        };
+      }
+  });
 };
 
-export const analyzeDocument = async (base64Data: string, mimeType: string) => {
-    try {
-        const imgData = await optimizeImage(base64Data);
-        if (!imgData) return { errorType: 'GENERIC' };
-
-        const prompt = `Analiza este documento. Devuelve JSON: { "comercio": string, "total": number, "fecha": "YYYY-MM-DD", "items": [{name, quantity, price}] }`;
-
-        const response = await ai.models.generateContent({
+export const chatWithAssistant = async (message: string, context?: string): Promise<string> => {
+  return apiQueue.add(async () => {
+      try {
+        const prompt = context ? `System Instruction: ${context}\n\nUser Query: ${message}` : message;
+        
+        const operation = () => genAI.models.generateContent({
             model: MODEL_NAME,
-            contents: {
-                parts: [
-                    { text: prompt },
-                    { inlineData: { mimeType: 'image/jpeg', data: imgData } }
-                ]
-            }
+            contents: prompt
         });
 
-        const data = cleanAndParseJSON(response.text || "");
-        return data.total ? data : { errorType: 'GENERIC' };
-    } catch (e) {
-        return { errorType: 'GENERIC' };
-    }
-};
-
-export const parseMaterialsFromInput = async (text: string): Promise<PriceItem[]> => {
-    try {
-        const response = await ai.models.generateContent({
-            model: MODEL_NAME,
-            contents: { parts: [{ text: `Extrae materiales de: "${text}". JSON Array: [{"name", "price", "unit", "category"}]` }] }
-        });
-        const items = cleanAndParseJSON(response.text || "");
-        return Array.isArray(items) ? items : [];
-    } catch (e) {
-        return [];
-    }
-};
-
-export const parseMaterialsFromImage = async (base64Data: string): Promise<PriceItem[]> => {
-    try {
-        const imgData = await optimizeImage(base64Data);
-        if (!imgData) return [];
-        const response = await ai.models.generateContent({
-            model: MODEL_NAME,
-            contents: {
-                parts: [
-                    { text: "Lista materiales y precios. JSON Array." },
-                    { inlineData: { mimeType: 'image/jpeg', data: imgData } }
-                ]
-            }
-        });
-        const items = cleanAndParseJSON(response.text || "");
-        return Array.isArray(items) ? items : [];
-    } catch (e) {
-        return [];
-    }
+        const response = await retryOperation(operation);
+        return response.text || "No se obtuvo respuesta.";
+      } catch (error: any) {
+        if (error.toString().includes('429') || (error.status === 429)) {
+            return "⚠️ El asistente está ocupado (Límite de cuota 429). Por favor, espera unos segundos.";
+        }
+        return "El asistente no está disponible en este momento.";
+      }
+  });
 };
 
 export const analyzeProjectStatus = async (project: Project): Promise<string> => {
-    try {
-        const prompt = `Resumen ejecutivo muy breve de la obra: ${project.name}. Estado: ${project.status}. Presupuesto: ${project.budget}.`;
-        const response = await ai.models.generateContent({
+  // Comprobamos caché antes de llamar a la API
+  const cacheKey = `status-${project.id}-${project.status}-${project.budget.toFixed(2)}`;
+  const cached = responseCache.get(cacheKey);
+  
+  if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
+      return cached.data;
+  }
+
+  return apiQueue.add(async () => {
+      try {
+        const prompt = `Actúa como un consultor de obras eléctricas.
+        Analiza el siguiente proyecto:
+        - Nombre: ${project.name}
+        - Estado: ${project.status}
+        - Presupuesto: ${project.budget}€
+        - Progreso: ${project.progress}%
+        
+        Dame 3 consejos estratégicos breves para mejorar la rentabilidad o gestión.`;
+        
+        const operation = () => genAI.models.generateContent({
             model: MODEL_NAME,
-            contents: { parts: [{ text: prompt }] }
+            contents: prompt
         });
-        return response.text || "Sin análisis.";
-    } catch (e) {
-        return "Servicio no disponible.";
-    }
+
+        const response = await retryOperation(operation);
+        const text = response.text || "";
+        
+        // Guardamos en caché
+        responseCache.set(cacheKey, { timestamp: Date.now(), data: text });
+        return text;
+      } catch (error: any) {
+         if (error.toString().includes('429')) return "Análisis pausado por límite de velocidad. Inténtalo de nuevo en 1 minuto.";
+         return "Análisis no disponible temporalmente.";
+      }
+  });
 };
 
-export const chatWithAssistant = async (message: string, context: string): Promise<string> => {
-    try {
-        const response = await ai.models.generateContent({
-            model: MODEL_NAME,
-            contents: { parts: [{ text: context + "\n\nUsuario: " + message }] }
-        });
-        return response.text || "Error de respuesta.";
-    } catch (e) {
-        return "Error de conexión.";
-    }
+export const generateSmartBudget = async (description: string, currentPrices: PriceItem[], images: string[] = []): Promise<any[]> => {
+    return apiQueue.add(async () => {
+        try {
+            // Contexto de precios para que la IA use precios reales
+            const priceContext = currentPrices.slice(0, 100).map(p => `- ${p.name} (Categoría: ${p.category}): ${p.price}€/${p.unit}`).join('\n');
+            
+            const prompt = `Actúa como un INGENIERO ELÉCTRICO EXPERTO EN EL REBT (Reglamento Electrotécnico para Baja Tensión de España).
+            Tu tarea es generar un presupuesto técnico y detallado para: "${description}".
+
+            ### REGLAS OBLIGATORIAS (REBT ESPAÑA):
+            1. CLASIFICACIÓN: Determina si es Electrificación Básica (C1-C5) o Elevada (C1-C12, aire acondicionado, calefacción, etc.) según la descripción.
+            2. CIRCUITOS Y CABLEADO: Debes calcular las secciones mínimas y protecciones:
+               - Iluminación (C1): Cable 1.5mm², PIA 10A.
+               - Tomas uso general (C2): Cable 2.5mm², PIA 16A.
+               - Cocina/Horno (C3): Cable 6mm², PIA 25A.
+               - Lavadora/Termo (C4): Cable 4mm², PIA 20A.
+               - Baños/Cocina Humeda (C5): Cable 2.5mm², PIA 16A.
+               - Estimación de metraje: Calcula metros lógicos de cable (Fase+Neutro+Tierra) considerando el tamaño implícito de la obra + 15% seguridad.
+            3. CUADRO GENERAL (CGMP): Incluye IGA, Diferenciales (30mA) y Sobretensiones si aplica.
+            4. MECANISMOS: Calcula número aproximado de cajas universales, enchufes e interruptores.
+
+            ### POLÍTICA DE PRECIOS (PRIORIDAD ESTRICTA):
+            1. BUSCA EN LA BASE DE DATOS PROPIA (abajo). Si el material necesario existe (aunque el nombre varíe ligeramente), USA ESE NOMBRE EXACTO y SU PRECIO.
+            2. Si NO existe en la base de datos: Estima un precio de mercado realista en España para 2024/2025.
+
+            ### BASE DE DATOS PROPIA:
+            ${priceContext}
+
+            ### FORMATO DE SALIDA:
+            Devuelve ÚNICAMENTE un Array JSON válido con objetos: 
+            [{ "name": "Nombre técnico exacto", "quantity": numero_estimado, "unit": "m/ud/h", "pricePerUnit": precio, "category": "Material/Mano de Obra" }]
+            
+            No incluyas markdown, solo el JSON.`;
+
+            const parts: any[] = [{ text: prompt }];
+            
+            if (images.length > 0) {
+                 const optimizedImg = await optimizeImage(images[0]);
+                 parts.push({ inlineData: { mimeType: 'image/jpeg', data: optimizedImg } });
+            }
+
+            const operation = () => genAI.models.generateContent({
+                model: MODEL_NAME,
+                contents: { parts },
+                config: {
+                    temperature: 0.2, // Baja temperatura para rigor técnico
+                }
+            });
+
+            const response = await retryOperation(operation);
+            const result = cleanAndParseJSON(response.text || "[]");
+            return Array.isArray(result) ? result : [];
+        } catch {
+            return [];
+        }
+    });
+};
+
+export const parseMaterialsFromInput = async (textInput: string): Promise<PriceItem[]> => {
+    return apiQueue.add(async () => {
+        try {
+            const prompt = `Extrae una lista de materiales de este texto.
+            Texto: "${textInput}"
+            
+            Devuelve SOLO un Array JSON: [{ "name": string, "unit": string, "price": number, "category": string }].
+            Si no hay precio, pon 0. Categorías sugeridas: Material, Mano de Obra, Pequeño Material.`;
+            
+            const operation = () => genAI.models.generateContent({ 
+                model: MODEL_NAME, 
+                contents: prompt 
+            });
+
+            const response = await retryOperation(operation);
+            const result = cleanAndParseJSON(response.text || "[]");
+            return Array.isArray(result) ? result : [];
+        } catch {
+            return [];
+        }
+    });
+};
+
+export const parseMaterialsFromImage = async (base64Image: string): Promise<PriceItem[]> => {
+    return apiQueue.add(async () => {
+        try {
+            const cleanData = await optimizeImage(base64Image);
+            
+            const operation = () => genAI.models.generateContent({
+                model: MODEL_NAME,
+                contents: {
+                    parts: [
+                        { inlineData: { mimeType: 'image/jpeg', data: cleanData } },
+                        { text: "Identifica los materiales, precios y unidades en esta imagen de tarifa o catálogo. Devuelve SOLO un Array JSON válido: [{ name, unit, price, category }]." }
+                    ]
+                }
+            });
+
+            const response = await retryOperation(operation);
+            const result = cleanAndParseJSON(response.text || "[]");
+            return Array.isArray(result) ? result : [];
+        } catch {
+            return [];
+        }
+    });
 };

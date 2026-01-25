@@ -1,51 +1,26 @@
 import React, { useState } from 'react';
-import { Budget, BudgetItem, Project, PriceItem, Transaction } from '../types';
+import { Budget, BudgetItem, Project, PriceItem } from '../types';
 import { generateSmartBudget } from '../services/geminiService';
-import { Plus, Trash2, Wand2, FileText, Save, ChevronLeft, ArrowRight, Loader2, Database, Paperclip, Check, X, Wallet, Calculator, AlertTriangle } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { Plus, Trash2, Wand2, FileText, Save, ChevronLeft, ArrowRight, Loader2, Database, Paperclip, Check } from 'lucide-react';
 
 interface BudgetManagerProps {
     project: Project;
     onUpdate: (updatedProject: Project) => void;
     priceDatabase: PriceItem[];
-    // New props for state persistence
-    view: 'list' | 'edit';
-    setView: (view: 'list' | 'edit') => void;
-    currentBudget: Budget | null;
-    setCurrentBudget: (budget: Budget | null) => void;
 }
 
-const BudgetManager: React.FC<BudgetManagerProps> = ({ 
-    project, 
-    onUpdate, 
-    priceDatabase,
-    view,
-    setView,
-    currentBudget,
-    setCurrentBudget
-}) => {
-    // Local UI state
+const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceDatabase }) => {
+    const [view, setView] = useState<'list' | 'edit'>('list');
+    const [currentBudget, setCurrentBudget] = useState<Budget | null>(null);
     const [aiPrompt, setAiPrompt] = useState('');
     const [isGenerating, setIsGenerating] = useState(false);
     const [includeDocs, setIncludeDocs] = useState(false);
-    const [aiError, setAiError] = useState<string | null>(null);
-    const [isSaving, setIsSaving] = useState(false);
-
-    // Estado para el Modal de Aceptación
-    const [isAcceptModalOpen, setIsAcceptModalOpen] = useState(false);
-    const [budgetToAccept, setBudgetToAccept] = useState<Budget | null>(null);
-    const [advanceConfig, setAdvanceConfig] = useState<{ enabled: boolean, percentage: number, amount: number }>({
-        enabled: false,
-        percentage: 0,
-        amount: 0
-    });
 
     // --- Actions ---
 
     const handleCreateNew = () => {
-        // Use a UUID for better compatibility with DB if needed, or timestamp is ok for temporary
         const newBudget: Budget = {
-            id: crypto.randomUUID(),
+            id: Date.now().toString(),
             projectId: project.id,
             name: `Presupuesto #${(project.budgets?.length || 0) + 1}`,
             date: new Date().toISOString().split('T')[0],
@@ -56,125 +31,38 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({
         setCurrentBudget(newBudget);
         setView('edit');
         setAiPrompt('');
-        setAiError(null);
     };
 
     const handleEdit = (budget: Budget) => {
         setCurrentBudget({ ...budget });
         setView('edit');
         setAiPrompt('');
-        setAiError(null);
     };
 
-    const initiateAcceptBudget = (budget: Budget) => {
-        setBudgetToAccept(budget);
-        const totalWithIva = budget.total * 1.21;
-        setAdvanceConfig({
-            enabled: false,
-            percentage: 0,
-            amount: 0
-        });
-        setIsAcceptModalOpen(true);
-    };
-
-    const confirmAcceptBudget = async () => {
-        if (!budgetToAccept) return;
-
-        const updatedBudget: Budget = {
-            ...budgetToAccept,
-            status: 'Accepted',
-            advancePayment: advanceConfig.enabled ? advanceConfig.amount : 0,
-            advancePercentage: advanceConfig.enabled ? advanceConfig.percentage : 0
-        };
-
-        // 1. Update status in DB
-        await supabase.from('budgets').update({
-            status: 'Accepted',
-            advance_payment: updatedBudget.advancePayment,
-            advance_percentage: updatedBudget.advancePercentage
-        }).eq('id', updatedBudget.id);
-
-        let newTransactions = [...project.transactions];
-
-        // 2. Create Transaction if advance payment
-        if (advanceConfig.enabled && advanceConfig.amount > 0) {
-            const newIncome: Transaction = {
-                id: crypto.randomUUID(),
-                projectId: project.id,
-                type: 'income',
-                category: 'Anticipo',
-                amount: advanceConfig.amount,
-                date: new Date().toISOString().split('T')[0],
-                description: `Anticipo Presupuesto: ${budgetToAccept.name}`
-            };
-            
-            await supabase.from('transactions').insert({
-                project_id: newIncome.projectId,
-                type: newIncome.type,
-                category: newIncome.category,
-                amount: newIncome.amount,
-                date: newIncome.date,
-                description: newIncome.description
-            });
-
-            newTransactions = [newIncome, ...newTransactions];
-        }
-
-        // 3. Update project budget total if zero
-        let newProjectBudget = project.budget;
-        if (project.budget === 0) {
-            newProjectBudget = budgetToAccept.total;
-            await supabase.from('projects').update({ budget: newProjectBudget }).eq('id', project.id);
-        }
+    const handleAcceptBudget = (budget: Budget) => {
+        if (!window.confirm(`¿Confirmas que el cliente ha aceptado el presupuesto "${budget.name}"?`)) return;
 
         const updatedBudgets = (project.budgets || []).map(b => 
-            b.id === budgetToAccept.id ? updatedBudget : b
+            b.id === budget.id ? { ...b, status: 'Accepted' as const } : b
         );
-
-        onUpdate({ 
-            ...project, 
-            budgets: updatedBudgets,
-            transactions: newTransactions,
-            budget: newProjectBudget 
-        });
-
-        setIsAcceptModalOpen(false);
-        setBudgetToAccept(null);
-    };
-
-    const handleAdvancePercentChange = (percent: number) => {
-        if (!budgetToAccept) return;
-        const totalWithIva = budgetToAccept.total * 1.21;
-        const amount = (totalWithIva * percent) / 100;
-        setAdvanceConfig(prev => ({ ...prev, percentage: percent, amount: Number(amount.toFixed(2)) }));
-    };
-
-    const handleAdvanceAmountChange = (amount: number) => {
-        if (!budgetToAccept) return;
-        const totalWithIva = budgetToAccept.total * 1.21;
-        const percent = totalWithIva > 0 ? (amount / totalWithIva) * 100 : 0;
-        setAdvanceConfig(prev => ({ ...prev, amount: amount, percentage: Number(percent.toFixed(2)) }));
+        onUpdate({ ...project, budgets: updatedBudgets });
     };
 
     const handleGenerateAI = async () => {
         if (!aiPrompt.trim()) return;
         setIsGenerating(true);
-        setAiError(null);
-
         try {
+            // Filter only images for analysis as Gemini Flash handles images best via base64
             const docImages = includeDocs ? (project.documents || []).filter(d => d.type === 'image').map(d => d.data) : [];
-            const contextPrompt = `Cliente: ${project.client}. Ubicación: ${project.location}. Desc: ${aiPrompt}`;
 
+            // Combine project context with user prompt
+            const contextPrompt = `Contexto del Proyecto: Nombre "${project.name}", Tipo "${project.type}", Ubicación "${project.location}".
+            Solicitud del usuario: ${aiPrompt}`;
+
+            // Pass the dynamic database and images to the AI service
             const items = await generateSmartBudget(contextPrompt, priceDatabase, docImages);
-            
-            if (!items || items.length === 0) {
-                setAiError("La IA procesó la solicitud pero no generó partidas. Intenta ser más específico con la descripción.");
-                setIsGenerating(false);
-                return;
-            }
-
             const enrichedItems: BudgetItem[] = items.map((item: any) => ({
-                id: crypto.randomUUID(),
+                id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
                 name: item.name,
                 unit: item.unit,
                 quantity: item.quantity,
@@ -187,33 +75,30 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({
                 const updatedBudget = { ...currentBudget, items: updatedItems };
                 updateBudgetTotals(updatedBudget);
                 
+                // Smart Estimation of End Date based on Labor Hours
                 const laborHours = updatedItems
                     .filter(i => (i.unit.toLowerCase() === 'h' || i.name.toLowerCase().includes('hora') || i.category.toLowerCase().includes('mano')))
                     .reduce((sum, item) => sum + item.quantity, 0);
 
                 if (laborHours > 0) {
+                     // Assume 8 hour work days
                      const estimatedDays = Math.ceil(laborHours / 8);
                      const startDate = new Date(project.startDate);
                      const newEndDate = new Date(startDate);
-                     newEndDate.setDate(startDate.getDate() + estimatedDays + 1);
+                     newEndDate.setDate(startDate.getDate() + estimatedDays + 1); // +1 buffer
                      
+                     // Update the project's end date directly
                      onUpdate({ 
                          ...project, 
                          endDate: newEndDate.toISOString().split('T')[0],
                          budgets: project.budgets?.map(b => b.id === updatedBudget.id ? updatedBudget : b)
                      });
+                     
+                     alert(`Se han estimado ${estimatedDays} días de trabajo basados en las horas de mano de obra. La fecha de fin se ha actualizado.`);
                 }
             }
-        } catch (error: any) {
-            console.error(error);
-            // Mensaje amigable para el usuario
-            if (error.message?.includes('429')) {
-                setAiError("Has excedido el límite de consultas a la IA por minuto. Por favor, espera unos instantes.");
-            } else if (error.message?.includes('500') || error.message?.includes('503')) {
-                setAiError("El servicio de IA está temporalmente saturado. Inténtalo de nuevo.");
-            } else {
-                setAiError("Ocurrió un error al conectar con la inteligencia artificial. Verifica tu conexión.");
-            }
+        } catch (error) {
+            alert("Error al generar presupuesto con IA.");
         } finally {
             setIsGenerating(false);
         }
@@ -222,7 +107,7 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({
     const handleAddItem = (priceItem?: PriceItem) => {
         if (!currentBudget) return;
         const newItem: BudgetItem = {
-            id: crypto.randomUUID(),
+            id: Date.now().toString() + Math.random(),
             name: priceItem ? priceItem.name : 'Nuevo Concepto',
             unit: priceItem ? priceItem.unit : 'ud',
             quantity: 1,
@@ -235,6 +120,7 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({
     const handleUpdateItem = (id: string, field: keyof BudgetItem, value: any) => {
         if (!currentBudget) return;
         
+        // Auto-complete logic if user types a name that exists in DB
         let extraUpdates = {};
         if (field === 'name') {
             const match = priceDatabase.find(p => p.name.toLowerCase() === (value as string).toLowerCase());
@@ -264,179 +150,34 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({
         setCurrentBudget({ ...budget, total });
     };
 
-    const handleSaveBudget = async () => {
+    const handleSaveBudget = () => {
         if (!currentBudget) return;
-        setIsSaving(true);
-
-        try {
-            // 1. Update or Insert Budget Header
-            const { error: budgetError } = await supabase.from('budgets').upsert({
-                id: currentBudget.id,
-                project_id: project.id,
-                name: currentBudget.name,
-                date: currentBudget.date,
-                status: currentBudget.status,
-                total: currentBudget.total
-            });
-
-            if (budgetError) throw budgetError;
-
-            // 2. Sync Items (Strategy: Delete all items for this budget, then insert new ones)
-            // This is safer than upserting individual items if items were deleted in UI
-            await supabase.from('budget_items').delete().eq('budget_id', currentBudget.id);
-
-            if (currentBudget.items.length > 0) {
-                const itemsToInsert = currentBudget.items.map(item => ({
-                    budget_id: currentBudget.id,
-                    name: item.name,
-                    quantity: item.quantity,
-                    unit: item.unit,
-                    price_per_unit: item.pricePerUnit,
-                    category: item.category
-                }));
-
-                const { error: itemsError } = await supabase.from('budget_items').insert(itemsToInsert);
-                if (itemsError) throw itemsError;
-            }
-
-            // 3. Update Local State
-            const budgets = project.budgets || [];
-            const existingIndex = budgets.findIndex(b => b.id === currentBudget.id);
-            
-            let updatedBudgets;
-            if (existingIndex >= 0) {
-                updatedBudgets = budgets.map((b, i) => i === existingIndex ? currentBudget : b);
-            } else {
-                updatedBudgets = [currentBudget, ...budgets];
-            }
-
-            onUpdate({ ...project, budgets: updatedBudgets });
-            setView('list');
-
-        } catch (error) {
-            console.error("Error saving budget:", error);
-            alert("Error al guardar el presupuesto en la base de datos.");
-        } finally {
-            setIsSaving(false);
+        const budgets = project.budgets || [];
+        const existingIndex = budgets.findIndex(b => b.id === currentBudget.id);
+        
+        let updatedBudgets;
+        if (existingIndex >= 0) {
+            updatedBudgets = budgets.map((b, i) => i === existingIndex ? currentBudget : b);
+        } else {
+            updatedBudgets = [currentBudget, ...budgets];
         }
+
+        onUpdate({ ...project, budgets: updatedBudgets });
+        setView('list');
     };
 
-    const handleDeleteBudget = async (id: string) => {
+    const handleDeleteBudget = (id: string) => {
         if(!window.confirm("¿Eliminar este presupuesto?")) return;
-        
-        try {
-            // Delete from DB
-            await supabase.from('budgets').delete().eq('id', id);
-            
-            // Update UI
-            const updatedBudgets = (project.budgets || []).filter(b => b.id !== id);
-            onUpdate({ ...project, budgets: updatedBudgets });
-        } catch (error) {
-            console.error("Error deleting budget:", error);
-            alert("Error al eliminar.");
-        }
+        const updatedBudgets = (project.budgets || []).filter(b => b.id !== id);
+        onUpdate({ ...project, budgets: updatedBudgets });
     }
 
-    // --- Render ---
-
-    // Modal de Aceptación
-    const renderAcceptModal = () => {
-        if (!isAcceptModalOpen || !budgetToAccept) return null;
-        
-        const totalBase = budgetToAccept.total;
-        const totalIVA = totalBase * 0.21;
-        const totalWithIVA = totalBase + totalIVA;
-
-        return (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-                <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md border border-slate-100 dark:border-slate-700 overflow-hidden animate-in zoom-in-95 duration-200">
-                    <div className="bg-[#0047AB] p-4 flex justify-between items-center text-white">
-                        <h3 className="font-bold text-lg flex items-center gap-2">
-                            <Check className="w-5 h-5" /> Aceptar Presupuesto
-                        </h3>
-                        <button onClick={() => setIsAcceptModalOpen(false)} className="hover:bg-white/20 p-1.5 rounded-full transition-colors"><X className="w-5 h-5"/></button>
-                    </div>
-                    
-                    <div className="p-6 space-y-6">
-                        <div className="bg-slate-50 dark:bg-slate-700/50 p-4 rounded-xl text-center">
-                            <p className="text-sm text-slate-500 dark:text-slate-400 font-medium uppercase">Total Presupuesto (con IVA)</p>
-                            <p className="text-3xl font-extrabold text-slate-900 dark:text-white mt-1">{totalWithIVA.toLocaleString()}€</p>
-                        </div>
-
-                        <div>
-                            <label className="flex items-center gap-3 p-3 border border-slate-200 dark:border-slate-600 rounded-xl cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
-                                <input 
-                                    type="checkbox" 
-                                    checked={advanceConfig.enabled}
-                                    onChange={(e) => {
-                                        const isEnabled = e.target.checked;
-                                        setAdvanceConfig(prev => ({ 
-                                            ...prev, 
-                                            enabled: isEnabled,
-                                            // Si se activa, sugerir 40% por defecto
-                                            percentage: isEnabled ? 40 : 0,
-                                            amount: isEnabled ? Number((totalWithIVA * 0.4).toFixed(2)) : 0
-                                        }));
-                                    }}
-                                    className="w-5 h-5 text-[#0047AB] rounded focus:ring-[#0047AB]"
-                                />
-                                <div className="flex-1">
-                                    <span className="font-bold text-slate-800 dark:text-white block">Solicitar Anticipo / Señal</span>
-                                    <span className="text-xs text-slate-500 dark:text-slate-400">Se creará un registro de ingreso automáticamente.</span>
-                                </div>
-                            </label>
-                        </div>
-
-                        {advanceConfig.enabled && (
-                            <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-top-2 duration-200">
-                                <div>
-                                    <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1 block">Porcentaje %</label>
-                                    <div className="relative">
-                                        <input 
-                                            type="number" 
-                                            value={advanceConfig.percentage}
-                                            onChange={(e) => handleAdvancePercentChange(Number(e.target.value))}
-                                            className="w-full p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-[#0047AB]"
-                                        />
-                                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">%</span>
-                                    </div>
-                                </div>
-                                <div>
-                                    <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1 block">Importe €</label>
-                                    <div className="relative">
-                                        <input 
-                                            type="number"
-                                            step="0.01" 
-                                            value={advanceConfig.amount}
-                                            onChange={(e) => handleAdvanceAmountChange(Number(e.target.value))}
-                                            className="w-full p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-[#0047AB]"
-                                        />
-                                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">€</span>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
-                        <div className="flex gap-3 pt-2">
-                            <button onClick={() => setIsAcceptModalOpen(false)} className="flex-1 py-3 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl font-bold hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">
-                                Cancelar
-                            </button>
-                            <button onClick={confirmAcceptBudget} className="flex-1 py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 shadow-lg shadow-green-200 dark:shadow-green-900/30 transition-colors flex items-center justify-center gap-2">
-                                <Wallet className="w-5 h-5" /> Confirmar
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        );
-    };
+    // --- Views ---
 
     if (view === 'list') {
         const budgets = project.budgets || [];
         return (
-            <div className="space-y-6 relative">
-                {renderAcceptModal()}
-                
+            <div className="space-y-6">
                 <div className="flex justify-between items-center">
                     <h3 className="text-lg font-bold text-slate-800 dark:text-white">Presupuestos del Proyecto</h3>
                     <button onClick={handleCreateNew} className="bg-[#0047AB] text-white px-5 py-2.5 rounded-xl flex items-center gap-2 hover:bg-[#003380] transition-colors shadow-lg shadow-blue-900/10 font-medium">
@@ -461,14 +202,7 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({
                                         }`}>{budget.status}</span>
                                     </div>
                                 </div>
-                                <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6 mt-1 ml-12">
-                                    <p className="text-xs text-slate-400 dark:text-slate-500">Creado el {budget.date} • {budget.items.length} partidas</p>
-                                    {budget.advancePayment && budget.advancePayment > 0 && (
-                                        <p className="text-xs font-bold text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20 px-2 py-0.5 rounded">
-                                            Anticipo: {budget.advancePayment.toLocaleString()}€ ({budget.advancePercentage}%)
-                                        </p>
-                                    )}
-                                </div>
+                                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1 ml-12">Creado el {budget.date} • {budget.items.length} partidas</p>
                             </div>
                             <div className="flex items-center gap-6 mt-4 md:mt-0 pl-12 md:pl-0">
                                 <div className="text-right">
@@ -478,7 +212,7 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({
                                 <div className="flex gap-2">
                                     {budget.status !== 'Accepted' && (
                                         <button 
-                                            onClick={(e) => { e.stopPropagation(); initiateAcceptBudget(budget); }}
+                                            onClick={(e) => { e.stopPropagation(); handleAcceptBudget(budget); }}
                                             className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 font-bold bg-green-50 dark:bg-green-900/20 px-3 py-2 rounded-lg hover:bg-green-100 dark:hover:bg-green-900/40 transition-colors flex items-center gap-1"
                                             title="Marcar como Aceptado"
                                         >
@@ -539,13 +273,8 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({
                         <div className="text-xs text-slate-400 font-bold uppercase">Total Presupuesto</div>
                         <div className="text-2xl font-bold text-slate-900 dark:text-white">{currentBudget?.total.toLocaleString()}€</div>
                     </div>
-                    <button 
-                        onClick={handleSaveBudget} 
-                        disabled={isSaving}
-                        className="bg-green-600 text-white px-6 py-3 rounded-xl flex items-center gap-2 hover:bg-green-700 shadow-lg shadow-green-200 dark:shadow-green-900/30 font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                        {isSaving ? 'Guardando...' : 'Guardar'}
+                    <button onClick={handleSaveBudget} className="bg-green-600 text-white px-6 py-3 rounded-xl flex items-center gap-2 hover:bg-green-700 shadow-lg shadow-green-200 dark:shadow-green-900/30 font-bold transition-all">
+                        <Save className="w-4 h-4" /> Guardar
                     </button>
                 </div>
             </div>
@@ -560,14 +289,6 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({
                         <h3 className="text-sm font-bold text-[#0047AB] dark:text-blue-400 mb-4 flex items-center relative z-10">
                             <Wand2 className="w-4 h-4 mr-2" /> Generador Inteligente (Experto REBT)
                         </h3>
-                        
-                        {aiError && (
-                            <div className="mb-4 bg-red-50 dark:bg-red-900/20 p-3 rounded-xl border border-red-100 dark:border-red-800 flex gap-3 items-start relative z-10 animate-in fade-in slide-in-from-top-2">
-                                <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
-                                <span className="text-sm text-red-700 dark:text-red-300">{aiError}</span>
-                            </div>
-                        )}
-
                         <div className="flex flex-col gap-4 relative z-10">
                             <textarea 
                                 value={aiPrompt}
@@ -679,6 +400,7 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({
                                 <button className="text-slate-600 dark:text-slate-400 text-sm font-medium flex items-center hover:text-slate-900 dark:hover:text-white transition-colors">
                                     <Database className="w-4 h-4 mr-2" /> Cargar de Base de Precios
                                 </button>
+                                {/* Simple dropdown for selecting from DB directly */}
                                 <div className="absolute left-0 bottom-full mb-2 w-72 bg-white dark:bg-slate-800 shadow-xl rounded-xl border border-slate-100 dark:border-slate-600 hidden group-hover:block max-h-64 overflow-y-auto z-10 p-2">
                                      {priceDatabase.map(p => (
                                          <div 

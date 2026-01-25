@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Project, PriceItem, Material } from './types';
+import { Project, PriceItem } from './types';
 import { PRICE_DATABASE } from './constants';
 import ProjectList from './components/ProjectList';
 import ProjectDetail from './components/ProjectDetail';
@@ -97,7 +97,6 @@ const App: React.FC = () => {
       if (error) throw error;
 
       if (data) {
-        // Mapeo riguroso de snake_case (DB) a camelCase (App) para evitar datos vacíos o NaN
         const formattedProjects: Project[] = data.map((p: any) => ({
           id: p.id,
           type: p.type as any,
@@ -111,81 +110,16 @@ const App: React.FC = () => {
           budget: Number(p.budget),
           description: p.description,
           pvData: p.pv_data, // JSONB column
-          
-          transactions: (p.transactions || []).map((t: any) => ({
-              id: t.id,
-              projectId: t.project_id,
-              type: t.type,
-              category: t.category,
-              amount: Number(t.amount),
-              date: t.date,
-              description: t.description
-          })),
-
-          materials: (p.materials || []).map((m: any) => ({
-             id: m.id,
-             projectId: m.project_id,
-             name: m.name,
-             quantity: Number(m.quantity) || 0,
-             unit: m.unit,
-             minStock: Number(m.min_stock) || 0,
-             pricePerUnit: Number(m.price_per_unit) || 0 
-          })),
-
-          incidents: (p.incidents || []).map((i: any) => ({
-              id: i.id,
-              projectId: i.project_id,
-              title: i.title,
-              description: i.description,
-              priority: i.priority,
-              status: i.status,
-              date: i.date
-          })),
-
-          documents: (p.documents || []).map((d: any) => ({
-              id: d.id,
-              projectId: d.project_id,
-              name: d.name,
-              type: d.type,
-              date: d.date,
-              data: d.data
-          })),
-
-          budgets: (p.budgets || []).map((b: any) => ({
-             id: b.id,
-             projectId: b.project_id,
-             name: b.name,
-             date: b.date,
-             status: b.status,
-             total: Number(b.total) || 0,
-             advancePayment: Number(b.advance_payment) || 0,
-             advancePercentage: Number(b.advance_percentage) || 0,
-             items: (b.items || []).map((item: any) => ({
-                 id: item.id,
-                 name: item.name,
-                 unit: item.unit,
-                 quantity: Number(item.quantity) || 0,
-                 pricePerUnit: Number(item.price_per_unit) || 0,
-                 category: item.category
-             }))
-          }))
+          transactions: p.transactions || [],
+          materials: p.materials || [],
+          incidents: p.incidents || [],
+          documents: p.documents || [],
+          budgets: p.budgets?.map((b: any) => ({
+             ...b,
+             items: b.items || []
+          })) || []
         }));
-        
-        // Merge with existing projects to preserve UI state (editingBudget) if exists
-        setProjects(prevProjects => {
-            if (prevProjects.length === 0) return formattedProjects;
-            return formattedProjects.map(newP => {
-                const existing = prevProjects.find(p => p.id === newP.id);
-                if (existing) {
-                    return {
-                        ...newP,
-                        editingBudget: existing.editingBudget,
-                        editingBudgetView: existing.editingBudgetView
-                    };
-                }
-                return newP;
-            });
-        });
+        setProjects(formattedProjects);
       }
     } catch (err) {
       console.error("Error fetching projects from Supabase:", err);
@@ -277,26 +211,15 @@ const App: React.FC = () => {
   };
 
   const handleUpdateProject = (updatedProject: Project) => {
-     // 1. Update Local State Immediately (including UI fields like editingBudget)
      setProjects(projects.map(p => p.id === updatedProject.id ? updatedProject : p));
 
-     // 2. Sanitize for DB: Remove UI-only fields that don't exist in Supabase columns
-     // We assume editingBudget and editingBudgetView are NOT in the database table
-     const { editingBudget, editingBudgetView, ...dbProject } = updatedProject;
-
-     // 3. Update DB
      supabase.from('projects').update({
-         name: dbProject.name,
-         client: dbProject.client,
-         location: dbProject.location,
-         status: dbProject.status,
-         progress: dbProject.progress,
-         start_date: dbProject.startDate || null,
-         end_date: dbProject.endDate || null,
-         description: dbProject.description,
-         budget: dbProject.budget,
-         pv_data: dbProject.pvData
-     }).eq('id', dbProject.id).then(({ error }) => {
+         name: updatedProject.name,
+         status: updatedProject.status,
+         progress: updatedProject.progress,
+         end_date: updatedProject.endDate || null,
+         description: updatedProject.description,
+     }).eq('id', updatedProject.id).then(({ error }) => {
          if (error) console.error("Error updating project root:", error);
      });
   };
@@ -321,7 +244,7 @@ const App: React.FC = () => {
 
   const handleBackToMenu = () => {
       setSelectedProjectId(null);
-      // We don't fetchProjects here to avoid overwriting the local UI state (drafts) with server data
+      fetchProjects(); 
   };
 
   // --- Conditional Rendering ---
@@ -380,7 +303,6 @@ const App: React.FC = () => {
           <GlobalFinance 
             projects={projects}
             onBack={() => setShowGlobalFinance(false)}
-            onUpdateProject={handleUpdateProject}
           />
       );
   }

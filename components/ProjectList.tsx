@@ -1,9 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Project, ProjectStatus, Transaction, ProjectDocument, ProjectType, PvData, Material } from '../types';
-import { Plus, Search, Building2, MapPin, Camera, PieChart, Database, Upload, FileText, Menu, Moon, Sun, ChevronRight, X, Zap, Sun as SunIcon, Battery, Calendar, HardHat, Sparkles, LogOut, Wallet } from 'lucide-react';
+import { Plus, Search, Building2, MapPin, Camera, PieChart, Database, Upload, FileText, Menu, Moon, Sun, ChevronRight, X, Zap, Sun as SunIcon, Battery, Calendar, HardHat, Sparkles, LogOut } from 'lucide-react';
 import ScannerModal from './ScannerModal';
 import GlobalAssistant from './GlobalAssistant';
-import { supabase } from '../lib/supabase';
 
 interface ProjectListProps {
   projects: Project[];
@@ -98,22 +97,13 @@ const ProjectList: React.FC<ProjectListProps> = ({
     // PV Specific Data extraction
     let pvData: PvData | undefined;
     if (modalType === 'Photovoltaic') {
-        const batteryCapacity = Number(formData.get('batteryCapacity')) || 0;
-        const panelPowerW = Number(formData.get('panelPower')) || 0;
-        const modulesCount = Number(formData.get('modulesCount')) || 0;
-        // Calculate total Peak Power in kWp
-        const totalKwp = (panelPowerW * modulesCount) / 1000;
-
         pvData = {
-            peakPower: totalKwp,
-            modulesCount: modulesCount,
-            // Inverter Model removed
-            hasBattery: batteryCapacity > 0, // Auto-detect based on capacity selection
-            batteryCapacity: batteryCapacity,
-            installationType: formData.get('installationType') as any,
-            contractedPower: Number(formData.get('contractedPower')) || 0,
-            annualConsumption: Number(formData.get('annualConsumption')) || 0,
-            roofType: formData.get('roofType') as any
+            peakPower: Number(formData.get('peakPower')),
+            modulesCount: Number(formData.get('modulesCount')),
+            inverterModel: formData.get('inverterModel') as string,
+            hasBattery: formData.get('hasBattery') === 'on',
+            batteryCapacity: Number(formData.get('batteryCapacity')) || 0,
+            installationType: formData.get('installationType') as any
         };
     }
 
@@ -152,17 +142,6 @@ const ProjectList: React.FC<ProjectListProps> = ({
         onUpdateProject(updatedProject);
         setIsScannerOpen(false);
         alert(`Guardado: 1 Gasto y ${newMaterials.length} nuevos materiales en stock.`);
-    }
-  };
-
-  // Quick update for progress bar directly on the card
-  const handleQuickProgressUpdate = async (projectId: string, newProgress: number) => {
-    const project = projects.find(p => p.id === projectId);
-    if (project) {
-        const updatedProject = { ...project, progress: newProgress };
-        onUpdateProject(updatedProject);
-        // Persist instantly
-        await supabase.from('projects').update({ progress: newProgress }).eq('id', projectId);
     }
   };
 
@@ -351,22 +330,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
 
         {/* Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {filteredProjects.map((project) => {
-            // Calculation for Budget Bar
-            const totalSpent = project.transactions
-                .filter(t => t.type === 'expense')
-                .reduce((sum, t) => sum + t.amount, 0);
-            
-            const budgetPercent = project.budget > 0 ? (totalSpent / project.budget) * 100 : 0;
-            const displayPercent = Math.min(budgetPercent, 100);
-
-            // Dynamic Color for Budget Bar
-            let budgetBarColor = 'bg-[#0047AB] dark:bg-blue-500';
-            if (budgetPercent > 100) budgetBarColor = 'bg-red-600 dark:bg-red-500'; // Critical
-            else if (budgetPercent > 80) budgetBarColor = 'bg-orange-500'; // Warning
-            else if (budgetPercent < 50) budgetBarColor = 'bg-green-500'; // Healthy/Early
-
-            return (
+          {filteredProjects.map((project) => (
             <div 
               key={project.id} 
               onClick={() => onSelectProject(project.id)}
@@ -419,43 +383,35 @@ const ProjectList: React.FC<ProjectListProps> = ({
                       <MapPin className="w-3.5 h-3.5 mr-2 text-slate-400 dark:text-slate-500" /> {project.location}
                   </div>
 
-                  {/* Work Progress Bar (Interactive) */}
-                  <div onClick={(e) => e.stopPropagation()} className="cursor-auto">
+                  {/* Work Progress Bar */}
+                  <div>
                       <div className="flex justify-between text-xs mb-1.5">
-                          <span className="text-slate-500 dark:text-slate-400 font-medium flex items-center gap-1.5" title="Desliza para actualizar el avance real">
-                            <HardHat className="w-3.5 h-3.5" /> Avance de Obra (Manual)
+                          <span className="text-slate-500 dark:text-slate-400 font-medium flex items-center gap-1.5">
+                            <HardHat className="w-3.5 h-3.5" /> Avance de Obra
                           </span>
                           <span className="font-bold text-[#0047AB] dark:text-blue-400">{project.progress}%</span>
                       </div>
-                      <input 
-                        type="range" 
-                        min="0" 
-                        max="100" 
-                        value={project.progress} 
-                        onChange={(e) => handleQuickProgressUpdate(project.id, Number(e.target.value))}
-                        className="w-full h-2 bg-slate-100 dark:bg-slate-700 rounded-full appearance-none cursor-pointer accent-[#0047AB] dark:accent-blue-400 hover:h-3 transition-all"
-                      />
+                      <div className="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
+                        <div 
+                          className="h-2 rounded-full bg-gradient-to-r from-[#0047AB] to-blue-400 transition-all duration-1000 ease-out"
+                          style={{ width: `${project.progress}%` }}
+                        ></div>
+                      </div>
                   </div>
 
                   {/* Budget Execution Bar */}
                   <div>
                       <div className="flex justify-between items-center text-xs mb-1.5">
-                          <span className="text-slate-500 dark:text-slate-400 font-medium flex items-center gap-1.5" title="Calculado automáticamente: Gastos / Presupuesto">
-                              <Wallet className="w-3.5 h-3.5" /> Ejecución Presupuestaria
-                          </span>
-                          <span className={`font-bold ${budgetPercent > 100 ? 'text-red-500' : 'text-slate-700 dark:text-slate-300'}`}>
-                              {budgetPercent.toFixed(0)}%
+                          <span className="text-slate-500 dark:text-slate-400 font-medium">Ejecución Presupuestaria</span>
+                          <span className="font-bold text-slate-700 dark:text-slate-300">
+                          {project.budget > 0 ? ((project.transactions.filter(t=>t.type==='expense').reduce((a,b)=>a+b.amount,0) / project.budget) * 100).toFixed(0) : 0}%
                           </span>
                       </div>
-                      <div className="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-2 overflow-hidden relative">
+                      <div className="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
                           <div 
-                              className={`h-2 rounded-full transition-all duration-700 ease-out ${budgetBarColor}`}
-                              style={{ width: `${displayPercent}%` }}
+                          className={`h-2 rounded-full transition-all duration-500 ${project.type === 'Photovoltaic' ? 'bg-amber-500' : 'bg-[#0047AB]'}`}
+                          style={{ width: `${project.budget > 0 ? Math.min(((project.transactions.filter(t=>t.type==='expense').reduce((a,b)=>a+b.amount,0) / project.budget) * 100), 100) : 0}%` }}
                           ></div>
-                      </div>
-                      <div className="flex justify-between text-[10px] mt-1 text-slate-400 dark:text-slate-500">
-                          <span>{totalSpent.toLocaleString()}€ gastados</span>
-                          <span>{project.budget.toLocaleString()}€ total</span>
                       </div>
                   </div>
                 </div>
@@ -469,8 +425,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
                 </span>
               </div>
             </div>
-            );
-          })}
+          ))}
           {filteredProjects.length === 0 && (
               <div className="col-span-full py-16 text-center text-slate-400 dark:text-slate-500 bg-white dark:bg-slate-800 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700 shadow-sm">
                   <p>No se encontraron proyectos con los filtros actuales.</p>
@@ -514,8 +469,8 @@ const ProjectList: React.FC<ProjectListProps> = ({
                   </div>
                 </div>
                 <div>
-                  <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Ubicación ({modalType === 'Photovoltaic' ? 'Provincia / CP' : 'Dirección'})</label>
-                  <input name="location" required className="w-full mt-2 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] focus:border-[#0047AB] text-slate-900 dark:text-white transition-all" placeholder={modalType === 'Photovoltaic' ? "Ej: Madrid, 28001" : "Ej: Calle Principal 123"} />
+                  <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Ubicación</label>
+                  <input name="location" required className="w-full mt-2 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] focus:border-[#0047AB] text-slate-900 dark:text-white transition-all" />
                 </div>
 
                 {/* Specific PV Fields */}
@@ -526,66 +481,32 @@ const ProjectList: React.FC<ProjectListProps> = ({
                         </h3>
                         <div className="flex gap-4">
                             <div className="w-1/2">
-                              <label className="text-[10px] font-bold text-amber-700/70 dark:text-amber-400 uppercase">Potencia del Panel (W)</label>
-                              <select name="panelPower" required className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-700 rounded-lg text-sm outline-none text-slate-900 dark:text-white cursor-pointer">
-                                  <option value="400">400 W</option>
-                                  <option value="450">450 W</option>
-                                  <option value="480">480 W</option>
-                                  <option value="500">500 W</option>
-                                  <option value="550">550 W</option>
-                                  <option value="600">600 W</option>
-                                  <option value="650">650 W</option>
-                                  <option value="700">700 W</option>
-                              </select>
+                              <label className="text-[10px] font-bold text-amber-700/70 dark:text-amber-400 uppercase">Potencia Pico (kWp)</label>
+                              <input name="peakPower" type="number" step="0.1" required className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-700 rounded-lg text-sm" />
                             </div>
                             <div className="w-1/2">
                               <label className="text-[10px] font-bold text-amber-700/70 dark:text-amber-400 uppercase">Nº Módulos</label>
-                              <input name="modulesCount" type="number" required className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-700 rounded-lg text-sm text-slate-900 dark:text-white" />
+                              <input name="modulesCount" type="number" required className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-700 rounded-lg text-sm" />
                             </div>
                         </div>
-                        
-                        {/* NUEVOS CAMPOS SOLICITADOS */}
-                        <div className="flex gap-4">
-                             <div className="w-1/2">
-                                <label className="text-[10px] font-bold text-amber-700/70 dark:text-amber-400 uppercase">Potencia Contratada (kW)</label>
-                                <input name="contractedPower" type="number" step="0.01" className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-700 rounded-lg text-sm text-slate-900 dark:text-white" />
-                             </div>
-                             <div className="w-1/2">
-                                <label className="text-[10px] font-bold text-amber-700/70 dark:text-amber-400 uppercase">Consumo Anual (kWh)</label>
-                                <input name="annualConsumption" type="number" className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-700 rounded-lg text-sm text-slate-900 dark:text-white" />
-                             </div>
-                        </div>
-                        
                         <div>
-                             <label className="text-[10px] font-bold text-amber-700/70 dark:text-amber-400 uppercase">Tipo de Tejado</label>
-                             <select name="roofType" className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-700 rounded-lg text-sm text-slate-900 dark:text-white cursor-pointer">
-                                 <option value="Teja">Teja</option>
-                                 <option value="Plano">Plano</option>
-                                 <option value="Sandwich">Panel Sándwich</option>
-                             </select>
+                              <label className="text-[10px] font-bold text-amber-700/70 dark:text-amber-400 uppercase">Modelo Inversor</label>
+                              <input name="inverterModel" className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-700 rounded-lg text-sm" />
                         </div>
-                        
                         <div className="flex gap-4 items-center">
                             <div className="w-1/2">
                               <label className="text-[10px] font-bold text-amber-700/70 dark:text-amber-400 uppercase">Tipo Instalación</label>
-                              <select name="installationType" className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-700 rounded-lg text-sm text-slate-900 dark:text-white">
+                              <select name="installationType" className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-700 rounded-lg text-sm">
                                   <option value="Residential">Residencial</option>
                                   <option value="Industrial">Industrial</option>
                                   <option value="Solar Farm">Huerto Solar</option>
                               </select>
                             </div>
-                            <div className="w-1/2">
-                                <label className="text-[10px] font-bold text-amber-700/70 dark:text-amber-400 uppercase">Almacenamiento (Batería)</label>
-                                <select name="batteryCapacity" className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-700 rounded-lg text-sm outline-none text-slate-900 dark:text-white cursor-pointer">
-                                  <option value="0">No incluye</option>
-                                  <option value="5">5 kWh</option>
-                                  <option value="10">10 kWh</option>
-                                  <option value="15">15 kWh</option>
-                                  <option value="20">20 kWh</option>
-                                  <option value="30">30 kWh</option>
-                                  <option value="40">40 kWh</option>
-                                  <option value="50">50+ kWh</option>
-                              </select>
+                            <div className="w-1/2 pt-4">
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                  <input name="hasBattery" type="checkbox" className="w-4 h-4 text-amber-500 rounded focus:ring-amber-500" />
+                                  <span className="text-sm font-bold text-slate-700 dark:text-slate-300">Incluye Batería</span>
+                              </label>
                             </div>
                         </div>
                     </div>

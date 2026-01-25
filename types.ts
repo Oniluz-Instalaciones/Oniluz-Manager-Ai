@@ -1,4 +1,3 @@
-
 export enum ProjectStatus {
   PLANNING = 'En Planificación',
   IN_PROGRESS = 'En Curso',
@@ -18,12 +17,10 @@ export type ProjectType = 'General' | 'Photovoltaic';
 export interface PvData {
   peakPower: number; // kWp
   modulesCount: number;
+  inverterModel: string;
   hasBattery: boolean;
   batteryCapacity?: number; // kWh
   installationType: 'Residential' | 'Industrial' | 'Solar Farm';
-  contractedPower?: number; // kW
-  annualConsumption?: number; // kWh
-  roofType?: 'Teja' | 'Plano' | 'Sandwich';
 }
 
 export interface Transaction {
@@ -62,7 +59,6 @@ export interface PriceItem {
   unit: string;
   price: number;
   category: string;
-  discount?: number; // Porcentaje de descuento (0-100)
 }
 
 export interface BudgetItem {
@@ -82,8 +78,6 @@ export interface Budget {
   status: 'Draft' | 'Sent' | 'Accepted' | 'Rejected';
   items: BudgetItem[];
   total: number;
-  advancePayment?: number; // Cantidad en euros pagada por adelantado
-  advancePercentage?: number; // Porcentaje del total pagado por adelantado
 }
 
 export interface ProjectDocument {
@@ -113,7 +107,4 @@ export interface Project {
   incidents: Incident[];
   budgets?: Budget[];
   documents: ProjectDocument[];
-  // UI Persistence State (No se guarda en DB, solo en memoria durante la sesión)
-  editingBudget?: Budget | null;
-  editingBudgetView?: 'list' | 'edit';
 }
