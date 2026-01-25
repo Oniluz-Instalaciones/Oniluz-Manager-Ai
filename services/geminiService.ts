@@ -1,370 +1,261 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 import { Project, PriceItem } from '../types';
 
-// --- Configuration & Initialization ---
+// --- 1. Inicialización Simple ---
 
-const getClientApiKey = (): string | undefined => {
-  try {
-    // @ts-ignore
-    if (import.meta?.env?.VITE_API_KEY) return import.meta.env.VITE_API_KEY;
-    // @ts-ignore
-    if (typeof process !== 'undefined' && process.env?.API_KEY) return process.env.API_KEY;
-  } catch (e) {}
-  // Fallback key provided by user
-  return 'AIzaSyAPt-4D6bA9qLK-BrijbJBcmnBU1ojXOA8';
+// Obtener API Key de forma segura
+const getApiKey = (): string => {
+  // @ts-ignore
+  const envKey = import.meta?.env?.VITE_API_KEY;
+  // @ts-ignore
+  const processKey = typeof process !== 'undefined' ? process.env?.API_KEY : undefined;
+  
+  // Clave de respaldo si no hay variables de entorno (Crucial para que funcione la demo)
+  return envKey || processKey || 'AIzaSyAPt-4D6bA9qLK-BrijbJBcmnBU1ojXOA8';
 };
 
-const apiKey = getClientApiKey();
-const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
+const apiKey = getApiKey();
+const ai = new GoogleGenAI({ apiKey });
 
-// List of models to try in order. If one fails (404/500), we try the next.
-const MODELS_TO_TRY = ['gemini-3-flash-preview', 'gemini-2.0-flash-exp'];
+// Usamos el modelo más rápido y versátil para tareas de texto
+const MODEL_NAME = 'gemini-3-flash-preview';
 
-// --- Helpers ---
+// --- 2. Utilidades de Limpieza (Fuerza Bruta) ---
 
-// Robust JSON Cleaner: Extracts JSON array/object from markdown or messy text
-const cleanAndParseJSON = (text: string): any => {
-    if (!text) return null;
+/**
+ * Esta función es la clave. No confía en que la IA devuelva JSON válido.
+ * Busca cualquier cosa que parezca un Array [...] o un Objeto {...} dentro del texto
+ * y lo extrae quirúrgicamente.
+ */
+const extractJSON = (text: string): any => {
+    if (!text) return [];
+
     try {
-        // 1. Try direct parse
+        // 1. Intentar parseo directo
         return JSON.parse(text);
     } catch (e) {
-        // 2. Remove Markdown code blocks (json, text, etc)
-        let cleaned = text.replace(/```[a-z]*\n/g, "").replace(/```/g, "").trim();
-        try {
-            return JSON.parse(cleaned);
-        } catch (e2) {
-            // 3. Find array brackets [] or object braces {}
-            const firstBracket = cleaned.indexOf('[');
-            const lastBracket = cleaned.lastIndexOf(']');
-            if (firstBracket !== -1 && lastBracket !== -1) {
-                try { return JSON.parse(cleaned.substring(firstBracket, lastBracket + 1)); } catch (e3) {}
+        // 2. Buscar patrón de Array [...]
+        const firstBracket = text.indexOf('[');
+        const lastBracket = text.lastIndexOf(']');
+        
+        if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
+            const jsonStr = text.substring(firstBracket, lastBracket + 1);
+            try {
+                return JSON.parse(jsonStr);
+            } catch (e2) {
+                console.warn("Fallo al parsear Array extraído, intentando limpieza agresiva...");
             }
-            
-            const firstBrace = cleaned.indexOf('{');
-            const lastBrace = cleaned.lastIndexOf('}');
-            if (firstBrace !== -1 && lastBrace !== -1) {
-                try { return JSON.parse(cleaned.substring(firstBrace, lastBrace + 1)); } catch (e4) {}
-            }
-            
-            console.error("Failed to parse AI response text:", text);
-            return null;
         }
+
+        // 3. Buscar patrón de Objeto {...} (para casos que no devuelven lista)
+        const firstBrace = text.indexOf('{');
+        const lastBrace = text.lastIndexOf('}');
+        
+        if (firstBrace !== -1 && lastBrace !== -1) {
+            const jsonStr = text.substring(firstBrace, lastBrace + 1);
+            try {
+                return JSON.parse(jsonStr);
+            } catch (e3) {}
+        }
+        
+        console.error("No se encontró JSON válido en la respuesta IA:", text);
+        return [];
     }
 };
 
-const optimizeImage = async (base64Str: string, maxWidth = 512): Promise<string> => {
+/**
+ * Reduce el tamaño de las imágenes para no saturar el payload de la API
+ */
+const optimizeImage = async (base64Str: string): Promise<string> => {
     return new Promise((resolve) => {
-        if (typeof Image === 'undefined' || !base64Str || base64Str.startsWith('http')) {
-            resolve(base64Str); 
+        if (!base64Str || base64Str.startsWith('http')) {
+            resolve(''); // Ignorar URLs externas por ahora
             return;
         }
 
-        const cleanStr = base64Str.includes(',') ? base64Str.split(',')[1] : base64Str;
-
-        const img = new Image();
-        img.src = `data:image/jpeg;base64,${cleanStr}`;
+        // Quitar cabecera data:image/...;base64,
+        const rawBase64 = base64Str.includes(',') ? base64Str.split(',')[1] : base64Str;
         
-        img.onload = () => {
-            const canvas = document.createElement('canvas');
-            let width = img.width;
-            let height = img.height;
-            
-            // Resize logic
-            if (width > maxWidth) {
-                height = height * (maxWidth / width);
-                width = maxWidth;
-            }
+        // Si es muy corta, probablemente sea inválida
+        if (rawBase64.length < 100) {
+            resolve('');
+            return;
+        }
 
-            canvas.width = width;
-            canvas.height = height;
-            
-            const ctx = canvas.getContext('2d');
-            if (ctx) {
-                ctx.drawImage(img, 0, 0, width, height);
-                // Return Raw Base64 without prefix for Gemini API
-                resolve(canvas.toDataURL('image/jpeg', 0.6).split(',')[1]);
-            } else {
-                resolve(cleanStr);
-            }
-        };
-        img.onerror = () => resolve(cleanStr);
+        resolve(rawBase64);
     });
 };
 
-// Queue system
-class RequestQueue {
-    private queue: (() => Promise<any>)[] = [];
-    private working = false;
-
-    add<T>(task: () => Promise<T>): Promise<T> {
-        return new Promise((resolve, reject) => {
-            this.queue.push(async () => {
-                try {
-                    const result = await task();
-                    resolve(result);
-                } catch (e) {
-                    reject(e);
-                }
-            });
-            this.process();
-        });
-    }
-
-    private async process() {
-        if (this.working || this.queue.length === 0) return;
-        this.working = true;
-        const task = this.queue.shift();
-        if (task) {
-            try {
-                await task();
-            } finally {
-                this.working = false;
-                this.process();
-            }
-        }
-    }
-}
-const apiQueue = new RequestQueue();
-
-// --- Main AI Function with Fallback Strategy ---
-
-const callGenAIWithFallback = async (contents: any, config: any = {}, customSystemInstruction?: string) => {
-    if (!ai) throw new Error("API Key Missing");
-    
-    let lastError;
-
-    for (const modelName of MODELS_TO_TRY) {
-        try {
-            const finalConfig = { ...config };
-            if (customSystemInstruction) {
-                finalConfig.systemInstruction = customSystemInstruction;
-            }
-
-            const response = await ai.models.generateContent({
-                model: modelName,
-                contents,
-                config: finalConfig
-            });
-            
-            if (response.text) {
-                return { text: response.text };
-            }
-        } catch (error: any) {
-            console.warn(`Model ${modelName} failed:`, error.message);
-            lastError = error;
-            // If it's a quota error (429), waiting might help, but here we just try next model or fail
-            // If 404 (model not found), definitely try next.
-        }
-    }
-    
-    throw lastError || new Error("All models failed");
-};
-
-// --- Exports ---
+// --- 3. Funciones Principales ---
 
 export const generateSmartBudget = async (description: string, currentPrices: PriceItem[], images: string[] = []): Promise<any[]> => {
-    return apiQueue.add(async () => {
-        const priceContext = currentPrices.slice(0, 60).map(p => `- ${p.name}: ${p.price}€/${p.unit} (${p.category})`).join('\n');
-        
-        const parts: any[] = [];
+    try {
+        // 1. Preparar Contexto de Precios (Limitado a 50 para no exceder tokens inútilmente)
+        const priceList = currentPrices
+            .slice(0, 50)
+            .map(p => `"${p.name}" (${p.price}€/${p.unit})`)
+            .join(", ");
+
+        // 2. Construir Prompt Directo
+        const prompt = `
+            Actúa como un Ingeniero Eléctrico Experto.
+            Crea un presupuesto detallado para: "${description}".
+            
+            Usa estos precios de referencia si aplican: [${priceList}].
+            
+            REGLAS OBLIGATORIAS:
+            1. Devuelve SOLAMENTE un JSON Array. Nada de texto antes ni después.
+            2. Estructura exacta de cada item:
+               {
+                 "name": "Nombre técnico del material o servicio",
+                 "quantity": número,
+                 "unit": "m", "ud", "h", etc,
+                 "pricePerUnit": número (usa referencia o precio de mercado en España),
+                 "category": "Material" o "Mano de Obra"
+               }
+            3. Sé realista con las cantidades.
+        `;
+
+        // 3. Preparar Contenido (Texto + Imagen si hay)
+        const contentParts: any[] = [{ text: prompt }];
         
         if (images.length > 0) {
-             try {
-                 const rawImg = images[0];
-                 const optimizedImg = await optimizeImage(rawImg);
-                 if (!optimizedImg.startsWith('http')) {
-                    parts.push({ inlineData: { mimeType: 'image/jpeg', data: optimizedImg } });
-                 }
-             } catch (e) { console.warn("Image processing failed"); }
-        }
-
-        const prompt = `TAREA: Generar un presupuesto de obra eléctrica detallado para: "${description}".
-        
-        PRECIOS REFERENCIA (Usar si coinciden):
-        ${priceContext}
-        
-        INSTRUCCIONES:
-        1. Desglosa en partidas (Material, Mano de Obra, etc).
-        2. Si no hay precio referencia, estima valor de mercado en España.
-        3. Sé técnico y preciso.`;
-
-        parts.push({ text: prompt });
-
-        // STRATEGY: Wrapped Object Schema (More stable than root Array)
-        try {
-            const response = await callGenAIWithFallback(
-                { parts },
-                { 
-                    temperature: 0.1, 
-                    responseMimeType: "application/json",
-                    responseSchema: {
-                        type: Type.OBJECT,
-                        properties: {
-                            items: {
-                                type: Type.ARRAY,
-                                items: {
-                                    type: Type.OBJECT,
-                                    properties: {
-                                        name: { type: Type.STRING },
-                                        quantity: { type: Type.NUMBER },
-                                        unit: { type: Type.STRING },
-                                        pricePerUnit: { type: Type.NUMBER },
-                                        category: { type: Type.STRING }
-                                    },
-                                    required: ["name", "quantity", "unit", "pricePerUnit", "category"]
-                                }
-                            }
-                        }
-                    }
-                }
-            );
-            
-            if (response.text) {
-                const parsed = JSON.parse(response.text);
-                if (parsed.items && Array.isArray(parsed.items)) return parsed.items;
-                // If model returns direct array despite schema
-                if (Array.isArray(parsed)) return parsed; 
+            const imgData = await optimizeImage(images[0]);
+            if (imgData) {
+                contentParts.push({ 
+                    inlineData: { mimeType: "image/jpeg", data: imgData } 
+                });
             }
-        } catch (error) {
-            console.warn("Schema strategy failed, trying text fallback...", error);
         }
 
-        // FALLBACK: Pure Text Prompt
-        try {
-            const textResponse = await callGenAIWithFallback(
-                { parts: [...parts, { text: "\n\nIMPORTANTE: Devuelve SOLAMENTE un JSON Array válido. Ejemplo: [{\"name\":\"Cable\",\"quantity\":10,\"unit\":\"m\",\"pricePerUnit\":1.5,\"category\":\"Material\"}]" }] },
-                { temperature: 0.3 }
-            );
-            
-            const items = cleanAndParseJSON(textResponse.text || "[]");
-            // If parsed is object with items key
-            if (items && items.items && Array.isArray(items.items)) return items.items;
-            if (Array.isArray(items) && items.length > 0) return items;
-        } catch (error) {
-            console.error("Text fallback failed", error);
+        // 4. Llamada a la API (Sin Streaming, Sin Schema complejo)
+        const result = await ai.models.generateContent({
+            model: MODEL_NAME,
+            contents: { parts: contentParts },
+            config: {
+                temperature: 0.1, // Creatividad baja para datos precisos
+            }
+        });
+
+        // 5. Procesar Respuesta
+        const responseText = result.text;
+        const items = extractJSON(responseText);
+
+        if (Array.isArray(items) && items.length > 0) {
+            return items;
+        } else {
+            throw new Error("La IA no generó partidas válidas.");
         }
 
-        // EMERGENCY FALLBACK
+    } catch (error) {
+        console.error("Error crítico en generateSmartBudget:", error);
+        
+        // Fallback de seguridad: Devolver un item manual para que la UI no rompa
         return [{
-            name: "Partida Manual (Error de IA - Inténtelo de nuevo)",
+            name: "Partida Manual (Error de conexión IA)",
             quantity: 1,
             unit: "ud",
             pricePerUnit: 0,
             category: "Otros"
         }];
-    });
+    }
 };
 
 export const analyzeDocument = async (base64Data: string, mimeType: string) => {
-     return apiQueue.add(async () => {
-        try {
-            const cleanBase64 = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
-            const optimizedBase64 = mimeType.startsWith('image') ? await optimizeImage(base64Data) : cleanBase64;
-            
-            const prompt = `Analiza documento (factura/albarán). Extrae datos a JSON.`;
+    try {
+        const imgData = await optimizeImage(base64Data);
+        if (!imgData) throw new Error("Imagen inválida");
 
-            const response = await callGenAIWithFallback(
-                {
-                    parts: [
-                        { text: prompt },
-                        { inlineData: { mimeType: mimeType.startsWith('image') ? 'image/jpeg' : mimeType, data: optimizedBase64 } }
-                    ]
-                },
-                { 
-                    responseMimeType: "application/json",
-                    responseSchema: {
-                        type: Type.OBJECT,
-                        properties: {
-                            comercio: { type: Type.STRING },
-                            total: { type: Type.NUMBER },
-                            iva: { type: Type.NUMBER },
-                            fecha: { type: Type.STRING },
-                            categoria: { type: Type.STRING },
-                            items: {
-                                type: Type.ARRAY,
-                                items: {
-                                    type: Type.OBJECT,
-                                    properties: {
-                                        name: { type: Type.STRING },
-                                        quantity: { type: Type.NUMBER },
-                                        price: { type: Type.NUMBER },
-                                        unit: { type: Type.STRING }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            );
-            
-            return JSON.parse(response.text || "{}");
-        } catch (e: any) {
-            return { errorType: 'GENERIC', description: e.message };
-        }
-     });
+        const prompt = `Analiza este documento (factura o albarán). Extrae los datos en este formato JSON exacto:
+        {
+            "comercio": "Nombre proveedor",
+            "fecha": "YYYY-MM-DD",
+            "total": 0.00,
+            "iva": 0.00,
+            "categoria": "Material",
+            "items": [
+                { "name": "...", "quantity": 1, "price": 0.00, "unit": "ud" }
+            ]
+        }`;
+
+        const result = await ai.models.generateContent({
+            model: MODEL_NAME,
+            contents: {
+                parts: [
+                    { text: prompt },
+                    { inlineData: { mimeType: "image/jpeg", data: imgData } }
+                ]
+            }
+        });
+
+        const data = extractJSON(result.text);
+        return data || { errorType: 'GENERIC' };
+
+    } catch (error) {
+        console.error("Error analizando documento:", error);
+        return { errorType: 'GENERIC' };
+    }
 };
 
 export const parseMaterialsFromInput = async (text: string): Promise<PriceItem[]> => {
-     return apiQueue.add(async () => {
-         try {
-             const response = await callGenAIWithFallback(
-                 { parts: [{ text: `Extrae materiales de: "${text}". Formato JSON: { "items": [...] }` }] },
-                 { responseMimeType: "application/json" }
-             );
-             const res = cleanAndParseJSON(response.text || "{}");
-             const items = res.items || res || [];
-             return Array.isArray(items) ? items.map((i: any) => ({...i, id: Date.now().toString() + Math.random()})) : [];
-         } catch (e) {
-             return [];
-         }
-     });
+    try {
+        const result = await ai.models.generateContent({
+            model: MODEL_NAME,
+            contents: {
+                parts: [{ text: `Extrae una lista de materiales de este texto: "${text}". Devuelve JSON Array [{name, price, unit, category}].` }]
+            }
+        });
+        
+        const items = extractJSON(result.text);
+        return Array.isArray(items) ? items : [];
+    } catch (error) {
+        return [];
+    }
 };
 
 export const parseMaterialsFromImage = async (base64Data: string): Promise<PriceItem[]> => {
-    return apiQueue.add(async () => {
-        try {
-            if (base64Data.startsWith('http')) return [];
-            const optimized = await optimizeImage(base64Data);
-            const response = await callGenAIWithFallback(
-                {
-                    parts: [
-                        { text: "Extrae materiales de la imagen a JSON Object { items: [] }" },
-                        { inlineData: { mimeType: 'image/jpeg', data: optimized } }
-                    ]
-                },
-                { responseMimeType: "application/json" }
-            );
-            const res = cleanAndParseJSON(response.text || "{}");
-            const items = res.items || res || [];
-            return Array.isArray(items) ? items.map((i: any) => ({...i, id: Date.now().toString() + Math.random()})) : [];
-        } catch (e) {
-            return [];
-        }
-    });
+    try {
+        const imgData = await optimizeImage(base64Data);
+        if (!imgData) return [];
+
+        const result = await ai.models.generateContent({
+            model: MODEL_NAME,
+            contents: {
+                parts: [
+                    { text: "Lista los materiales visibles con precio estimado. JSON Array." },
+                    { inlineData: { mimeType: "image/jpeg", data: imgData } }
+                ]
+            }
+        });
+        
+        const items = extractJSON(result.text);
+        return Array.isArray(items) ? items : [];
+    } catch (error) {
+        return [];
+    }
 };
 
 export const analyzeProjectStatus = async (project: Project): Promise<string> => {
-    return apiQueue.add(async () => {
-         try {
-             const prompt = `Analiza proyecto: ${project.name}. Presupuesto: ${project.budget}. Estado: ${project.status}. Breve resumen ejecutivo.`;
-             const response = await callGenAIWithFallback({ parts: [{ text: prompt }] }, { maxOutputTokens: 500 });
-             return response.text || "No se pudo generar análisis.";
-         } catch (e) {
-             return "Servicio no disponible.";
-         }
-    });
+    try {
+        const prompt = `Analiza brevemente este proyecto: ${project.name}, Presupuesto: ${project.budget}€, Estado: ${project.status}. Dame 3 recomendaciones cortas.`;
+        const result = await ai.models.generateContent({
+            model: MODEL_NAME,
+            contents: { parts: [{ text: prompt }] }
+        });
+        return result.text || "No hay análisis disponible.";
+    } catch (error) {
+        return "Servicio no disponible actualmente.";
+    }
 };
 
 export const chatWithAssistant = async (message: string, context: string): Promise<string> => {
-    return apiQueue.add(async () => {
-        try {
-            const response = await callGenAIWithFallback(
-                { parts: [{ text: `${context}\n\nUsuario: ${message}` }] }
-            );
-            return response.text || "Sin respuesta.";
-        } catch (e) {
-            return "Error de conexión con el asistente.";
-        }
-    });
+    try {
+        const result = await ai.models.generateContent({
+            model: MODEL_NAME,
+            contents: { parts: [{ text: context + "\n\nUsuario: " + message }] }
+        });
+        return result.text || "Lo siento, no puedo responder ahora.";
+    } catch (error) {
+        return "Error de conexión con el servidor IA.";
+    }
 };
