@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Project, Transaction, Material } from '../types';
-import { ArrowLeft, TrendingUp, TrendingDown, DollarSign, Calendar, Filter, Download, PieChart as PieIcon, BarChart3, Search, X, Camera, ExternalLink, Briefcase } from 'lucide-react';
+import { ArrowLeft, TrendingUp, TrendingDown, DollarSign, Calendar, Filter, Download, PieChart as PieIcon, BarChart3, Search, X, Camera, ExternalLink, Briefcase, Package } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, 
   AreaChart, Area, PieChart, Pie, Legend 
@@ -15,9 +15,9 @@ interface GlobalFinanceProps {
 
 const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdateProject }) => {
   // --- State for Filters ---
-  // CORRECCIÓN: Ampliamos el rango por defecto (2023-2030) para asegurar que se vean datos de prueba o futuros
+  // Rango amplio para asegurar que se vean todos los datos
   const [dateRange, setDateRange] = useState<{ start: string; end: string }>({
-    start: '2023-01-01',
+    start: '2020-01-01',
     end: '2030-12-31'
   });
   const [selectedProject, setSelectedProject] = useState<string>('ALL');
@@ -26,14 +26,33 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
 
   // --- Data Processing ---
 
-  // 1. Flatten all transactions with project context
-  // Esto toma TODOS los gastos de CADA obra y los junta en una sola lista maestra
+  // 1. Flatten all transactions AND Materials converted to expenses
   const allTransactions = useMemo(() => {
-    return projects.flatMap(p => p.transactions.map(t => ({ 
+    // A. Transacciones reales (Ingresos y Gastos explícitos)
+    const realTransactions = projects.flatMap(p => p.transactions.map(t => ({ 
       ...t, 
-      projectName: p.name,
-      projectStatus: p.status 
+      projectName: p.name, 
+      projectStatus: p.status,
+      isSimulated: false
     })));
+
+    // B. Materiales convertidos a Gastos (Simulados)
+    // Usamos la fecha de inicio del proyecto como referencia temporal para el gasto del material
+    const materialExpenses = projects.flatMap(p => p.materials.map(m => ({
+        id: `mat-${m.id}`, // ID virtual
+        projectId: p.id,
+        projectName: p.name,
+        projectStatus: p.status,
+        type: 'expense' as const,
+        category: 'Material (Stock)',
+        description: `Material: ${m.name}`,
+        amount: m.quantity * m.pricePerUnit,
+        date: p.startDate || new Date().toISOString().split('T')[0],
+        isSimulated: true
+    })));
+
+    // Combinamos ambas listas para que los materiales sumen al total de gastos
+    return [...realTransactions, ...materialExpenses];
   }, [projects]);
 
   // 2. Apply Filters
@@ -43,7 +62,6 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
       const startDate = dateRange.start ? new Date(dateRange.start) : new Date('2000-01-01');
       const endDate = dateRange.end ? new Date(dateRange.end) : new Date('2100-01-01');
       
-      // Fix date comparison to include the end date day
       endDate.setHours(23, 59, 59, 999);
 
       const matchDate = tDate >= startDate && tDate <= endDate;
@@ -94,14 +112,15 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
   const COLORS = ['#0047AB', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
 
   const handleExportCSV = () => {
-    const headers = ['Fecha', 'Proyecto', 'Tipo', 'Categoría', 'Descripción', 'Importe'];
+    const headers = ['Fecha', 'Proyecto', 'Tipo', 'Categoría', 'Descripción', 'Importe', 'Origen'];
     const rows = filteredTransactions.map(t => [
         t.date,
         t.projectName,
         t.type,
         t.category,
-        `"${t.description}"`, // Quote description to handle commas
-        t.amount.toFixed(2)
+        `"${t.description}"`,
+        t.amount.toFixed(2),
+        t.isSimulated ? 'Stock Material' : 'Transacción'
     ]);
 
     const csvContent = "data:text/csv;charset=utf-8," 
@@ -140,7 +159,7 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
             </button>
             <div>
                 <h1 className="text-3xl font-extrabold text-slate-900 dark:text-white">Finanzas Globales</h1>
-                <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Consolidado de todas las obras</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Consolidado (Caja + Valor de Stock)</p>
             </div>
         </div>
         <div className="flex items-center gap-3">
@@ -226,11 +245,11 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
              <div className="absolute top-0 right-0 p-4 opacity-10">
                  <TrendingUp className="w-16 h-16 text-green-500" />
              </div>
-             <p className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider z-10">Ingresos Totales (Obras)</p>
+             <p className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider z-10">Ingresos Totales</p>
              <div>
                 <p className="text-3xl font-extrabold text-slate-900 dark:text-white z-10">{totalIncome.toLocaleString()}€</p>
                 <p className="text-xs text-green-600 dark:text-green-400 font-bold mt-1 bg-green-50 dark:bg-green-900/20 inline-block px-2 py-0.5 rounded-md">
-                    {filteredTransactions.filter(t => t.type === 'income').length} movimientos
+                    {filteredTransactions.filter(t => t.type === 'income').length} registros
                 </p>
              </div>
           </div>
@@ -239,11 +258,15 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
              <div className="absolute top-0 right-0 p-4 opacity-10">
                  <TrendingDown className="w-16 h-16 text-red-500" />
              </div>
-             <p className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider z-10">Gastos Totales (Obras)</p>
+             <div className="z-10 relative">
+                 <p className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider z-10 flex items-center gap-1">
+                     Gastos Totales <span className="text-[9px] bg-slate-100 dark:bg-slate-700 px-1 rounded text-slate-500">Incl. Materiales</span>
+                 </p>
+             </div>
              <div>
                 <p className="text-3xl font-extrabold text-slate-900 dark:text-white z-10">{totalExpense.toLocaleString()}€</p>
                 <p className="text-xs text-red-500 dark:text-red-400 font-bold mt-1 bg-red-50 dark:bg-red-900/20 inline-block px-2 py-0.5 rounded-md">
-                    {filteredTransactions.filter(t => t.type === 'expense').length} movimientos
+                    {filteredTransactions.filter(t => t.type === 'expense').length} registros
                 </p>
              </div>
           </div>
@@ -280,6 +303,10 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
                      <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
                          <TrendingUp className="w-5 h-5 text-[#0047AB] dark:text-blue-400" /> Evolución de Flujo de Caja
                      </h3>
+                     <div className="text-xs text-slate-400 flex items-center gap-2">
+                         <span className="w-2 h-2 rounded-full bg-green-500"></span> Ingresos
+                         <span className="w-2 h-2 rounded-full bg-red-500"></span> Gastos + Materiales
+                     </div>
                  </div>
                  <div className="h-[300px] w-full">
                      <ResponsiveContainer width="100%" height="100%" minWidth={0}>
@@ -337,14 +364,14 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
             </div>
         </div>
 
-        {/* REVERTED TO LIST VIEW: Detailed Transactions List */}
+        {/* Detailed Transactions List */}
         <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 overflow-hidden transition-colors">
            <div className="p-8 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center">
              <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                 <ExternalLink className="w-5 h-5 text-[#0047AB] dark:text-blue-400" /> Últimos Movimientos
+                 <ExternalLink className="w-5 h-5 text-[#0047AB] dark:text-blue-400" /> Listado de Movimientos y Materiales
              </h3>
              <span className="bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold px-3 py-1 rounded-full">
-                 {filteredTransactions.length} registros
+                 {filteredTransactions.length} items
              </span>
            </div>
            
@@ -356,14 +383,16 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
                                 <div className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 ${
                                     t.type === 'income' 
                                     ? 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400' 
-                                    : 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400'
+                                    : t.isSimulated
+                                      ? 'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400'
+                                      : 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400'
                                 }`}>
-                                    {t.type === 'income' ? <TrendingUp className="w-6 h-6" /> : <TrendingDown className="w-6 h-6" />}
+                                    {t.type === 'income' ? <TrendingUp className="w-6 h-6" /> : t.isSimulated ? <Package className="w-6 h-6" /> : <TrendingDown className="w-6 h-6" />}
                                 </div>
                                 <div>
                                     <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 mb-1">
                                         <h4 className="font-bold text-slate-900 dark:text-white text-base">{t.description}</h4>
-                                        <span className="text-[10px] uppercase font-bold text-slate-500 bg-slate-100 dark:bg-slate-700 dark:text-slate-400 px-2 py-0.5 rounded-md w-fit">
+                                        <span className={`text-[10px] uppercase font-bold text-slate-500 bg-slate-100 dark:bg-slate-700 dark:text-slate-400 px-2 py-0.5 rounded-md w-fit ${t.isSimulated ? 'border border-amber-200 dark:border-amber-800 text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20' : ''}`}>
                                             {t.category}
                                         </span>
                                     </div>
@@ -386,8 +415,8 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
                 ) : (
                     <div className="p-12 text-center text-slate-400 dark:text-slate-500 flex flex-col items-center">
                         <Filter className="w-12 h-12 mb-3 opacity-20" />
-                        <p className="font-medium">No se encontraron movimientos en este periodo.</p>
-                        <p className="text-xs mt-1">Prueba a ampliar el rango de fechas.</p>
+                        <p className="font-medium">No se encontraron movimientos ni materiales.</p>
+                        <p className="text-xs mt-1">Asegúrate de tener proyectos con fecha de inicio o transacciones.</p>
                     </div>
                 )}
            </div>
