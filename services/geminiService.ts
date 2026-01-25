@@ -22,8 +22,7 @@ const apiKey = getClientApiKey();
 // Inicializamos cliente local solo si hay key, sino usaremos fallback
 const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
 
-// CAMBIO CRÍTICO: Usamos gemini-3-flash-preview para evitar el límite de 20 req/día del 2.5
-// Si este falla, se podría probar 'gemini-2.0-flash'
+// Usamos gemini-3-flash-preview para evitar el límite de 20 req/día del 2.5
 const MODEL_FLASH = 'gemini-3-flash-preview';
 
 // --- Unified Request Handler ---
@@ -108,28 +107,89 @@ const apiQueue = new RequestQueue();
 
 const cleanAndParseJSON = (text: string) => {
     if (!text) return [];
-    try {
-        const firstBracket = text.indexOf('[');
-        const lastBracket = text.lastIndexOf(']');
-        
-        if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
-            const potentialJson = text.substring(firstBracket, lastBracket + 1);
-            return JSON.parse(potentialJson);
-        }
 
-        let cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
-        if (cleanText.startsWith('```')) {
-             cleanText = cleanText.split('\n').slice(1).join('\n').replace(/```$/, '');
+    // 1. First attempt: Standard strict parsing
+    // Remove markdown code blocks if present
+    let cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    
+    // If it starts with markdown output like "Here is the JSON:", remove that line
+    if (!cleanText.startsWith('[') && !cleanText.startsWith('{')) {
+        const firstBracket = cleanText.indexOf('[');
+        const firstBrace = cleanText.indexOf('{');
+        const start = (firstBracket !== -1 && (firstBrace === -1 || firstBracket < firstBrace)) 
+            ? firstBracket 
+            : firstBrace;
+        
+        if (start !== -1) {
+            cleanText = cleanText.substring(start);
         }
-        if (cleanText.trim().startsWith('{')) {
-             const obj = JSON.parse(cleanText);
-             return [obj];
-        }
+    }
+
+    try {
         return JSON.parse(cleanText);
     } catch (e) {
-        console.error("Failed to parse JSON response:", text);
-        return [];
+        // Standard parsing failed.
+        // It is likely truncated or has trailing garbage.
     }
+
+    // 2. Second attempt: Robust Object Extraction
+    // Scan the string for complete JSON objects {...} and assemble them into an array.
+    try {
+        const jsonObjects: any[] = [];
+        let braceCount = 0;
+        let startIndex = -1;
+        
+        // Simple state machine to extract top-level objects
+        for (let i = 0; i < cleanText.length; i++) {
+            const char = cleanText[i];
+            
+            if (char === '{') {
+                if (braceCount === 0) startIndex = i;
+                braceCount++;
+            } else if (char === '}') {
+                braceCount--;
+                if (braceCount === 0 && startIndex !== -1) {
+                    // We found a potentially complete object
+                    const jsonStr = cleanText.substring(startIndex, i + 1);
+                    try {
+                        const obj = JSON.parse(jsonStr);
+                        jsonObjects.push(obj);
+                    } catch (err) {
+                        // ignore malformed fragments
+                    }
+                    startIndex = -1;
+                }
+            }
+        }
+        
+        if (jsonObjects.length > 0) {
+            console.warn("JSON was truncated, but recovered " + jsonObjects.length + " objects.");
+            return jsonObjects;
+        }
+
+    } catch (e) {
+        console.error("Failed to recover JSON via extraction:", e);
+    }
+
+    // 3. Final fallback: Try to close a truncated array
+    try {
+        const lastBracket = cleanText.lastIndexOf(']');
+        const firstBracket = cleanText.indexOf('[');
+        if (firstBracket !== -1 && lastBracket === -1) {
+             // Array started but never ended. 
+             // Try to find the last closing brace '}' and add ']'
+             const lastBrace = cleanText.lastIndexOf('}');
+             if (lastBrace !== -1) {
+                 const reconstructed = cleanText.substring(firstBracket, lastBrace + 1) + ']';
+                 return JSON.parse(reconstructed);
+             }
+        }
+    } catch (e) {
+        // give up
+    }
+
+    console.error("Failed to parse JSON response:", text);
+    return [];
 };
 
 const optimizeImage = async (base64Str: string, maxWidth = 512): Promise<string> => {
@@ -232,7 +292,7 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
                 { 
                     temperature: 0.2, 
                     responseMimeType: "application/json",
-                    maxOutputTokens: 2000 
+                    maxOutputTokens: 8192 // Increased to prevent truncation
                 }
             ));
             
@@ -256,7 +316,7 @@ export const analyzeProjectStatus = async (project: Project): Promise<string> =>
              const response = await retryOperation(() => callGenAI(
                  MODEL_FLASH,
                  prompt,
-                 { temperature: 0.5 }
+                 { temperature: 0.5, maxOutputTokens: 1024 }
              ));
              return response.text || "No se pudo generar análisis.";
          } catch (e: any) {
@@ -282,7 +342,7 @@ export const analyzeDocument = async (base64Data: string, mimeType: string) => {
                         { inlineData: { mimeType: mimeType.startsWith('image') ? 'image/jpeg' : mimeType, data: optimizedBase64 } }
                     ]
                 },
-                { responseMimeType: "application/json" }
+                { responseMimeType: "application/json", maxOutputTokens: 2048 }
             ));
             
             return cleanAndParseJSON(response.text || "{}");
@@ -300,7 +360,7 @@ export const parseMaterialsFromInput = async (text: string): Promise<PriceItem[]
              const response = await retryOperation(() => callGenAI(
                  MODEL_FLASH,
                  prompt,
-                 { responseMimeType: "application/json" }
+                 { responseMimeType: "application/json", maxOutputTokens: 4096 }
              ));
              const res = cleanAndParseJSON(response.text || "[]");
              return Array.isArray(res) ? res.map((i: any) => ({...i, id: Date.now().toString() + Math.random()})) : [];
@@ -325,7 +385,7 @@ export const parseMaterialsFromImage = async (base64Data: string): Promise<Price
                         { inlineData: { mimeType: 'image/jpeg', data: optimized } }
                     ]
                 },
-                { responseMimeType: "application/json" }
+                { responseMimeType: "application/json", maxOutputTokens: 4096 }
             ));
             
             const res = cleanAndParseJSON(response.text || "[]");
@@ -341,7 +401,8 @@ export const chatWithAssistant = async (message: string, context: string): Promi
         try {
             const response = await retryOperation(() => callGenAI(
                 MODEL_FLASH,
-                `${context}\n\nUsuario: ${message}`
+                `${context}\n\nUsuario: ${message}`,
+                { maxOutputTokens: 2048 }
             ));
             return response.text || "Sin respuesta.";
         } catch (e: any) {
