@@ -138,13 +138,6 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
             Solicitud del usuario: ${aiPrompt}`;
 
             const items = await generateSmartBudget(contextPrompt, priceDatabase, docImages);
-            
-            if (!items || items.length === 0) {
-                alert("No se pudieron generar partidas. Verifique:\n1. Que su API Key esté configurada en el servidor.\n2. Que la descripción sea clara.");
-                setIsGenerating(false);
-                return;
-            }
-
             const enrichedItems: BudgetItem[] = items.map((item: any) => ({
                 id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
                 name: item.name,
@@ -175,11 +168,10 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                          budgets: project.budgets?.map(b => b.id === updatedBudget.id ? updatedBudget : b)
                      });
                      
-                     alert(`Generadas ${items.length} partidas. Se han estimado ${estimatedDays} días de trabajo.`);
+                     alert(`Se han estimado ${estimatedDays} días de trabajo basados en las horas de mano de obra. La fecha de fin se ha actualizado.`);
                 }
             }
         } catch (error) {
-            console.error(error);
             alert("Error al generar presupuesto con IA.");
         } finally {
             setIsGenerating(false);
