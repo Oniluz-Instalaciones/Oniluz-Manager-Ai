@@ -6,8 +6,8 @@ import { Project, PriceItem } from "../types";
 const apiKey = 'AIzaSyAPt-4D6bA9qLK-BrijbJBcmnBU1ojXOA8';
 const genAI = new GoogleGenAI({ apiKey });
 
-// MODELO: Usamos 'gemini-1.5-flash' por ser la opción más robusta y rápida para producción gratuita.
-const MODEL_NAME = 'gemini-1.5-flash';
+// MODELO: Actualizado a 'gemini-2.5-flash' por ser el estándar actual de velocidad y estabilidad.
+const MODEL_NAME = 'gemini-2.5-flash';
 
 // --- SISTEMA DE CACHÉ ---
 // Almacena respuestas recientes para no gastar cuota en consultas repetidas.
