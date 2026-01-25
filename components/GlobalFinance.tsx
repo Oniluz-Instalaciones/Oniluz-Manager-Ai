@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Project, Transaction, Material } from '../types';
-import { ArrowLeft, TrendingUp, TrendingDown, DollarSign, Calendar, Filter, Download, PieChart as PieIcon, BarChart3, Search, X, Camera, ExternalLink, Briefcase, Package, Archive } from 'lucide-react';
+import { ArrowLeft, TrendingUp, TrendingDown, DollarSign, Calendar, Filter, Download, PieChart as PieIcon, BarChart3, Search, X, Camera, ExternalLink, Briefcase, Package } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, 
   AreaChart, Area, PieChart, Pie, Legend 
@@ -25,29 +25,17 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
 
   // --- Data Processing ---
 
-  // 1. Calculate Stock Value (Asset) Separately - DO NOT MIX WITH CASH FLOW
-  const totalStockValue = useMemo(() => {
-    return projects.reduce((total, p) => {
-        const projectStock = p.materials.reduce((sum, m) => {
-            const price = Number(m.pricePerUnit) || Number((m as any).price_per_unit) || 0;
-            return sum + (m.quantity * price);
-        }, 0);
-        return total + projectStock;
-    }, 0);
-  }, [projects]);
-
-  // 2. Flatten ONLY Real Transactions for Cash Flow
+  // 1. Flatten ONLY Real Transactions for Cash Flow
   const allTransactions = useMemo(() => {
     return projects.flatMap(p => p.transactions.map(t => ({ 
       ...t, 
       amount: Number(t.amount) || 0, // Ensure number
       projectName: p.name, 
       projectStatus: p.status,
-      // Remove simulated flag logic, we only want real money movement
     })));
   }, [projects]);
 
-  // 3. Apply Filters
+  // 2. Apply Filters
   const filteredTransactions = useMemo(() => {
     return allTransactions.filter(t => {
       const tDate = new Date(t.date || new Date());
@@ -64,7 +52,7 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
     });
   }, [allTransactions, dateRange, selectedProject, filterType]);
 
-  // 4. Calculate KPI Totals based on Filtered Data
+  // 3. Calculate KPI Totals based on Filtered Data
   const totalIncome = filteredTransactions
     .filter(t => t.type === 'income')
     .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
@@ -76,7 +64,7 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
   const netProfit = totalIncome - totalExpense;
   const profitMargin = totalIncome > 0 ? (netProfit / totalIncome) * 100 : 0;
 
-  // 5. Prepare Chart Data: Evolution over time
+  // 4. Prepare Chart Data: Evolution over time
   const evolutionData = useMemo(() => {
     const grouped: Record<string, { date: string, income: number, expense: number }> = {};
     
@@ -97,7 +85,7 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
     return Object.values(grouped);
   }, [filteredTransactions]);
 
-  // 6. Prepare Chart Data: Expense Categories
+  // 5. Prepare Chart Data: Expense Categories
   const categoryData = useMemo(() => {
     const expenses = filteredTransactions.filter(t => t.type === 'expense');
     const grouped: Record<string, number> = {};
@@ -282,21 +270,16 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
              </p>
           </div>
 
-          {/* Valor de Inventario (Activo) - NO resta del beneficio, es informativo */}
-          <div className="bg-gradient-to-br from-amber-50 to-orange-50 dark:from-slate-800 dark:to-slate-800 p-6 rounded-2xl shadow-[0_4px_20px_-4px_rgba(251,191,36,0.2)] border border-amber-100 dark:border-slate-700 flex flex-col justify-between h-32 transition-colors relative overflow-hidden">
+          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 flex flex-col justify-between h-32 transition-colors relative overflow-hidden">
              <div className="absolute top-0 right-0 p-4 opacity-10">
-                 <Archive className="w-16 h-16 text-amber-500" />
+                 <PieIcon className="w-16 h-16 text-purple-500" />
              </div>
-             <p className="text-xs text-amber-700 dark:text-amber-400 font-bold uppercase tracking-wider z-10 flex items-center gap-1">
-                Valor Inventario <span className="bg-white dark:bg-slate-900 px-1.5 rounded text-[9px] opacity-70">Activo</span>
-             </p>
+             <p className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider z-10">Rentabilidad Global</p>
              <div>
-                 <p className="text-3xl font-extrabold text-slate-900 dark:text-white z-10">
-                     {totalStockValue.toLocaleString()}€
+                 <p className={`text-3xl font-extrabold z-10 ${profitMargin >= 20 ? 'text-green-600 dark:text-green-400' : profitMargin >= 10 ? 'text-blue-600' : 'text-orange-500'}`}>
+                     {isNaN(profitMargin) ? '0.0' : profitMargin.toFixed(1)}%
                  </p>
-                 <p className="text-xs text-amber-600 dark:text-amber-500 font-medium mt-1">
-                     En material de almacén
-                 </p>
+                 <p className="text-xs text-slate-400 dark:text-slate-500 font-medium mt-1">Margen sobre ingresos</p>
              </div>
           </div>
         </div>
