@@ -1,3 +1,4 @@
+
 export enum ProjectStatus {
   PLANNING = 'En Planificación',
   IN_PROGRESS = 'En Curso',
@@ -78,6 +79,8 @@ export interface Budget {
   status: 'Draft' | 'Sent' | 'Accepted' | 'Rejected';
   items: BudgetItem[];
   total: number;
+  advancePayment?: number; // Cantidad en euros pagada por adelantado
+  advancePercentage?: number; // Porcentaje del total pagado por adelantado
 }
 
 export interface ProjectDocument {

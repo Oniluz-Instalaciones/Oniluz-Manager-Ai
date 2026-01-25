@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Budget, BudgetItem, Project, PriceItem } from '../types';
+import { Budget, BudgetItem, Project, PriceItem, Transaction } from '../types';
 import { generateSmartBudget } from '../services/geminiService';
-import { Plus, Trash2, Wand2, FileText, Save, ChevronLeft, ArrowRight, Loader2, Database, Paperclip, Check } from 'lucide-react';
+import { Plus, Trash2, Wand2, FileText, Save, ChevronLeft, ArrowRight, Loader2, Database, Paperclip, Check, X, Wallet, Calculator } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 
 interface BudgetManagerProps {
     project: Project;
@@ -15,6 +16,15 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
     const [aiPrompt, setAiPrompt] = useState('');
     const [isGenerating, setIsGenerating] = useState(false);
     const [includeDocs, setIncludeDocs] = useState(false);
+
+    // Estado para el Modal de Aceptación
+    const [isAcceptModalOpen, setIsAcceptModalOpen] = useState(false);
+    const [budgetToAccept, setBudgetToAccept] = useState<Budget | null>(null);
+    const [advanceConfig, setAdvanceConfig] = useState<{ enabled: boolean, percentage: number, amount: number }>({
+        enabled: false,
+        percentage: 0,
+        amount: 0
+    });
 
     // --- Actions ---
 
@@ -39,27 +49,94 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
         setAiPrompt('');
     };
 
-    const handleAcceptBudget = (budget: Budget) => {
-        if (!window.confirm(`¿Confirmas que el cliente ha aceptado el presupuesto "${budget.name}"?`)) return;
+    const initiateAcceptBudget = (budget: Budget) => {
+        setBudgetToAccept(budget);
+        // Pre-setear valores vacíos
+        const totalWithIva = budget.total * 1.21;
+        setAdvanceConfig({
+            enabled: false,
+            percentage: 0,
+            amount: 0
+        });
+        setIsAcceptModalOpen(true);
+    };
+
+    const confirmAcceptBudget = async () => {
+        if (!budgetToAccept) return;
+
+        const updatedBudget: Budget = {
+            ...budgetToAccept,
+            status: 'Accepted',
+            advancePayment: advanceConfig.enabled ? advanceConfig.amount : 0,
+            advancePercentage: advanceConfig.enabled ? advanceConfig.percentage : 0
+        };
+
+        let newTransactions = [...project.transactions];
+
+        // Si hay anticipo, crear la transacción de ingreso automáticamente
+        if (advanceConfig.enabled && advanceConfig.amount > 0) {
+            const newIncome: Transaction = {
+                id: crypto.randomUUID(),
+                projectId: project.id,
+                type: 'income',
+                category: 'Anticipo',
+                amount: advanceConfig.amount,
+                date: new Date().toISOString().split('T')[0],
+                description: `Anticipo Presupuesto: ${budgetToAccept.name}`
+            };
+            
+            // Guardar en Supabase
+            await supabase.from('transactions').insert({
+                project_id: newIncome.projectId,
+                type: newIncome.type,
+                category: newIncome.category,
+                amount: newIncome.amount,
+                date: newIncome.date,
+                description: newIncome.description
+            });
+
+            newTransactions = [newIncome, ...newTransactions];
+        }
 
         const updatedBudgets = (project.budgets || []).map(b => 
-            b.id === budget.id ? { ...b, status: 'Accepted' as const } : b
+            b.id === budgetToAccept.id ? updatedBudget : b
         );
-        onUpdate({ ...project, budgets: updatedBudgets });
+
+        onUpdate({ 
+            ...project, 
+            budgets: updatedBudgets,
+            transactions: newTransactions,
+            // Actualizar presupuesto total del proyecto si es 0 o si este es el definitivo
+            budget: project.budget === 0 ? budgetToAccept.total : project.budget 
+        });
+
+        setIsAcceptModalOpen(false);
+        setBudgetToAccept(null);
+    };
+
+    // Manejadores para sincronizar % y €
+    const handleAdvancePercentChange = (percent: number) => {
+        if (!budgetToAccept) return;
+        const totalWithIva = budgetToAccept.total * 1.21;
+        const amount = (totalWithIva * percent) / 100;
+        setAdvanceConfig(prev => ({ ...prev, percentage: percent, amount: Number(amount.toFixed(2)) }));
+    };
+
+    const handleAdvanceAmountChange = (amount: number) => {
+        if (!budgetToAccept) return;
+        const totalWithIva = budgetToAccept.total * 1.21;
+        const percent = totalWithIva > 0 ? (amount / totalWithIva) * 100 : 0;
+        setAdvanceConfig(prev => ({ ...prev, amount: amount, percentage: Number(percent.toFixed(2)) }));
     };
 
     const handleGenerateAI = async () => {
         if (!aiPrompt.trim()) return;
         setIsGenerating(true);
         try {
-            // Filter only images for analysis as Gemini Flash handles images best via base64
             const docImages = includeDocs ? (project.documents || []).filter(d => d.type === 'image').map(d => d.data) : [];
-
-            // Combine project context with user prompt
             const contextPrompt = `Contexto del Proyecto: Nombre "${project.name}", Tipo "${project.type}", Ubicación "${project.location}".
             Solicitud del usuario: ${aiPrompt}`;
 
-            // Pass the dynamic database and images to the AI service
             const items = await generateSmartBudget(contextPrompt, priceDatabase, docImages);
             const enrichedItems: BudgetItem[] = items.map((item: any) => ({
                 id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
@@ -75,19 +152,16 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                 const updatedBudget = { ...currentBudget, items: updatedItems };
                 updateBudgetTotals(updatedBudget);
                 
-                // Smart Estimation of End Date based on Labor Hours
                 const laborHours = updatedItems
                     .filter(i => (i.unit.toLowerCase() === 'h' || i.name.toLowerCase().includes('hora') || i.category.toLowerCase().includes('mano')))
                     .reduce((sum, item) => sum + item.quantity, 0);
 
                 if (laborHours > 0) {
-                     // Assume 8 hour work days
                      const estimatedDays = Math.ceil(laborHours / 8);
                      const startDate = new Date(project.startDate);
                      const newEndDate = new Date(startDate);
-                     newEndDate.setDate(startDate.getDate() + estimatedDays + 1); // +1 buffer
+                     newEndDate.setDate(startDate.getDate() + estimatedDays + 1);
                      
-                     // Update the project's end date directly
                      onUpdate({ 
                          ...project, 
                          endDate: newEndDate.toISOString().split('T')[0],
@@ -120,7 +194,6 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
     const handleUpdateItem = (id: string, field: keyof BudgetItem, value: any) => {
         if (!currentBudget) return;
         
-        // Auto-complete logic if user types a name that exists in DB
         let extraUpdates = {};
         if (field === 'name') {
             const match = priceDatabase.find(p => p.name.toLowerCase() === (value as string).toLowerCase());
@@ -172,12 +245,106 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
         onUpdate({ ...project, budgets: updatedBudgets });
     }
 
-    // --- Views ---
+    // --- Render ---
+
+    // Modal de Aceptación
+    const renderAcceptModal = () => {
+        if (!isAcceptModalOpen || !budgetToAccept) return null;
+        
+        const totalBase = budgetToAccept.total;
+        const totalIVA = totalBase * 0.21;
+        const totalWithIVA = totalBase + totalIVA;
+
+        return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+                <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md border border-slate-100 dark:border-slate-700 overflow-hidden animate-in zoom-in-95 duration-200">
+                    <div className="bg-[#0047AB] p-4 flex justify-between items-center text-white">
+                        <h3 className="font-bold text-lg flex items-center gap-2">
+                            <Check className="w-5 h-5" /> Aceptar Presupuesto
+                        </h3>
+                        <button onClick={() => setIsAcceptModalOpen(false)} className="hover:bg-white/20 p-1.5 rounded-full transition-colors"><X className="w-5 h-5"/></button>
+                    </div>
+                    
+                    <div className="p-6 space-y-6">
+                        <div className="bg-slate-50 dark:bg-slate-700/50 p-4 rounded-xl text-center">
+                            <p className="text-sm text-slate-500 dark:text-slate-400 font-medium uppercase">Total Presupuesto (con IVA)</p>
+                            <p className="text-3xl font-extrabold text-slate-900 dark:text-white mt-1">{totalWithIVA.toLocaleString()}€</p>
+                        </div>
+
+                        <div>
+                            <label className="flex items-center gap-3 p-3 border border-slate-200 dark:border-slate-600 rounded-xl cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+                                <input 
+                                    type="checkbox" 
+                                    checked={advanceConfig.enabled}
+                                    onChange={(e) => {
+                                        const isEnabled = e.target.checked;
+                                        setAdvanceConfig(prev => ({ 
+                                            ...prev, 
+                                            enabled: isEnabled,
+                                            // Si se activa, sugerir 40% por defecto
+                                            percentage: isEnabled ? 40 : 0,
+                                            amount: isEnabled ? Number((totalWithIVA * 0.4).toFixed(2)) : 0
+                                        }));
+                                    }}
+                                    className="w-5 h-5 text-[#0047AB] rounded focus:ring-[#0047AB]"
+                                />
+                                <div className="flex-1">
+                                    <span className="font-bold text-slate-800 dark:text-white block">Solicitar Anticipo / Señal</span>
+                                    <span className="text-xs text-slate-500 dark:text-slate-400">Se creará un registro de ingreso automáticamente.</span>
+                                </div>
+                            </label>
+                        </div>
+
+                        {advanceConfig.enabled && (
+                            <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-top-2 duration-200">
+                                <div>
+                                    <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1 block">Porcentaje %</label>
+                                    <div className="relative">
+                                        <input 
+                                            type="number" 
+                                            value={advanceConfig.percentage}
+                                            onChange={(e) => handleAdvancePercentChange(Number(e.target.value))}
+                                            className="w-full p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-[#0047AB]"
+                                        />
+                                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">%</span>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1 block">Importe €</label>
+                                    <div className="relative">
+                                        <input 
+                                            type="number"
+                                            step="0.01" 
+                                            value={advanceConfig.amount}
+                                            onChange={(e) => handleAdvanceAmountChange(Number(e.target.value))}
+                                            className="w-full p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-[#0047AB]"
+                                        />
+                                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">€</span>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="flex gap-3 pt-2">
+                            <button onClick={() => setIsAcceptModalOpen(false)} className="flex-1 py-3 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl font-bold hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">
+                                Cancelar
+                            </button>
+                            <button onClick={confirmAcceptBudget} className="flex-1 py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 shadow-lg shadow-green-200 dark:shadow-green-900/30 transition-colors flex items-center justify-center gap-2">
+                                <Wallet className="w-5 h-5" /> Confirmar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    };
 
     if (view === 'list') {
         const budgets = project.budgets || [];
         return (
-            <div className="space-y-6">
+            <div className="space-y-6 relative">
+                {renderAcceptModal()}
+                
                 <div className="flex justify-between items-center">
                     <h3 className="text-lg font-bold text-slate-800 dark:text-white">Presupuestos del Proyecto</h3>
                     <button onClick={handleCreateNew} className="bg-[#0047AB] text-white px-5 py-2.5 rounded-xl flex items-center gap-2 hover:bg-[#003380] transition-colors shadow-lg shadow-blue-900/10 font-medium">
@@ -202,7 +369,14 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                                         }`}>{budget.status}</span>
                                     </div>
                                 </div>
-                                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1 ml-12">Creado el {budget.date} • {budget.items.length} partidas</p>
+                                <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6 mt-1 ml-12">
+                                    <p className="text-xs text-slate-400 dark:text-slate-500">Creado el {budget.date} • {budget.items.length} partidas</p>
+                                    {budget.advancePayment && budget.advancePayment > 0 && (
+                                        <p className="text-xs font-bold text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20 px-2 py-0.5 rounded">
+                                            Anticipo: {budget.advancePayment.toLocaleString()}€ ({budget.advancePercentage}%)
+                                        </p>
+                                    )}
+                                </div>
                             </div>
                             <div className="flex items-center gap-6 mt-4 md:mt-0 pl-12 md:pl-0">
                                 <div className="text-right">
@@ -212,7 +386,7 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                                 <div className="flex gap-2">
                                     {budget.status !== 'Accepted' && (
                                         <button 
-                                            onClick={(e) => { e.stopPropagation(); handleAcceptBudget(budget); }}
+                                            onClick={(e) => { e.stopPropagation(); initiateAcceptBudget(budget); }}
                                             className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 font-bold bg-green-50 dark:bg-green-900/20 px-3 py-2 rounded-lg hover:bg-green-100 dark:hover:bg-green-900/40 transition-colors flex items-center gap-1"
                                             title="Marcar como Aceptado"
                                         >
