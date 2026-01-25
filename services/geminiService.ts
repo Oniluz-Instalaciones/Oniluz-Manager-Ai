@@ -1,10 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
 import { Project, PriceItem } from "../types";
-
-// --- CONFIGURACIÓN DE API ---
-// Se utiliza la librería moderna @google/genai.
-const apiKey = 'AIzaSyAPt-4D6bA9qLK-BrijbJBcmnBU1ojXOA8';
-const genAI = new GoogleGenAI({ apiKey });
 
 // MODELO: Actualizado a 'gemini-2.5-flash' por ser el estándar actual de velocidad y estabilidad.
 const MODEL_NAME = 'gemini-2.5-flash';
@@ -15,7 +9,7 @@ const responseCache = new Map<string, { timestamp: number, data: any }>();
 const CACHE_TTL = 1000 * 60 * 5; // 5 minutos de validez
 
 // --- SISTEMA DE COLA (Request Queue) ---
-// Serializa las peticiones para evitar el error 429 (Too Many Requests).
+// Serializa las peticiones para evitar saturación en el cliente, aunque el Gateway maneja rate limits globales.
 class RequestQueue {
     private queue: (() => Promise<void>)[] = [];
     private processing = false;
@@ -42,8 +36,8 @@ class RequestQueue {
             const op = this.queue.shift();
             if (op) {
                 await op();
-                // Pausa de seguridad entre peticiones para respetar rate limits
-                await new Promise(r => setTimeout(r, 2000)); 
+                // Pausa de seguridad entre peticiones
+                await new Promise(r => setTimeout(r, 1000)); 
             }
         }
         
@@ -54,6 +48,36 @@ class RequestQueue {
 const apiQueue = new RequestQueue();
 
 // --- UTILIDADES ---
+
+/**
+ * Función centralizada para llamar a nuestro backend seguro en Vercel.
+ * Sustituye a la llamada directa de genAI.models.generateContent.
+ */
+const callSecureAI = async (model: string, contents: any, config?: any) => {
+    try {
+        const response = await fetch('/api/generate', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                model,
+                contents,
+                config
+            })
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error || `Server Error: ${response.status}`);
+        }
+
+        const data = await response.json();
+        return { text: data.text }; // Simulamos la estructura de respuesta que espera el resto de la app
+    } catch (error) {
+        throw error;
+    }
+};
 
 /**
  * Limpia la respuesta de la IA eliminando bloques de código Markdown (```json ... ```)
@@ -172,7 +196,6 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
     items: []
   };
 
-  // Usamos la cola para evitar saturación
   return apiQueue.add(async () => {
       try {
         const cleanBase64 = await optimizeImage(base64String);
@@ -190,20 +213,16 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
           "items": [{ "name": "Nombre producto", "quantity": 1, "unit": "ud", "price": 0.00 }]
         }`;
         
-        // Configuración correcta del SDK @google/genai
-        const operation = () => genAI.models.generateContent({
-          model: MODEL_NAME,
-          contents: {
+        const operation = () => callSecureAI(
+          MODEL_NAME,
+          {
             parts: [
-              // Estructura correcta para envío de imágenes
               { inlineData: { mimeType: 'image/jpeg', data: cleanBase64 } }, 
               { text: prompt }
             ]
           },
-          config: { 
-              temperature: 0.1, // Baja temperatura para datos precisos
-          }
-        });
+          { temperature: 0.1 }
+        );
 
         const response = await retryOperation(operation);
         const result = cleanAndParseJSON(response.text || "{}");
@@ -219,7 +238,7 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
            throw new Error("La respuesta no contiene un JSON válido");
         }
       } catch (error: any) {
-        console.warn('Gemini API Error:', error);
+        console.warn('AI API Error:', error);
         const errorStr = error.toString();
         const isQuotaError = errorStr.includes('429') || (error.status === 429);
         return {
@@ -236,10 +255,10 @@ export const chatWithAssistant = async (message: string, context?: string): Prom
       try {
         const prompt = context ? `System Instruction: ${context}\n\nUser Query: ${message}` : message;
         
-        const operation = () => genAI.models.generateContent({
-            model: MODEL_NAME,
-            contents: prompt
-        });
+        const operation = () => callSecureAI(
+            MODEL_NAME,
+            prompt // String simple se convierte en contents
+        );
 
         const response = await retryOperation(operation);
         return response.text || "No se obtuvo respuesta.";
@@ -253,7 +272,6 @@ export const chatWithAssistant = async (message: string, context?: string): Prom
 };
 
 export const analyzeProjectStatus = async (project: Project): Promise<string> => {
-  // Comprobamos caché antes de llamar a la API
   const cacheKey = `status-${project.id}-${project.status}-${project.budget.toFixed(2)}`;
   const cached = responseCache.get(cacheKey);
   
@@ -272,15 +290,11 @@ export const analyzeProjectStatus = async (project: Project): Promise<string> =>
         
         Dame 3 consejos estratégicos breves para mejorar la rentabilidad o gestión.`;
         
-        const operation = () => genAI.models.generateContent({
-            model: MODEL_NAME,
-            contents: prompt
-        });
+        const operation = () => callSecureAI(MODEL_NAME, prompt);
 
         const response = await retryOperation(operation);
         const text = response.text || "";
         
-        // Guardamos en caché
         responseCache.set(cacheKey, { timestamp: Date.now(), data: text });
         return text;
       } catch (error: any) {
@@ -293,7 +307,6 @@ export const analyzeProjectStatus = async (project: Project): Promise<string> =>
 export const generateSmartBudget = async (description: string, currentPrices: PriceItem[], images: string[] = []): Promise<any[]> => {
     return apiQueue.add(async () => {
         try {
-            // Contexto de precios para que la IA use precios reales
             const priceContext = currentPrices.slice(0, 100).map(p => `- ${p.name} (Categoría: ${p.category}): ${p.price}€/${p.unit}`).join('\n');
             
             const prompt = `Actúa como un INGENIERO ELÉCTRICO EXPERTO EN EL REBT (Reglamento Electrotécnico para Baja Tensión de España).
@@ -331,13 +344,11 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
                  parts.push({ inlineData: { mimeType: 'image/jpeg', data: optimizedImg } });
             }
 
-            const operation = () => genAI.models.generateContent({
-                model: MODEL_NAME,
-                contents: { parts },
-                config: {
-                    temperature: 0.2, // Baja temperatura para rigor técnico
-                }
-            });
+            const operation = () => callSecureAI(
+                MODEL_NAME,
+                { parts },
+                { temperature: 0.2 }
+            );
 
             const response = await retryOperation(operation);
             const result = cleanAndParseJSON(response.text || "[]");
@@ -357,10 +368,7 @@ export const parseMaterialsFromInput = async (textInput: string): Promise<PriceI
             Devuelve SOLO un Array JSON: [{ "name": string, "unit": string, "price": number, "category": string }].
             Si no hay precio, pon 0. Categorías sugeridas: Material, Mano de Obra, Pequeño Material.`;
             
-            const operation = () => genAI.models.generateContent({ 
-                model: MODEL_NAME, 
-                contents: prompt 
-            });
+            const operation = () => callSecureAI(MODEL_NAME, prompt);
 
             const response = await retryOperation(operation);
             const result = cleanAndParseJSON(response.text || "[]");
@@ -376,15 +384,15 @@ export const parseMaterialsFromImage = async (base64Image: string): Promise<Pric
         try {
             const cleanData = await optimizeImage(base64Image);
             
-            const operation = () => genAI.models.generateContent({
-                model: MODEL_NAME,
-                contents: {
+            const operation = () => callSecureAI(
+                MODEL_NAME,
+                {
                     parts: [
                         { inlineData: { mimeType: 'image/jpeg', data: cleanData } },
                         { text: "Identifica los materiales, precios y unidades en esta imagen de tarifa o catálogo. Devuelve SOLO un Array JSON válido: [{ name, unit, price, category }]." }
                     ]
                 }
-            });
+            );
 
             const response = await retryOperation(operation);
             const result = cleanAndParseJSON(response.text || "[]");

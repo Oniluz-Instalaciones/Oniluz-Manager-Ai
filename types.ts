@@ -60,6 +60,7 @@ export interface PriceItem {
   unit: string;
   price: number;
   category: string;
+  discount?: number; // Porcentaje de descuento (0-100)
 }
 
 export interface BudgetItem {
