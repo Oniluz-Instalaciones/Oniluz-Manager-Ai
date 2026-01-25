@@ -8,11 +8,23 @@ interface BudgetManagerProps {
     project: Project;
     onUpdate: (updatedProject: Project) => void;
     priceDatabase: PriceItem[];
+    // New props for state persistence
+    view: 'list' | 'edit';
+    setView: (view: 'list' | 'edit') => void;
+    currentBudget: Budget | null;
+    setCurrentBudget: (budget: Budget | null) => void;
 }
 
-const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceDatabase }) => {
-    const [view, setView] = useState<'list' | 'edit'>('list');
-    const [currentBudget, setCurrentBudget] = useState<Budget | null>(null);
+const BudgetManager: React.FC<BudgetManagerProps> = ({ 
+    project, 
+    onUpdate, 
+    priceDatabase,
+    view,
+    setView,
+    currentBudget,
+    setCurrentBudget
+}) => {
+    // Local UI state
     const [aiPrompt, setAiPrompt] = useState('');
     const [isGenerating, setIsGenerating] = useState(false);
     const [includeDocs, setIncludeDocs] = useState(false);

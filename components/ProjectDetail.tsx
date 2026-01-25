@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Project, Transaction, Material, Incident, ProjectStatus, Priority, PriceItem } from '../types';
+import { Project, Transaction, Material, Incident, ProjectStatus, Priority, PriceItem, Budget } from '../types';
 import { 
   ArrowLeft, Plus, Trash2, AlertTriangle, CheckCircle, 
   TrendingUp, TrendingDown, Package, FileText, Settings, BrainCircuit, X, Receipt, Paperclip, ChevronDown, Building2, Calendar, RotateCcw, Edit3,
@@ -27,6 +27,10 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
   // State for transaction form type to toggle category input
   const [transactionType, setTransactionType] = useState<'income' | 'expense'>('expense');
   
+  // Budget Manager State (Lifted up for persistence)
+  const [budgetView, setBudgetView] = useState<'list' | 'edit'>('list');
+  const [currentBudget, setCurrentBudget] = useState<Budget | null>(null);
+
   const [history, setHistory] = useState<Project[]>([]);
 
   const updateProjectWithHistory = (newProjectState: Project) => {
@@ -663,7 +667,15 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
 
         {/* BUDGETS TAB */}
         {activeTab === 'budgets' && (
-           <BudgetManager project={project} onUpdate={updateProjectWithHistory} priceDatabase={priceDatabase} />
+           <BudgetManager 
+               project={project} 
+               onUpdate={updateProjectWithHistory} 
+               priceDatabase={priceDatabase}
+               view={budgetView}
+               setView={setBudgetView}
+               currentBudget={currentBudget}
+               setCurrentBudget={setCurrentBudget}
+           />
         )}
 
         {/* DOCUMENTS TAB */}
