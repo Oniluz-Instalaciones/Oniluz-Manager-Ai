@@ -309,6 +309,7 @@ const App: React.FC = () => {
           <GlobalFinance 
             projects={projects}
             onBack={() => setShowGlobalFinance(false)}
+            onUpdateProject={handleUpdateProject}
           />
       );
   }

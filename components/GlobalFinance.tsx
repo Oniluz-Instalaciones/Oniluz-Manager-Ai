@@ -1,17 +1,19 @@
 import React, { useState, useMemo } from 'react';
-import { Project, Transaction } from '../types';
-import { ArrowLeft, TrendingUp, TrendingDown, DollarSign, Calendar, Filter, Download, PieChart as PieIcon, BarChart3, Search, X } from 'lucide-react';
+import { Project, Transaction, Material } from '../types';
+import { ArrowLeft, TrendingUp, TrendingDown, DollarSign, Calendar, Filter, Download, PieChart as PieIcon, BarChart3, Search, X, Camera } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, 
   AreaChart, Area, PieChart, Pie, Legend 
 } from 'recharts';
+import ScannerModal from './ScannerModal';
 
 interface GlobalFinanceProps {
   projects: Project[];
   onBack: () => void;
+  onUpdateProject: (project: Project) => void;
 }
 
-const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
+const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdateProject }) => {
   // --- State for Filters ---
   const [dateRange, setDateRange] = useState<{ start: string; end: string }>({
     start: new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0], // Jan 1st of current year
@@ -19,6 +21,7 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
   });
   const [selectedProject, setSelectedProject] = useState<string>('ALL');
   const [filterType, setFilterType] = useState<'ALL' | 'income' | 'expense'>('ALL');
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
 
   // --- Data Processing ---
 
@@ -89,9 +92,6 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
   const projectFinancials = useMemo(() => {
       return projects.map(p => {
           // Calculate using filtered transactions to respect date range
-          // Note: If 'selectedProject' filter is active, only one row will have data > 0 unless we ignore that filter for this table.
-          // Let's respect the date filter but show all projects rows, calculating their sums within that date range.
-          
           const pTrans = filteredTransactions.filter(t => t.projectId === p.id);
           const inc = pTrans.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
           const exp = pTrans.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
@@ -137,6 +137,20 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
     document.body.removeChild(link);
   };
 
+  const handleScanSave = (projectId: string, transaction: Transaction, newMaterials: Material[]) => {
+    const project = projects.find(p => p.id === projectId);
+    if (project) {
+        const updatedProject = {
+            ...project,
+            transactions: [transaction, ...project.transactions],
+            materials: [...project.materials, ...newMaterials]
+        };
+        onUpdateProject(updatedProject);
+        setIsScannerOpen(false);
+        // Opcional: Podríamos mostrar un mensaje de éxito, pero el modal ya hace alert o visual feedback
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex flex-col font-sans transition-colors duration-300">
       {/* Header */}
@@ -150,12 +164,20 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
                 <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Análisis económico y rentabilidad</p>
             </div>
         </div>
-        <button 
-            onClick={handleExportCSV}
-            className="flex items-center gap-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 px-4 py-2.5 rounded-xl font-bold hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
-        >
-            <Download className="w-4 h-4" /> <span className="hidden sm:inline">Exportar CSV</span>
-        </button>
+        <div className="flex items-center gap-3">
+            <button 
+                onClick={() => setIsScannerOpen(true)}
+                className="flex items-center gap-2 bg-[#0047AB] text-white px-5 py-2.5 rounded-xl font-bold hover:bg-[#003380] transition-colors shadow-lg shadow-blue-900/10"
+            >
+                <Camera className="w-5 h-5" /> <span className="hidden sm:inline">Escanear / Añadir</span>
+            </button>
+            <button 
+                onClick={handleExportCSV}
+                className="flex items-center gap-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 px-4 py-2.5 rounded-xl font-bold hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
+            >
+                <Download className="w-4 h-4" /> <span className="hidden sm:inline">Exportar CSV</span>
+            </button>
+        </div>
       </div>
 
       {/* Filters Bar */}
@@ -439,6 +461,15 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
              )}
            </div>
         </div>
+
+        {/* Scanner Modal */}
+        {isScannerOpen && (
+            <ScannerModal 
+              projects={projects}
+              onClose={() => setIsScannerOpen(false)}
+              onSave={handleScanSave}
+            />
+        )}
 
       </div>
     </div>
