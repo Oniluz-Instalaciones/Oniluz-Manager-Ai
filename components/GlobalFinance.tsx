@@ -209,10 +209,10 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
                  <select 
                     value={selectedProject}
                     onChange={(e) => setSelectedProject(e.target.value)}
-                    className="bg-transparent border-none text-sm font-semibold text-slate-700 dark:text-slate-200 focus:ring-0 cursor-pointer w-full sm:w-40"
+                    className="bg-transparent border-none text-sm font-bold text-black dark:text-white focus:ring-0 cursor-pointer w-full sm:w-40"
                  >
-                     <option value="ALL">Todas las obras</option>
-                     {projects.map(p => <option key={p.id} value={p.id}>{p.name.substring(0, 20)}...</option>)}
+                     <option value="ALL" className="text-black bg-white dark:bg-slate-800 dark:text-white">Todas las obras</option>
+                     {projects.map(p => <option key={p.id} value={p.id} className="text-black bg-white dark:bg-slate-800 dark:text-white">{p.name.substring(0, 20)}...</option>)}
                  </select>
              </div>
 
