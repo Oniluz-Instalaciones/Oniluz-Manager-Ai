@@ -128,7 +128,22 @@ const App: React.FC = () => {
              items: b.items || []
           })) || []
         }));
-        setProjects(formattedProjects);
+        
+        // Merge with existing projects to preserve UI state (editingBudget) if exists
+        setProjects(prevProjects => {
+            if (prevProjects.length === 0) return formattedProjects;
+            return formattedProjects.map(newP => {
+                const existing = prevProjects.find(p => p.id === newP.id);
+                if (existing) {
+                    return {
+                        ...newP,
+                        editingBudget: existing.editingBudget,
+                        editingBudgetView: existing.editingBudgetView
+                    };
+                }
+                return newP;
+            });
+        });
       }
     } catch (err) {
       console.error("Error fetching projects from Supabase:", err);
@@ -220,21 +235,26 @@ const App: React.FC = () => {
   };
 
   const handleUpdateProject = (updatedProject: Project) => {
+     // 1. Update Local State Immediately (including UI fields like editingBudget)
      setProjects(projects.map(p => p.id === updatedProject.id ? updatedProject : p));
 
-     // IMPORTANT: We update ALL fields to ensure edits in ProjectDetail are saved
+     // 2. Sanitize for DB: Remove UI-only fields that don't exist in Supabase columns
+     // We assume editingBudget and editingBudgetView are NOT in the database table
+     const { editingBudget, editingBudgetView, ...dbProject } = updatedProject;
+
+     // 3. Update DB
      supabase.from('projects').update({
-         name: updatedProject.name,
-         client: updatedProject.client,
-         location: updatedProject.location,
-         status: updatedProject.status,
-         progress: updatedProject.progress,
-         start_date: updatedProject.startDate || null,
-         end_date: updatedProject.endDate || null,
-         description: updatedProject.description,
-         budget: updatedProject.budget,
-         pv_data: updatedProject.pvData
-     }).eq('id', updatedProject.id).then(({ error }) => {
+         name: dbProject.name,
+         client: dbProject.client,
+         location: dbProject.location,
+         status: dbProject.status,
+         progress: dbProject.progress,
+         start_date: dbProject.startDate || null,
+         end_date: dbProject.endDate || null,
+         description: dbProject.description,
+         budget: dbProject.budget,
+         pv_data: dbProject.pvData
+     }).eq('id', dbProject.id).then(({ error }) => {
          if (error) console.error("Error updating project root:", error);
      });
   };
@@ -259,7 +279,7 @@ const App: React.FC = () => {
 
   const handleBackToMenu = () => {
       setSelectedProjectId(null);
-      fetchProjects(); 
+      // We don't fetchProjects here to avoid overwriting the local UI state (drafts) with server data
   };
 
   // --- Conditional Rendering ---

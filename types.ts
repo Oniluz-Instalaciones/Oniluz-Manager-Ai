@@ -113,4 +113,7 @@ export interface Project {
   incidents: Incident[];
   budgets?: Budget[];
   documents: ProjectDocument[];
+  // UI Persistence State (No se guarda en DB, solo en memoria durante la sesión)
+  editingBudget?: Budget | null;
+  editingBudgetView?: 'list' | 'edit';
 }

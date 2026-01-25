@@ -27,10 +27,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
   // State for transaction form type to toggle category input
   const [transactionType, setTransactionType] = useState<'income' | 'expense'>('expense');
   
-  // Budget Manager State (Lifted up for persistence)
-  const [budgetView, setBudgetView] = useState<'list' | 'edit'>('list');
-  const [currentBudget, setCurrentBudget] = useState<Budget | null>(null);
-
+  // State for history management
   const [history, setHistory] = useState<Project[]>([]);
 
   const updateProjectWithHistory = (newProjectState: Project) => {
@@ -83,10 +80,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
 
   const handleProgressChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
       const newProgress = Number(e.target.value);
-      // We don't push to history on every drag event to avoid flooding undo stack, 
-      // but ideally we should debounce. For now, we update state directly.
       onUpdate({ ...project, progress: newProgress });
-      // Debounce DB update could be here, but simpler to update on mouseUp/change
       await supabase.from('projects').update({ progress: newProgress }).eq('id', project.id);
   };
 
@@ -671,10 +665,10 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                project={project} 
                onUpdate={updateProjectWithHistory} 
                priceDatabase={priceDatabase}
-               view={budgetView}
-               setView={setBudgetView}
-               currentBudget={currentBudget}
-               setCurrentBudget={setCurrentBudget}
+               view={project.editingBudgetView || 'list'}
+               setView={(view) => onUpdate({ ...project, editingBudgetView: view })}
+               currentBudget={project.editingBudget || null}
+               setCurrentBudget={(budget) => onUpdate({ ...project, editingBudget: budget })}
            />
         )}
 
