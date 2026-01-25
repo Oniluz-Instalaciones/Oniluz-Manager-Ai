@@ -3,7 +3,7 @@ import { Project, Transaction, Material, Incident, ProjectStatus, Priority, Pric
 import { 
   ArrowLeft, Plus, Trash2, AlertTriangle, CheckCircle, 
   TrendingUp, TrendingDown, Package, FileText, Settings, BrainCircuit, X, Receipt, Paperclip, ChevronDown, Building2, Calendar, RotateCcw, Edit3,
-  Hammer, Coffee, User, Wallet, BarChart3, HardHat
+  Hammer, Coffee, User, Wallet, BarChart3, HardHat, MinusCircle
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { analyzeProjectStatus } from '../services/geminiService';
@@ -146,7 +146,37 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
   const handleDeleteMaterial = async (id: string) => {
       await supabase.from('materials').delete().eq('id', id);
       updateProjectWithHistory({...project, materials: project.materials.filter(m => m.id !== id)});
-  }
+  };
+
+  const handleConsumeMaterial = async (id: string) => {
+    const material = project.materials.find(m => m.id === id);
+    if (!material) return;
+
+    const input = window.prompt(`Indica la cantidad de "${material.name}" a descontar del stock (Usado/Gastado):`, "1");
+    if (input === null) return; // Cancelled
+
+    const amount = Number(input);
+    if (isNaN(amount) || amount <= 0) {
+        alert("Cantidad inválida.");
+        return;
+    }
+
+    if (amount > material.quantity) {
+        alert("No hay suficiente stock para descontar esa cantidad.");
+        return;
+    }
+
+    const newQuantity = material.quantity - amount;
+    
+    // Update DB
+    await supabase.from('materials').update({ quantity: newQuantity }).eq('id', id);
+
+    // Update State
+    const updatedMaterials = project.materials.map(m => 
+        m.id === id ? { ...m, quantity: newQuantity } : m
+    );
+    updateProjectWithHistory({ ...project, materials: updatedMaterials });
+  };
 
   const handleDeleteTransaction = async (id: string) => {
       if(!window.confirm("¿Eliminar este movimiento?")) return;
@@ -686,16 +716,25 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                                <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">Valor est: <span className="text-slate-700 dark:text-slate-200">{(m.quantity * m.pricePerUnit).toLocaleString()}€</span></p>
                              </div>
                           </div>
-                          <div className="flex items-center gap-8">
+                          <div className="flex items-center gap-4 sm:gap-8">
                             <div className="text-right">
                               <p className={`text-lg font-bold ${isLowStock ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-white'}`}>
                                 {m.quantity} <span className="text-xs font-normal text-slate-400 uppercase">{m.unit}</span>
                               </p>
                               {isLowStock && <p className="text-[10px] text-red-500 dark:text-red-400 font-bold bg-red-50 dark:bg-red-900/30 px-2 py-0.5 rounded-full mt-1">Stock Bajo</p>}
                             </div>
-                            <button onClick={() => handleDeleteMaterial(m.id)} className="text-slate-300 hover:text-red-500 transition-colors p-2 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg">
-                              <Trash2 className="w-5 h-5" />
-                            </button>
+                            <div className="flex gap-2">
+                                <button 
+                                    onClick={() => handleConsumeMaterial(m.id)}
+                                    className="text-amber-500 hover:text-amber-700 p-2 hover:bg-amber-50 dark:hover:bg-amber-900/30 rounded-lg transition-colors"
+                                    title="Descontar Stock (Usado)"
+                                >
+                                    <MinusCircle className="w-5 h-5" />
+                                </button>
+                                <button onClick={() => handleDeleteMaterial(m.id)} className="text-slate-300 hover:text-red-500 transition-colors p-2 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg">
+                                  <Trash2 className="w-5 h-5" />
+                                </button>
+                            </div>
                           </div>
                         </div>
                       );
