@@ -29,6 +29,7 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({
     const [isGenerating, setIsGenerating] = useState(false);
     const [includeDocs, setIncludeDocs] = useState(false);
     const [aiError, setAiError] = useState<string | null>(null);
+    const [isSaving, setIsSaving] = useState(false);
 
     // Estado para el Modal de Aceptación
     const [isAcceptModalOpen, setIsAcceptModalOpen] = useState(false);
@@ -42,8 +43,9 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({
     // --- Actions ---
 
     const handleCreateNew = () => {
+        // Use a UUID for better compatibility with DB if needed, or timestamp is ok for temporary
         const newBudget: Budget = {
-            id: Date.now().toString(),
+            id: crypto.randomUUID(),
             projectId: project.id,
             name: `Presupuesto #${(project.budgets?.length || 0) + 1}`,
             date: new Date().toISOString().split('T')[0],
@@ -85,8 +87,16 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({
             advancePercentage: advanceConfig.enabled ? advanceConfig.percentage : 0
         };
 
+        // 1. Update status in DB
+        await supabase.from('budgets').update({
+            status: 'Accepted',
+            advance_payment: updatedBudget.advancePayment,
+            advance_percentage: updatedBudget.advancePercentage
+        }).eq('id', updatedBudget.id);
+
         let newTransactions = [...project.transactions];
 
+        // 2. Create Transaction if advance payment
         if (advanceConfig.enabled && advanceConfig.amount > 0) {
             const newIncome: Transaction = {
                 id: crypto.randomUUID(),
@@ -110,6 +120,13 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({
             newTransactions = [newIncome, ...newTransactions];
         }
 
+        // 3. Update project budget total if zero
+        let newProjectBudget = project.budget;
+        if (project.budget === 0) {
+            newProjectBudget = budgetToAccept.total;
+            await supabase.from('projects').update({ budget: newProjectBudget }).eq('id', project.id);
+        }
+
         const updatedBudgets = (project.budgets || []).map(b => 
             b.id === budgetToAccept.id ? updatedBudget : b
         );
@@ -118,7 +135,7 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({
             ...project, 
             budgets: updatedBudgets,
             transactions: newTransactions,
-            budget: project.budget === 0 ? budgetToAccept.total : project.budget 
+            budget: newProjectBudget 
         });
 
         setIsAcceptModalOpen(false);
@@ -157,7 +174,7 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({
             }
 
             const enrichedItems: BudgetItem[] = items.map((item: any) => ({
-                id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+                id: crypto.randomUUID(),
                 name: item.name,
                 unit: item.unit,
                 quantity: item.quantity,
@@ -205,7 +222,7 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({
     const handleAddItem = (priceItem?: PriceItem) => {
         if (!currentBudget) return;
         const newItem: BudgetItem = {
-            id: Date.now().toString() + Math.random(),
+            id: crypto.randomUUID(),
             name: priceItem ? priceItem.name : 'Nuevo Concepto',
             unit: priceItem ? priceItem.unit : 'ud',
             quantity: 1,
@@ -247,26 +264,77 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({
         setCurrentBudget({ ...budget, total });
     };
 
-    const handleSaveBudget = () => {
+    const handleSaveBudget = async () => {
         if (!currentBudget) return;
-        const budgets = project.budgets || [];
-        const existingIndex = budgets.findIndex(b => b.id === currentBudget.id);
-        
-        let updatedBudgets;
-        if (existingIndex >= 0) {
-            updatedBudgets = budgets.map((b, i) => i === existingIndex ? currentBudget : b);
-        } else {
-            updatedBudgets = [currentBudget, ...budgets];
-        }
+        setIsSaving(true);
 
-        onUpdate({ ...project, budgets: updatedBudgets });
-        setView('list');
+        try {
+            // 1. Update or Insert Budget Header
+            const { error: budgetError } = await supabase.from('budgets').upsert({
+                id: currentBudget.id,
+                project_id: project.id,
+                name: currentBudget.name,
+                date: currentBudget.date,
+                status: currentBudget.status,
+                total: currentBudget.total
+            });
+
+            if (budgetError) throw budgetError;
+
+            // 2. Sync Items (Strategy: Delete all items for this budget, then insert new ones)
+            // This is safer than upserting individual items if items were deleted in UI
+            await supabase.from('budget_items').delete().eq('budget_id', currentBudget.id);
+
+            if (currentBudget.items.length > 0) {
+                const itemsToInsert = currentBudget.items.map(item => ({
+                    budget_id: currentBudget.id,
+                    name: item.name,
+                    quantity: item.quantity,
+                    unit: item.unit,
+                    price_per_unit: item.pricePerUnit,
+                    category: item.category
+                }));
+
+                const { error: itemsError } = await supabase.from('budget_items').insert(itemsToInsert);
+                if (itemsError) throw itemsError;
+            }
+
+            // 3. Update Local State
+            const budgets = project.budgets || [];
+            const existingIndex = budgets.findIndex(b => b.id === currentBudget.id);
+            
+            let updatedBudgets;
+            if (existingIndex >= 0) {
+                updatedBudgets = budgets.map((b, i) => i === existingIndex ? currentBudget : b);
+            } else {
+                updatedBudgets = [currentBudget, ...budgets];
+            }
+
+            onUpdate({ ...project, budgets: updatedBudgets });
+            setView('list');
+
+        } catch (error) {
+            console.error("Error saving budget:", error);
+            alert("Error al guardar el presupuesto en la base de datos.");
+        } finally {
+            setIsSaving(false);
+        }
     };
 
-    const handleDeleteBudget = (id: string) => {
+    const handleDeleteBudget = async (id: string) => {
         if(!window.confirm("¿Eliminar este presupuesto?")) return;
-        const updatedBudgets = (project.budgets || []).filter(b => b.id !== id);
-        onUpdate({ ...project, budgets: updatedBudgets });
+        
+        try {
+            // Delete from DB
+            await supabase.from('budgets').delete().eq('id', id);
+            
+            // Update UI
+            const updatedBudgets = (project.budgets || []).filter(b => b.id !== id);
+            onUpdate({ ...project, budgets: updatedBudgets });
+        } catch (error) {
+            console.error("Error deleting budget:", error);
+            alert("Error al eliminar.");
+        }
     }
 
     // --- Render ---
@@ -471,8 +539,13 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({
                         <div className="text-xs text-slate-400 font-bold uppercase">Total Presupuesto</div>
                         <div className="text-2xl font-bold text-slate-900 dark:text-white">{currentBudget?.total.toLocaleString()}€</div>
                     </div>
-                    <button onClick={handleSaveBudget} className="bg-green-600 text-white px-6 py-3 rounded-xl flex items-center gap-2 hover:bg-green-700 shadow-lg shadow-green-200 dark:shadow-green-900/30 font-bold transition-all">
-                        <Save className="w-4 h-4" /> Guardar
+                    <button 
+                        onClick={handleSaveBudget} 
+                        disabled={isSaving}
+                        className="bg-green-600 text-white px-6 py-3 rounded-xl flex items-center gap-2 hover:bg-green-700 shadow-lg shadow-green-200 dark:shadow-green-900/30 font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                        {isSaving ? 'Guardando...' : 'Guardar'}
                     </button>
                 </div>
             </div>

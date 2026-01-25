@@ -97,6 +97,7 @@ const App: React.FC = () => {
       if (error) throw error;
 
       if (data) {
+        // Mapeo riguroso de snake_case (DB) a camelCase (App) para evitar datos vacíos o NaN
         const formattedProjects: Project[] = data.map((p: any) => ({
           id: p.id,
           type: p.type as any,
@@ -110,8 +111,17 @@ const App: React.FC = () => {
           budget: Number(p.budget),
           description: p.description,
           pvData: p.pv_data, // JSONB column
-          transactions: p.transactions || [],
-          // CRITICAL FIX: Map snake_case from DB to camelCase for frontend to avoid NaN
+          
+          transactions: (p.transactions || []).map((t: any) => ({
+              id: t.id,
+              projectId: t.project_id,
+              type: t.type,
+              category: t.category,
+              amount: Number(t.amount),
+              date: t.date,
+              description: t.description
+          })),
+
           materials: (p.materials || []).map((m: any) => ({
              id: m.id,
              projectId: m.project_id,
@@ -121,12 +131,44 @@ const App: React.FC = () => {
              minStock: Number(m.min_stock) || 0,
              pricePerUnit: Number(m.price_per_unit) || 0 
           })),
-          incidents: p.incidents || [],
-          documents: p.documents || [],
-          budgets: p.budgets?.map((b: any) => ({
-             ...b,
-             items: b.items || []
-          })) || []
+
+          incidents: (p.incidents || []).map((i: any) => ({
+              id: i.id,
+              projectId: i.project_id,
+              title: i.title,
+              description: i.description,
+              priority: i.priority,
+              status: i.status,
+              date: i.date
+          })),
+
+          documents: (p.documents || []).map((d: any) => ({
+              id: d.id,
+              projectId: d.project_id,
+              name: d.name,
+              type: d.type,
+              date: d.date,
+              data: d.data
+          })),
+
+          budgets: (p.budgets || []).map((b: any) => ({
+             id: b.id,
+             projectId: b.project_id,
+             name: b.name,
+             date: b.date,
+             status: b.status,
+             total: Number(b.total) || 0,
+             advancePayment: Number(b.advance_payment) || 0,
+             advancePercentage: Number(b.advance_percentage) || 0,
+             items: (b.items || []).map((item: any) => ({
+                 id: item.id,
+                 name: item.name,
+                 unit: item.unit,
+                 quantity: Number(item.quantity) || 0,
+                 pricePerUnit: Number(item.price_per_unit) || 0,
+                 category: item.category
+             }))
+          }))
         }));
         
         // Merge with existing projects to preserve UI state (editingBudget) if exists
