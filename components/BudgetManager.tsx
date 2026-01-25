@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Budget, BudgetItem, Project, PriceItem, Transaction } from '../types';
 import { generateSmartBudget } from '../services/geminiService';
-import { Plus, Trash2, Wand2, FileText, Save, ChevronLeft, ArrowRight, Loader2, Database, Paperclip, Check, X, Wallet, Calculator } from 'lucide-react';
+import { Plus, Trash2, Wand2, FileText, Save, ChevronLeft, ArrowRight, Loader2, Database, Paperclip, Check, X, Wallet, Calculator, AlertTriangle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 interface BudgetManagerProps {
@@ -16,6 +16,7 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
     const [aiPrompt, setAiPrompt] = useState('');
     const [isGenerating, setIsGenerating] = useState(false);
     const [includeDocs, setIncludeDocs] = useState(false);
+    const [aiError, setAiError] = useState<string | null>(null);
 
     // Estado para el Modal de Aceptación
     const [isAcceptModalOpen, setIsAcceptModalOpen] = useState(false);
@@ -41,17 +42,18 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
         setCurrentBudget(newBudget);
         setView('edit');
         setAiPrompt('');
+        setAiError(null);
     };
 
     const handleEdit = (budget: Budget) => {
         setCurrentBudget({ ...budget });
         setView('edit');
         setAiPrompt('');
+        setAiError(null);
     };
 
     const initiateAcceptBudget = (budget: Budget) => {
         setBudgetToAccept(budget);
-        // Pre-setear valores vacíos
         const totalWithIva = budget.total * 1.21;
         setAdvanceConfig({
             enabled: false,
@@ -73,7 +75,6 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
 
         let newTransactions = [...project.transactions];
 
-        // Si hay anticipo, crear la transacción de ingreso automáticamente
         if (advanceConfig.enabled && advanceConfig.amount > 0) {
             const newIncome: Transaction = {
                 id: crypto.randomUUID(),
@@ -85,7 +86,6 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                 description: `Anticipo Presupuesto: ${budgetToAccept.name}`
             };
             
-            // Guardar en Supabase
             await supabase.from('transactions').insert({
                 project_id: newIncome.projectId,
                 type: newIncome.type,
@@ -106,7 +106,6 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
             ...project, 
             budgets: updatedBudgets,
             transactions: newTransactions,
-            // Actualizar presupuesto total del proyecto si es 0 o si este es el definitivo
             budget: project.budget === 0 ? budgetToAccept.total : project.budget 
         });
 
@@ -114,7 +113,6 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
         setBudgetToAccept(null);
     };
 
-    // Manejadores para sincronizar % y €
     const handleAdvancePercentChange = (percent: number) => {
         if (!budgetToAccept) return;
         const totalWithIva = budgetToAccept.total * 1.21;
@@ -132,12 +130,20 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
     const handleGenerateAI = async () => {
         if (!aiPrompt.trim()) return;
         setIsGenerating(true);
+        setAiError(null);
+
         try {
             const docImages = includeDocs ? (project.documents || []).filter(d => d.type === 'image').map(d => d.data) : [];
-            const contextPrompt = `Contexto del Proyecto: Nombre "${project.name}", Tipo "${project.type}", Ubicación "${project.location}".
-            Solicitud del usuario: ${aiPrompt}`;
+            const contextPrompt = `Cliente: ${project.client}. Ubicación: ${project.location}. Desc: ${aiPrompt}`;
 
             const items = await generateSmartBudget(contextPrompt, priceDatabase, docImages);
+            
+            if (!items || items.length === 0) {
+                setAiError("La IA procesó la solicitud pero no generó partidas. Intenta ser más específico con la descripción.");
+                setIsGenerating(false);
+                return;
+            }
+
             const enrichedItems: BudgetItem[] = items.map((item: any) => ({
                 id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
                 name: item.name,
@@ -167,12 +173,18 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                          endDate: newEndDate.toISOString().split('T')[0],
                          budgets: project.budgets?.map(b => b.id === updatedBudget.id ? updatedBudget : b)
                      });
-                     
-                     alert(`Se han estimado ${estimatedDays} días de trabajo basados en las horas de mano de obra. La fecha de fin se ha actualizado.`);
                 }
             }
-        } catch (error) {
-            alert("Error al generar presupuesto con IA.");
+        } catch (error: any) {
+            console.error(error);
+            // Mensaje amigable para el usuario
+            if (error.message?.includes('429')) {
+                setAiError("Has excedido el límite de consultas a la IA por minuto. Por favor, espera unos instantes.");
+            } else if (error.message?.includes('500') || error.message?.includes('503')) {
+                setAiError("El servicio de IA está temporalmente saturado. Inténtalo de nuevo.");
+            } else {
+                setAiError("Ocurrió un error al conectar con la inteligencia artificial. Verifica tu conexión.");
+            }
         } finally {
             setIsGenerating(false);
         }
@@ -463,6 +475,14 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                         <h3 className="text-sm font-bold text-[#0047AB] dark:text-blue-400 mb-4 flex items-center relative z-10">
                             <Wand2 className="w-4 h-4 mr-2" /> Generador Inteligente (Experto REBT)
                         </h3>
+                        
+                        {aiError && (
+                            <div className="mb-4 bg-red-50 dark:bg-red-900/20 p-3 rounded-xl border border-red-100 dark:border-red-800 flex gap-3 items-start relative z-10 animate-in fade-in slide-in-from-top-2">
+                                <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+                                <span className="text-sm text-red-700 dark:text-red-300">{aiError}</span>
+                            </div>
+                        )}
+
                         <div className="flex flex-col gap-4 relative z-10">
                             <textarea 
                                 value={aiPrompt}
@@ -574,7 +594,6 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                                 <button className="text-slate-600 dark:text-slate-400 text-sm font-medium flex items-center hover:text-slate-900 dark:hover:text-white transition-colors">
                                     <Database className="w-4 h-4 mr-2" /> Cargar de Base de Precios
                                 </button>
-                                {/* Simple dropdown for selecting from DB directly */}
                                 <div className="absolute left-0 bottom-full mb-2 w-72 bg-white dark:bg-slate-800 shadow-xl rounded-xl border border-slate-100 dark:border-slate-600 hidden group-hover:block max-h-64 overflow-y-auto z-10 p-2">
                                      {priceDatabase.map(p => (
                                          <div 

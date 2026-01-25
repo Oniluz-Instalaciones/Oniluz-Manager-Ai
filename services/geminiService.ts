@@ -1,27 +1,48 @@
-import { Project, PriceItem } from "../types";
+import { GoogleGenAI } from "@google/genai";
+import { Project, PriceItem } from '../types';
 
-// MODELO: Actualizado a 'gemini-2.5-flash' por ser el estándar actual de velocidad y estabilidad.
-const MODEL_NAME = 'gemini-2.5-flash';
+// Función segura para obtener la API Key sin romper la ejecución en navegadores
+const getApiKey = (): string => {
+  try {
+    // Intento 1: Vite (import.meta.env) - Estándar moderno
+    // @ts-ignore
+    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_KEY) {
+      // @ts-ignore
+      return import.meta.env.VITE_API_KEY;
+    }
+    
+    // Intento 2: process.env (si está definido mediante polyfill o config de bundler)
+    if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
+      return process.env.API_KEY;
+    }
+  } catch (e) {
+    console.warn("No se pudo acceder a las variables de entorno de forma estándar.");
+  }
+  
+  return ''; 
+};
 
-// --- SISTEMA DE CACHÉ ---
-// Almacena respuestas recientes para no gastar cuota en consultas repetidas.
-const responseCache = new Map<string, { timestamp: number, data: any }>();
-const CACHE_TTL = 1000 * 60 * 5; // 5 minutos de validez
+const apiKey = getApiKey();
+// Inicialización con clave o fallback seguro para no romper renderizado
+const ai = new GoogleGenAI({ apiKey: apiKey || 'MISSING_KEY' });
 
-// --- SISTEMA DE COLA (Request Queue) ---
-// Serializa las peticiones para evitar saturación en el cliente, aunque el Gateway maneja rate limits globales.
+// Usamos el modelo Flash por ser rápido y eficiente en costes
+const MODEL_FLASH = 'gemini-2.5-flash';
+
+// --- Helpers ---
+
 class RequestQueue {
-    private queue: (() => Promise<void>)[] = [];
-    private processing = false;
+    private queue: (() => Promise<any>)[] = [];
+    private working = false;
 
-    async add<T>(operation: () => Promise<T>): Promise<T> {
-        return new Promise<T>((resolve, reject) => {
+    add<T>(task: () => Promise<T>): Promise<T> {
+        return new Promise((resolve, reject) => {
             this.queue.push(async () => {
                 try {
-                    const result = await operation();
+                    const result = await task();
                     resolve(result);
-                } catch (err) {
-                    reject(err);
+                } catch (e) {
+                    reject(e);
                 }
             });
             this.process();
@@ -29,376 +50,263 @@ class RequestQueue {
     }
 
     private async process() {
-        if (this.processing || this.queue.length === 0) return;
-        this.processing = true;
-        
-        while (this.queue.length > 0) {
-            const op = this.queue.shift();
-            if (op) {
-                await op();
-                // Pausa de seguridad entre peticiones
-                await new Promise(r => setTimeout(r, 1000)); 
+        if (this.working || this.queue.length === 0) return;
+        this.working = true;
+        const task = this.queue.shift();
+        if (task) {
+            try {
+                await task();
+            } finally {
+                this.working = false;
+                this.process();
             }
         }
-        
-        this.processing = false;
     }
 }
-
 const apiQueue = new RequestQueue();
 
-// --- UTILIDADES ---
-
-/**
- * Función centralizada para llamar a nuestro backend seguro en Vercel.
- * Sustituye a la llamada directa de genAI.models.generateContent.
- */
-const callSecureAI = async (model: string, contents: any, config?: any) => {
+const cleanAndParseJSON = (text: string) => {
     try {
-        const response = await fetch('/api/generate', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                model,
-                contents,
-                config
-            })
-        });
-
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            throw new Error(errorData.error || `Server Error: ${response.status}`);
+        const firstBracket = text.indexOf('[');
+        const lastBracket = text.lastIndexOf(']');
+        
+        if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
+            const potentialJson = text.substring(firstBracket, lastBracket + 1);
+            return JSON.parse(potentialJson);
         }
 
-        const data = await response.json();
-        return { text: data.text }; // Simulamos la estructura de respuesta que espera el resto de la app
-    } catch (error) {
-        throw error;
-    }
-};
-
-/**
- * Limpia la respuesta de la IA eliminando bloques de código Markdown (```json ... ```)
- * y busca el primer objeto JSON válido.
- */
-const cleanAndParseJSON = (text: string): any => {
-    try {
-        if (!text) return null;
-
-        // 1. Eliminar etiquetas de bloque de código
         let cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
-        
-        // 2. Encontrar los límites del JSON (por si la IA añade texto introductorio)
-        const firstOpenBrace = cleanText.indexOf('{');
-        const firstOpenBracket = cleanText.indexOf('[');
-        
-        let start = -1;
-        let end = -1;
-
-        // Determinar si buscamos un Objeto {} o un Array []
-        if (firstOpenBrace !== -1 && (firstOpenBracket === -1 || firstOpenBrace < firstOpenBracket)) {
-            start = firstOpenBrace;
-            end = cleanText.lastIndexOf('}');
-        } else if (firstOpenBracket !== -1) {
-            start = firstOpenBracket;
-            end = cleanText.lastIndexOf(']');
+        if (cleanText.startsWith('```')) {
+             cleanText = cleanText.split('\n').slice(1).join('\n').replace(/```$/, '');
         }
-
-        if (start !== -1 && end !== -1) {
-            cleanText = cleanText.substring(start, end + 1);
+        // Intentar parsear objeto único y envolverlo en array
+        if (cleanText.trim().startsWith('{')) {
+             const obj = JSON.parse(cleanText);
+             return [obj];
         }
-        
         return JSON.parse(cleanText);
     } catch (e) {
-        console.error("Error parseando JSON de Gemini. Texto recibido:", text);
-        return null;
+        console.error("Failed to parse JSON response:", text);
+        throw new Error("La IA no devolvió un formato válido JSON.");
     }
 };
 
-/**
- * Reduce el tamaño de las imágenes antes de enviarlas para ahorrar tokens y ancho de banda.
- */
-const optimizeImage = (base64Str: string): Promise<string> => {
+const optimizeImage = async (base64Str: string, maxWidth = 512): Promise<string> => {
     return new Promise((resolve) => {
-        if (!base64Str.startsWith('data:image')) {
-             // Si no tiene cabecera, asumimos que es raw base64 o url, lo devolvemos limpio
-             return resolve(base64Str.includes(',') ? base64Str.split(',')[1] : base64Str);
+        if (typeof Image === 'undefined' || base64Str.startsWith('http')) {
+            resolve(base64Str);
+            return;
         }
 
+        const cleanStr = base64Str.includes(',') ? base64Str.split(',')[1] : base64Str;
+
         const img = new Image();
-        img.src = base64Str;
+        img.src = `data:image/jpeg;base64,${cleanStr}`;
+        
         img.onload = () => {
             const canvas = document.createElement('canvas');
+            // Reducimos tamaño para evitar payloads gigantes (Error 413/500)
             let width = img.width;
             let height = img.height;
             
-            // Limitamos a 1024px para balancear calidad/tokens
-            const MAX_SIZE = 1024; 
-
-            if (width > height) {
-                if (width > MAX_SIZE) {
-                    height *= MAX_SIZE / width;
-                    width = MAX_SIZE;
-                }
-            } else {
-                if (height > MAX_SIZE) {
-                    width *= MAX_SIZE / height;
-                    height = MAX_SIZE;
-                }
+            if (width > maxWidth) {
+                height = height * (maxWidth / width);
+                width = maxWidth;
             }
 
             canvas.width = width;
             canvas.height = height;
-            const ctx = canvas.getContext('2d');
-            ctx?.drawImage(img, 0, 0, width, height);
             
-            // Compresión JPEG al 70%
-            const optimizedBase64 = canvas.toDataURL('image/jpeg', 0.7);
-            resolve(optimizedBase64.split(',')[1]); 
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+                ctx.drawImage(img, 0, 0, width, height);
+                // Compresión agresiva JPEG 0.6 para móviles
+                resolve(canvas.toDataURL('image/jpeg', 0.6).split(',')[1]);
+            } else {
+                resolve(cleanStr);
+            }
         };
-        img.onerror = () => {
-            resolve(base64Str.includes(',') ? base64Str.split(',')[1] : base64Str);
-        };
+        img.onerror = () => resolve(cleanStr);
     });
 };
 
-/**
- * Wrapper para reintentar automáticamente si hay error de cuota (429).
- */
-const retryOperation = async <T>(operation: () => Promise<T>, retries = 3, delay = 2000): Promise<T> => {
+const retryOperation = async <T>(operation: () => Promise<T>, retries = 3, delay = 1000): Promise<T> => {
     try {
         return await operation();
     } catch (error: any) {
-        const errorStr = error.toString();
-        const isQuota = errorStr.includes('429') || (error.status === 429) || errorStr.includes('Resource has been exhausted');
-        
-        if (retries > 0 && isQuota) {
-            console.warn(`Cuota excedida (429). Reintentando en ${delay}ms... (Intentos restantes: ${retries})`);
+        // Detectar errores de cuota o servidor
+        const isQuotaError = error.message?.includes('429') || error.status === 429;
+        const isServerError = error.message?.includes('500') || error.message?.includes('503') || error.status >= 500;
+
+        if (retries > 0 && (isQuotaError || isServerError)) {
+            console.warn(`Error IA (${error.status || 'unknown'}). Reintentando en ${delay}ms... Intentos restantes: ${retries}`);
             await new Promise(r => setTimeout(r, delay));
-            return retryOperation(operation, retries - 1, delay * 2); // Backoff exponencial
+            // Backoff exponencial: espera más tiempo en cada reintento (1s -> 2s -> 4s)
+            return retryOperation(operation, retries - 1, delay * 2);
         }
         throw error;
     }
 };
 
-// --- FUNCIONES PÚBLICAS ---
-
-export const analyzeDocument = async (base64String: string, mimeType: string = 'image/jpeg'): Promise<any> => {
-  const fallbackData = {
-    comercio: "",
-    fecha: new Date().toISOString().split('T')[0],
-    total: 0,
-    iva: 0,
-    categoria: "Material",
-    description: "Introducir datos manualmente",
-    items: []
-  };
-
-  return apiQueue.add(async () => {
-      try {
-        const cleanBase64 = await optimizeImage(base64String);
-        
-        const prompt = `Analiza este documento (ticket, factura o albarán). 
-        Extrae la información y devuélvela en un JSON estricto.
-        Si algún campo no es visible, usa null o 0.
-        Formato requerido:
-        {
-          "comercio": "Nombre del proveedor",
-          "fecha": "YYYY-MM-DD",
-          "total": 0.00,
-          "iva": 0.00,
-          "categoria": "Material", 
-          "items": [{ "name": "Nombre producto", "quantity": 1, "unit": "ud", "price": 0.00 }]
-        }`;
-        
-        const operation = () => callSecureAI(
-          MODEL_NAME,
-          {
-            parts: [
-              { inlineData: { mimeType: 'image/jpeg', data: cleanBase64 } }, 
-              { text: prompt }
-            ]
-          },
-          { temperature: 0.1 }
-        );
-
-        const response = await retryOperation(operation);
-        const result = cleanAndParseJSON(response.text || "{}");
-        
-        if (result) {
-            return {
-                ...fallbackData,
-                ...result,
-                total: Number(result.total) || 0,
-                iva: Number(result.iva) || 0
-            };
-        } else {
-           throw new Error("La respuesta no contiene un JSON válido");
-        }
-      } catch (error: any) {
-        console.warn('AI API Error:', error);
-        const errorStr = error.toString();
-        const isQuotaError = errorStr.includes('429') || (error.status === 429);
-        return {
-            ...fallbackData,
-            errorType: isQuotaError ? 'QUOTA' : 'GENERIC',
-            description: isQuotaError ? "Límite de cuota alcanzado." : "Error al procesar la imagen"
-        };
-      }
-  });
-};
-
-export const chatWithAssistant = async (message: string, context?: string): Promise<string> => {
-  return apiQueue.add(async () => {
-      try {
-        const prompt = context ? `System Instruction: ${context}\n\nUser Query: ${message}` : message;
-        
-        const operation = () => callSecureAI(
-            MODEL_NAME,
-            prompt // String simple se convierte en contents
-        );
-
-        const response = await retryOperation(operation);
-        return response.text || "No se obtuvo respuesta.";
-      } catch (error: any) {
-        if (error.toString().includes('429') || (error.status === 429)) {
-            return "⚠️ El asistente está ocupado (Límite de cuota 429). Por favor, espera unos segundos.";
-        }
-        return "El asistente no está disponible en este momento.";
-      }
-  });
-};
-
-export const analyzeProjectStatus = async (project: Project): Promise<string> => {
-  const cacheKey = `status-${project.id}-${project.status}-${project.budget.toFixed(2)}`;
-  const cached = responseCache.get(cacheKey);
-  
-  if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
-      return cached.data;
-  }
-
-  return apiQueue.add(async () => {
-      try {
-        const prompt = `Actúa como un consultor de obras eléctricas.
-        Analiza el siguiente proyecto:
-        - Nombre: ${project.name}
-        - Estado: ${project.status}
-        - Presupuesto: ${project.budget}€
-        - Progreso: ${project.progress}%
-        
-        Dame 3 consejos estratégicos breves para mejorar la rentabilidad o gestión.`;
-        
-        const operation = () => callSecureAI(MODEL_NAME, prompt);
-
-        const response = await retryOperation(operation);
-        const text = response.text || "";
-        
-        responseCache.set(cacheKey, { timestamp: Date.now(), data: text });
-        return text;
-      } catch (error: any) {
-         if (error.toString().includes('429')) return "Análisis pausado por límite de velocidad. Inténtalo de nuevo en 1 minuto.";
-         return "Análisis no disponible temporalmente.";
-      }
-  });
-};
+// --- Exports ---
 
 export const generateSmartBudget = async (description: string, currentPrices: PriceItem[], images: string[] = []): Promise<any[]> => {
     return apiQueue.add(async () => {
         try {
-            const priceContext = currentPrices.slice(0, 100).map(p => `- ${p.name} (Categoría: ${p.category}): ${p.price}€/${p.unit}`).join('\n');
+            if (!apiKey) throw new Error("Falta la API Key. Configure VITE_API_KEY.");
+
+            const priceContext = currentPrices.slice(0, 80).map(p => `- ${p.name}: ${p.price}€/${p.unit}`).join('\n');
             
-            const prompt = `Actúa como un INGENIERO ELÉCTRICO EXPERTO EN EL REBT (Reglamento Electrotécnico para Baja Tensión de España).
-            Tu tarea es generar un presupuesto técnico y detallado para: "${description}".
-
-            ### REGLAS OBLIGATORIAS (REBT ESPAÑA):
-            1. CLASIFICACIÓN: Determina si es Electrificación Básica (C1-C5) o Elevada (C1-C12, aire acondicionado, calefacción, etc.) según la descripción.
-            2. CIRCUITOS Y CABLEADO: Debes calcular las secciones mínimas y protecciones:
-               - Iluminación (C1): Cable 1.5mm², PIA 10A.
-               - Tomas uso general (C2): Cable 2.5mm², PIA 16A.
-               - Cocina/Horno (C3): Cable 6mm², PIA 25A.
-               - Lavadora/Termo (C4): Cable 4mm², PIA 20A.
-               - Baños/Cocina Humeda (C5): Cable 2.5mm², PIA 16A.
-               - Estimación de metraje: Calcula metros lógicos de cable (Fase+Neutro+Tierra) considerando el tamaño implícito de la obra + 15% seguridad.
-            3. CUADRO GENERAL (CGMP): Incluye IGA, Diferenciales (30mA) y Sobretensiones si aplica.
-            4. MECANISMOS: Calcula número aproximado de cajas universales, enchufes e interruptores.
-
-            ### POLÍTICA DE PRECIOS (PRIORIDAD ESTRICTA):
-            1. BUSCA EN LA BASE DE DATOS PROPIA (abajo). Si el material necesario existe (aunque el nombre varíe ligeramente), USA ESE NOMBRE EXACTO y SU PRECIO.
-            2. Si NO existe en la base de datos: Estima un precio de mercado realista en España para 2024/2025.
-
-            ### BASE DE DATOS PROPIA:
-            ${priceContext}
-
-            ### FORMATO DE SALIDA:
-            Devuelve ÚNICAMENTE un Array JSON válido con objetos: 
-            [{ "name": "Nombre técnico exacto", "quantity": numero_estimado, "unit": "m/ud/h", "pricePerUnit": precio, "category": "Material/Mano de Obra" }]
+            const prompt = `Actúa como INGENIERO ELÉCTRICO (REBT España). Genera partidas de presupuesto para: "${description}".
             
-            No incluyas markdown, solo el JSON.`;
+            REGLAS:
+            1. Desglosa cables por color (Azul, Marrón, Tierra) si aplica.
+            2. Usa precios de la BD si existen, si no estima.
+            3. Devuelve JSON Array: [{ "name": string, "quantity": number, "unit": string, "pricePerUnit": number, "category": "Material"|"Mano de Obra" }]
+            
+            BD PRECIOS:
+            ${priceContext}`;
 
             const parts: any[] = [{ text: prompt }];
             
             if (images.length > 0) {
-                 const optimizedImg = await optimizeImage(images[0]);
-                 parts.push({ inlineData: { mimeType: 'image/jpeg', data: optimizedImg } });
+                 const rawImg = images[0];
+                 const optimizedImg = await optimizeImage(rawImg);
+                 if (!optimizedImg.startsWith('http')) {
+                    parts.push({ inlineData: { mimeType: 'image/jpeg', data: optimizedImg } });
+                 }
             }
 
-            const operation = () => callSecureAI(
-                MODEL_NAME,
-                { parts },
-                { temperature: 0.2 }
-            );
-
-            const response = await retryOperation(operation);
-            const result = cleanAndParseJSON(response.text || "[]");
-            return Array.isArray(result) ? result : [];
-        } catch {
-            return [];
-        }
-    });
-};
-
-export const parseMaterialsFromInput = async (textInput: string): Promise<PriceItem[]> => {
-    return apiQueue.add(async () => {
-        try {
-            const prompt = `Extrae una lista de materiales de este texto.
-            Texto: "${textInput}"
-            
-            Devuelve SOLO un Array JSON: [{ "name": string, "unit": string, "price": number, "category": string }].
-            Si no hay precio, pon 0. Categorías sugeridas: Material, Mano de Obra, Pequeño Material.`;
-            
-            const operation = () => callSecureAI(MODEL_NAME, prompt);
-
-            const response = await retryOperation(operation);
-            const result = cleanAndParseJSON(response.text || "[]");
-            return Array.isArray(result) ? result : [];
-        } catch {
-            return [];
-        }
-    });
-};
-
-export const parseMaterialsFromImage = async (base64Image: string): Promise<PriceItem[]> => {
-    return apiQueue.add(async () => {
-        try {
-            const cleanData = await optimizeImage(base64Image);
-            
-            const operation = () => callSecureAI(
-                MODEL_NAME,
-                {
-                    parts: [
-                        { inlineData: { mimeType: 'image/jpeg', data: cleanData } },
-                        { text: "Identifica los materiales, precios y unidades en esta imagen de tarifa o catálogo. Devuelve SOLO un Array JSON válido: [{ name, unit, price, category }]." }
-                    ]
+            const operation = () => ai.models.generateContent({
+                model: MODEL_FLASH,
+                contents: { parts },
+                config: { 
+                    temperature: 0.2, 
+                    responseMimeType: "application/json",
+                    // Limitar tokens de salida para evitar cortes en redes lentas
+                    maxOutputTokens: 2000 
                 }
-            );
+            });
 
             const response = await retryOperation(operation);
-            const result = cleanAndParseJSON(response.text || "[]");
+            
+            if (!response.text) throw new Error("La IA devolvió una respuesta vacía.");
+            
+            const result = cleanAndParseJSON(response.text);
             return Array.isArray(result) ? result : [];
-        } catch {
+            
+        } catch (e: any) {
+            console.error("Error generating budget:", e);
+            throw e; // Relanzar error para que la UI lo muestre
+        }
+    });
+};
+
+export const analyzeProjectStatus = async (project: Project): Promise<string> => {
+    return apiQueue.add(async () => {
+         try {
+             if (!apiKey) return "Error: API Key no configurada.";
+
+             const prompt = `Analiza proyecto construcción: ${project.name}. Presupuesto: ${project.budget}. Gastado: ${project.transactions.reduce((s,t) => t.type==='expense'?s+t.amount:s, 0)}. Progreso: ${project.progress}%. Breve resumen ejecutivo y riesgos (3 frases).`;
+
+             const response = await retryOperation(() => ai.models.generateContent({
+                 model: MODEL_FLASH,
+                 contents: prompt,
+                 config: { temperature: 0.5 }
+             }));
+             return response.text || "No se pudo generar análisis.";
+         } catch (e) {
+             return "El servicio de IA no está disponible en este momento.";
+         }
+    });
+};
+
+export const analyzeDocument = async (base64Data: string, mimeType: string) => {
+     return apiQueue.add(async () => {
+        try {
+            if (!apiKey) return { errorType: 'GENERIC', description: 'API Key missing' };
+
+            const cleanBase64 = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
+            // Optimizar imagen para evitar timeout en escáner
+            const optimizedBase64 = mimeType.startsWith('image') ? await optimizeImage(base64Data) : cleanBase64;
+            
+            const prompt = `Analiza documento (factura/albarán). JSON con: comercio, total (number), iva (number), fecha (YYYY-MM-DD), categoria, items array {name, quantity, price, unit}.`;
+
+            const response = await retryOperation(() => ai.models.generateContent({
+                model: MODEL_FLASH,
+                contents: {
+                    parts: [
+                        { text: prompt },
+                        { inlineData: { mimeType: mimeType.startsWith('image') ? 'image/jpeg' : mimeType, data: optimizedBase64 } }
+                    ]
+                },
+                config: { responseMimeType: "application/json" }
+            }));
+            
+            return cleanAndParseJSON(response.text || "{}");
+        } catch (e: any) {
+            return { errorType: 'GENERIC', description: e.message };
+        }
+     });
+};
+
+export const parseMaterialsFromInput = async (text: string): Promise<PriceItem[]> => {
+     return apiQueue.add(async () => {
+         try {
+             if (!apiKey) return [];
+             const prompt = `Extrae materiales de: "${text}". JSON array: {name, unit, price, category}.`;
+             const response = await retryOperation(() => ai.models.generateContent({
+                 model: MODEL_FLASH,
+                 contents: prompt,
+                 config: { responseMimeType: "application/json" }
+             }));
+             const res = cleanAndParseJSON(response.text || "[]");
+             return Array.isArray(res) ? res.map((i: any) => ({...i, id: Date.now().toString() + Math.random()})) : [];
+         } catch (e) {
+             return [];
+         }
+     });
+};
+
+export const parseMaterialsFromImage = async (base64Data: string): Promise<PriceItem[]> => {
+    return apiQueue.add(async () => {
+        try {
+            if (!apiKey) return [];
+            if (base64Data.startsWith('http')) return [];
+
+            const optimized = await optimizeImage(base64Data);
+            const prompt = `Extrae materiales de imagen catálogo/tarifa. JSON array: {name, unit, price, category}.`;
+            
+            const response = await retryOperation(() => ai.models.generateContent({
+                model: MODEL_FLASH,
+                contents: {
+                    parts: [
+                        { text: prompt },
+                        { inlineData: { mimeType: 'image/jpeg', data: optimized } }
+                    ]
+                },
+                config: { responseMimeType: "application/json" }
+            }));
+            
+            const res = cleanAndParseJSON(response.text || "[]");
+            return Array.isArray(res) ? res.map((i: any) => ({...i, id: Date.now().toString() + Math.random()})) : [];
+        } catch (e) {
             return [];
+        }
+    });
+};
+
+export const chatWithAssistant = async (message: string, context: string): Promise<string> => {
+    return apiQueue.add(async () => {
+        try {
+            if (!apiKey) return "Error de configuración (API Key).";
+            const response = await retryOperation(() => ai.models.generateContent({
+                model: MODEL_FLASH,
+                contents: `${context}\n\nUsuario: ${message}`,
+            }));
+            return response.text || "Sin respuesta.";
+        } catch (e) {
+            return "El asistente está experimentando una alta carga de trabajo. Inténtalo de nuevo en unos segundos.";
         }
     });
 };
