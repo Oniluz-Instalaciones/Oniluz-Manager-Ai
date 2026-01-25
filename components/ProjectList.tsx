@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Project, ProjectStatus, Transaction, ProjectDocument, ProjectType, PvData, Material } from '../types';
-import { Plus, Search, Building2, MapPin, Camera, PieChart, Database, Upload, FileText, Menu, Moon, Sun, ChevronRight, X, Zap, Sun as SunIcon, Battery, Calendar, HardHat, Sparkles, LogOut } from 'lucide-react';
+import { Plus, Search, Building2, MapPin, Camera, PieChart, Database, Upload, FileText, Menu, Moon, Sun, ChevronRight, X, Zap, Sun as SunIcon, Battery, Calendar, HardHat, Sparkles, LogOut, Wallet } from 'lucide-react';
 import ScannerModal from './ScannerModal';
 import GlobalAssistant from './GlobalAssistant';
 
@@ -336,7 +336,22 @@ const ProjectList: React.FC<ProjectListProps> = ({
 
         {/* Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {filteredProjects.map((project) => (
+          {filteredProjects.map((project) => {
+            // Calculation for Budget Bar
+            const totalSpent = project.transactions
+                .filter(t => t.type === 'expense')
+                .reduce((sum, t) => sum + t.amount, 0);
+            
+            const budgetPercent = project.budget > 0 ? (totalSpent / project.budget) * 100 : 0;
+            const displayPercent = Math.min(budgetPercent, 100);
+
+            // Dynamic Color for Budget Bar
+            let budgetBarColor = 'bg-[#0047AB] dark:bg-blue-500';
+            if (budgetPercent > 100) budgetBarColor = 'bg-red-600 dark:bg-red-500'; // Critical
+            else if (budgetPercent > 80) budgetBarColor = 'bg-orange-500'; // Warning
+            else if (budgetPercent < 50) budgetBarColor = 'bg-green-500'; // Healthy/Early
+
+            return (
             <div 
               key={project.id} 
               onClick={() => onSelectProject(project.id)}
@@ -389,7 +404,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
                       <MapPin className="w-3.5 h-3.5 mr-2 text-slate-400 dark:text-slate-500" /> {project.location}
                   </div>
 
-                  {/* Work Progress Bar */}
+                  {/* Work Progress Bar (Avance de Obra) */}
                   <div>
                       <div className="flex justify-between text-xs mb-1.5">
                           <span className="text-slate-500 dark:text-slate-400 font-medium flex items-center gap-1.5">
@@ -405,19 +420,25 @@ const ProjectList: React.FC<ProjectListProps> = ({
                       </div>
                   </div>
 
-                  {/* Budget Execution Bar */}
+                  {/* Budget Execution Bar (Improved) */}
                   <div>
                       <div className="flex justify-between items-center text-xs mb-1.5">
-                          <span className="text-slate-500 dark:text-slate-400 font-medium">Ejecución Presupuestaria</span>
-                          <span className="font-bold text-slate-700 dark:text-slate-300">
-                          {project.budget > 0 ? ((project.transactions.filter(t=>t.type==='expense').reduce((a,b)=>a+b.amount,0) / project.budget) * 100).toFixed(0) : 0}%
+                          <span className="text-slate-500 dark:text-slate-400 font-medium flex items-center gap-1.5">
+                              <Wallet className="w-3.5 h-3.5" /> Ejecución Presupuestaria
+                          </span>
+                          <span className={`font-bold ${budgetPercent > 100 ? 'text-red-500' : 'text-slate-700 dark:text-slate-300'}`}>
+                              {budgetPercent.toFixed(0)}%
                           </span>
                       </div>
-                      <div className="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
+                      <div className="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-2 overflow-hidden relative">
                           <div 
-                          className={`h-2 rounded-full transition-all duration-500 ${project.type === 'Photovoltaic' ? 'bg-amber-500' : 'bg-[#0047AB]'}`}
-                          style={{ width: `${project.budget > 0 ? Math.min(((project.transactions.filter(t=>t.type==='expense').reduce((a,b)=>a+b.amount,0) / project.budget) * 100), 100) : 0}%` }}
+                              className={`h-2 rounded-full transition-all duration-700 ease-out ${budgetBarColor}`}
+                              style={{ width: `${displayPercent}%` }}
                           ></div>
+                      </div>
+                      <div className="flex justify-between text-[10px] mt-1 text-slate-400 dark:text-slate-500">
+                          <span>{totalSpent.toLocaleString()}€ gastados</span>
+                          <span>{project.budget.toLocaleString()}€ total</span>
                       </div>
                   </div>
                 </div>
@@ -431,7 +452,8 @@ const ProjectList: React.FC<ProjectListProps> = ({
                 </span>
               </div>
             </div>
-          ))}
+            );
+          })}
           {filteredProjects.length === 0 && (
               <div className="col-span-full py-16 text-center text-slate-400 dark:text-slate-500 bg-white dark:bg-slate-800 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700 shadow-sm">
                   <p>No se encontraron proyectos con los filtros actuales.</p>

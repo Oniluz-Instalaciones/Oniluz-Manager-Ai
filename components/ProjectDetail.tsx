@@ -3,7 +3,7 @@ import { Project, Transaction, Material, Incident, ProjectStatus, Priority, Pric
 import { 
   ArrowLeft, Plus, Trash2, AlertTriangle, CheckCircle, 
   TrendingUp, TrendingDown, Package, FileText, Settings, BrainCircuit, X, Receipt, Paperclip, ChevronDown, Building2, Calendar, RotateCcw, Edit3,
-  Hammer, Coffee, User, Wallet, BarChart3
+  Hammer, Coffee, User, Wallet, BarChart3, HardHat
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { analyzeProjectStatus } from '../services/geminiService';
@@ -75,6 +75,15 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
     const newStatus = e.target.value as ProjectStatus;
     updateProjectWithHistory({ ...project, status: newStatus });
     await supabase.from('projects').update({ status: newStatus }).eq('id', project.id);
+  };
+
+  const handleProgressChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const newProgress = Number(e.target.value);
+      // We don't push to history on every drag event to avoid flooding undo stack, 
+      // but ideally we should debounce. For now, we update state directly.
+      onUpdate({ ...project, progress: newProgress });
+      // Debounce DB update could be here, but simpler to update on mouseUp/change
+      await supabase.from('projects').update({ progress: newProgress }).eq('id', project.id);
   };
 
   // --- Actions ---
@@ -337,6 +346,28 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                     <FileText className="w-5 h-5 text-[#0047AB] dark:text-blue-400" /> Detalles del Proyecto
                 </h3>
                 <div className="space-y-4 text-sm">
+                  {/* Progress Slider */}
+                  <div className="pb-5 mb-5 border-b border-slate-50 dark:border-slate-700">
+                     <div className="flex justify-between items-center mb-2">
+                         <span className="text-slate-900 dark:text-white font-bold flex items-center gap-2">
+                             <HardHat className="w-4 h-4 text-[#0047AB] dark:text-blue-400" /> Avance de Obra
+                         </span>
+                         <span className="text-2xl font-bold text-[#0047AB] dark:text-blue-400">{project.progress}%</span>
+                     </div>
+                     <input 
+                        type="range" 
+                        min="0" 
+                        max="100" 
+                        value={project.progress} 
+                        onChange={handleProgressChange}
+                        className="w-full h-2 bg-slate-100 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-[#0047AB] dark:accent-blue-400"
+                     />
+                     <div className="flex justify-between mt-1 text-[10px] text-slate-400 uppercase font-bold">
+                         <span>Inicio</span>
+                         <span>Completado</span>
+                     </div>
+                  </div>
+
                   <div className="flex justify-between py-3 border-b border-slate-50 dark:border-slate-700">
                     <span className="text-slate-500 dark:text-slate-400 font-medium">Ubicación</span>
                     <span className="font-semibold text-slate-900 dark:text-white">{project.location}</span>
