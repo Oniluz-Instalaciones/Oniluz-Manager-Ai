@@ -6,8 +6,8 @@ import { Project, PriceItem } from "../types";
 const apiKey = 'AIzaSyAPt-4D6bA9qLK-BrijbJBcmnBU1ojXOA8';
 const genAI = new GoogleGenAI({ apiKey });
 
-// MODELO: Actualizado a 'gemini-2.5-flash' por ser el estándar actual de velocidad y estabilidad.
-const MODEL_NAME = 'gemini-2.5-flash';
+// MODELO: Actualizado a Gemini 3 Flash (El más rápido y capaz actualmente)
+const MODEL_NAME = 'gemini-3-flash-preview';
 
 // --- SISTEMA DE CACHÉ ---
 // Almacena respuestas recientes para no gastar cuota en consultas repetidas.
@@ -42,8 +42,8 @@ class RequestQueue {
             const op = this.queue.shift();
             if (op) {
                 await op();
-                // Pausa de seguridad entre peticiones para respetar rate limits
-                await new Promise(r => setTimeout(r, 2000)); 
+                // Pausa reducida a 800ms porque Gemini 3 es más rápido y eficiente
+                await new Promise(r => setTimeout(r, 800)); 
             }
         }
         
@@ -190,12 +190,10 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
           "items": [{ "name": "Nombre producto", "quantity": 1, "unit": "ud", "price": 0.00 }]
         }`;
         
-        // Configuración correcta del SDK @google/genai
         const operation = () => genAI.models.generateContent({
           model: MODEL_NAME,
           contents: {
             parts: [
-              // Estructura correcta para envío de imágenes
               { inlineData: { mimeType: 'image/jpeg', data: cleanBase64 } }, 
               { text: prompt }
             ]
@@ -234,11 +232,13 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
 export const chatWithAssistant = async (message: string, context?: string): Promise<string> => {
   return apiQueue.add(async () => {
       try {
-        const prompt = context ? `System Instruction: ${context}\n\nUser Query: ${message}` : message;
-        
         const operation = () => genAI.models.generateContent({
             model: MODEL_NAME,
-            contents: prompt
+            contents: message,
+            config: {
+                // Pasamos el contexto como instrucción de sistema para mejor rendimiento en Gemini 3
+                systemInstruction: context || 'Eres un asistente útil para gestión de obras eléctricas.'
+            }
         });
 
         const response = await retryOperation(operation);
@@ -263,18 +263,18 @@ export const analyzeProjectStatus = async (project: Project): Promise<string> =>
 
   return apiQueue.add(async () => {
       try {
-        const prompt = `Actúa como un consultor de obras eléctricas.
-        Analiza el siguiente proyecto:
+        const prompt = `Analiza el siguiente proyecto y dame 3 consejos breves:
         - Nombre: ${project.name}
         - Estado: ${project.status}
         - Presupuesto: ${project.budget}€
-        - Progreso: ${project.progress}%
-        
-        Dame 3 consejos estratégicos breves para mejorar la rentabilidad o gestión.`;
+        - Progreso: ${project.progress}%`;
         
         const operation = () => genAI.models.generateContent({
             model: MODEL_NAME,
-            contents: prompt
+            contents: prompt,
+            config: {
+                systemInstruction: "Actúa como un consultor senior de obras eléctricas. Sé conciso y estratégico."
+            }
         });
 
         const response = await retryOperation(operation);
@@ -296,33 +296,23 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
             // Contexto de precios para que la IA use precios reales
             const priceContext = currentPrices.slice(0, 100).map(p => `- ${p.name} (Categoría: ${p.category}): ${p.price}€/${p.unit}`).join('\n');
             
-            const prompt = `Actúa como un INGENIERO ELÉCTRICO EXPERTO EN EL REBT (Reglamento Electrotécnico para Baja Tensión de España).
-            Tu tarea es generar un presupuesto técnico y detallado para: "${description}".
+            // Usamos systemInstruction para definir la EXPERIENCIA del modelo (Característica clave de Gemini 3)
+            const systemInstruction = `Actúa como un INGENIERO ELÉCTRICO EXPERTO EN EL REBT (Reglamento Electrotécnico para Baja Tensión de España).
+            Tu tarea es generar un presupuesto técnico y detallado.
 
-            ### REGLAS OBLIGATORIAS (REBT ESPAÑA):
-            1. CLASIFICACIÓN: Determina si es Electrificación Básica (C1-C5) o Elevada (C1-C12, aire acondicionado, calefacción, etc.) según la descripción.
-            2. CIRCUITOS Y CABLEADO: Debes calcular las secciones mínimas y protecciones:
-               - Iluminación (C1): Cable 1.5mm², PIA 10A.
-               - Tomas uso general (C2): Cable 2.5mm², PIA 16A.
-               - Cocina/Horno (C3): Cable 6mm², PIA 25A.
-               - Lavadora/Termo (C4): Cable 4mm², PIA 20A.
-               - Baños/Cocina Humeda (C5): Cable 2.5mm², PIA 16A.
-               - Estimación de metraje: Calcula metros lógicos de cable (Fase+Neutro+Tierra) considerando el tamaño implícito de la obra + 15% seguridad.
-            3. CUADRO GENERAL (CGMP): Incluye IGA, Diferenciales (30mA) y Sobretensiones si aplica.
-            4. MECANISMOS: Calcula número aproximado de cajas universales, enchufes e interruptores.
+            ### REGLAS OBLIGATORIAS:
+            1. CLASIFICACIÓN: Determina si es Electrificación Básica o Elevada.
+            2. CÁLCULO: Calcula secciones mínimas de cable y protecciones según REBT.
+            3. PRECIOS: Prioriza la BASE DE DATOS PROPIA proporcionada. Si no existe, estima precio de mercado España.
+            4. SALIDA: Devuelve ÚNICAMENTE un Array JSON válido.`;
 
-            ### POLÍTICA DE PRECIOS (PRIORIDAD ESTRICTA):
-            1. BUSCA EN LA BASE DE DATOS PROPIA (abajo). Si el material necesario existe (aunque el nombre varíe ligeramente), USA ESE NOMBRE EXACTO y SU PRECIO.
-            2. Si NO existe en la base de datos: Estima un precio de mercado realista en España para 2024/2025.
-
+            const prompt = `Genera presupuesto para: "${description}".
+            
             ### BASE DE DATOS PROPIA:
             ${priceContext}
 
-            ### FORMATO DE SALIDA:
-            Devuelve ÚNICAMENTE un Array JSON válido con objetos: 
-            [{ "name": "Nombre técnico exacto", "quantity": numero_estimado, "unit": "m/ud/h", "pricePerUnit": precio, "category": "Material/Mano de Obra" }]
-            
-            No incluyas markdown, solo el JSON.`;
+            ### FORMATO DE SALIDA (JSON ARRAY):
+            [{ "name": "Nombre técnico", "quantity": numero, "unit": "m/ud", "pricePerUnit": precio, "category": "Material/Mano de Obra" }]`;
 
             const parts: any[] = [{ text: prompt }];
             
@@ -335,7 +325,8 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
                 model: MODEL_NAME,
                 contents: { parts },
                 config: {
-                    temperature: 0.2, // Baja temperatura para rigor técnico
+                    temperature: 0.1, // Baja temperatura para rigor técnico
+                    systemInstruction: systemInstruction
                 }
             });
 
@@ -351,11 +342,8 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
 export const parseMaterialsFromInput = async (textInput: string): Promise<PriceItem[]> => {
     return apiQueue.add(async () => {
         try {
-            const prompt = `Extrae una lista de materiales de este texto.
-            Texto: "${textInput}"
-            
-            Devuelve SOLO un Array JSON: [{ "name": string, "unit": string, "price": number, "category": string }].
-            Si no hay precio, pon 0. Categorías sugeridas: Material, Mano de Obra, Pequeño Material.`;
+            const prompt = `Extrae una lista de materiales de este texto: "${textInput}".
+            Devuelve SOLO un Array JSON: [{ "name": string, "unit": string, "price": number, "category": string }].`;
             
             const operation = () => genAI.models.generateContent({ 
                 model: MODEL_NAME, 
