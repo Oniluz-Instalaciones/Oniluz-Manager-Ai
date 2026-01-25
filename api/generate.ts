@@ -12,12 +12,12 @@ export default async function handler(req: Request) {
   try {
     const { model, contents, config } = await req.json();
     
-    // La API Key ahora se lee de las variables de entorno del servidor (Vercel)
-    const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+    // Check multiple potential ENV variables for the key, plus the user provided fallback
+    const apiKey = process.env.API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.VITE_API_KEY || 'AIzaSyAPt-4D6bA9qLK-BrijbJBcmnBU1ojXOA8';
 
     if (!apiKey) {
         return new Response(JSON.stringify({ 
-            error: 'Configuration Error: API Key not found on server.' 
+            error: 'Server Configuration Error: API_KEY is missing.' 
         }), { status: 500, headers: { 'Content-Type': 'application/json' } });
     }
 
@@ -30,7 +30,7 @@ export default async function handler(req: Request) {
         config
     });
 
-    // Devolvemos solo el texto generado para optimizar el ancho de banda
+    // Devolvemos solo el texto generado
     return new Response(JSON.stringify({ text: response.text }), {
         headers: { 'Content-Type': 'application/json' }
     });

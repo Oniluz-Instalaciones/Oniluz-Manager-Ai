@@ -1,33 +1,72 @@
 import { GoogleGenAI } from "@google/genai";
 import { Project, PriceItem } from '../types';
 
-// Función segura para obtener la API Key sin romper la ejecución en navegadores
-const getApiKey = (): string => {
+// --- Configuration & Initialization ---
+
+const getClientApiKey = (): string | undefined => {
   try {
-    // Intento 1: Vite (import.meta.env) - Estándar moderno
+    // 1. Vite env vars
     // @ts-ignore
-    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_KEY) {
-      // @ts-ignore
-      return import.meta.env.VITE_API_KEY;
-    }
-    
-    // Intento 2: process.env (si está definido mediante polyfill o config de bundler)
-    if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
-      return process.env.API_KEY;
-    }
+    if (import.meta?.env?.VITE_API_KEY) return import.meta.env.VITE_API_KEY;
+    // 2. Standard process.env (often replaced by bundlers)
+    // @ts-ignore
+    if (typeof process !== 'undefined' && process.env?.API_KEY) return process.env.API_KEY;
   } catch (e) {
-    console.warn("No se pudo acceder a las variables de entorno de forma estándar.");
+    // ignore error
   }
-  
-  return ''; 
+  // 3. Hardcoded fallback provided by user
+  return 'AIzaSyAPt-4D6bA9qLK-BrijbJBcmnBU1ojXOA8';
 };
 
-const apiKey = getApiKey();
-// Inicialización con clave o fallback seguro para no romper renderizado
-const ai = new GoogleGenAI({ apiKey: apiKey || 'MISSING_KEY' });
+const apiKey = getClientApiKey();
+// Inicializamos cliente local solo si hay key, sino usaremos fallback
+const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
 
-// Usamos el modelo Flash por ser rápido y eficiente en costes
 const MODEL_FLASH = 'gemini-2.5-flash';
+
+// --- Unified Request Handler ---
+
+/**
+ * Intenta generar contenido usando el SDK cliente.
+ * Si no hay API Key cliente, hace fallback al endpoint servidor /api/generate.
+ */
+const callGenAI = async (model: string, contents: any, config: any = {}) => {
+    // A. Opción Cliente (Rápida, directa)
+    if (ai) {
+        try {
+            const response = await ai.models.generateContent({
+                model,
+                contents,
+                config
+            });
+            return { text: response.text };
+        } catch (error: any) {
+            // Si falla por cuota (429) o servidor (500), lanzamos para que el retry lo capture
+            throw error;
+        }
+    }
+
+    // B. Opción Servidor (Fallback seguro)
+    // Si no hay key local, llamamos a nuestra propia API que sí debería tener la key en el servidor
+    try {
+        const response = await fetch('/api/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model, contents, config })
+        });
+
+        if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.error || `Server Error: ${response.status}`);
+        }
+
+        const data = await response.json();
+        return { text: data.text };
+    } catch (error) {
+        console.error("AI Service Error:", error);
+        throw error;
+    }
+};
 
 // --- Helpers ---
 
@@ -66,6 +105,7 @@ class RequestQueue {
 const apiQueue = new RequestQueue();
 
 const cleanAndParseJSON = (text: string) => {
+    if (!text) return [];
     try {
         const firstBracket = text.indexOf('[');
         const lastBracket = text.lastIndexOf(']');
@@ -79,7 +119,6 @@ const cleanAndParseJSON = (text: string) => {
         if (cleanText.startsWith('```')) {
              cleanText = cleanText.split('\n').slice(1).join('\n').replace(/```$/, '');
         }
-        // Intentar parsear objeto único y envolverlo en array
         if (cleanText.trim().startsWith('{')) {
              const obj = JSON.parse(cleanText);
              return [obj];
@@ -87,7 +126,7 @@ const cleanAndParseJSON = (text: string) => {
         return JSON.parse(cleanText);
     } catch (e) {
         console.error("Failed to parse JSON response:", text);
-        throw new Error("La IA no devolvió un formato válido JSON.");
+        return [];
     }
 };
 
@@ -105,7 +144,6 @@ const optimizeImage = async (base64Str: string, maxWidth = 512): Promise<string>
         
         img.onload = () => {
             const canvas = document.createElement('canvas');
-            // Reducimos tamaño para evitar payloads gigantes (Error 413/500)
             let width = img.width;
             let height = img.height;
             
@@ -120,7 +158,6 @@ const optimizeImage = async (base64Str: string, maxWidth = 512): Promise<string>
             const ctx = canvas.getContext('2d');
             if (ctx) {
                 ctx.drawImage(img, 0, 0, width, height);
-                // Compresión agresiva JPEG 0.6 para móviles
                 resolve(canvas.toDataURL('image/jpeg', 0.6).split(',')[1]);
             } else {
                 resolve(cleanStr);
@@ -134,14 +171,12 @@ const retryOperation = async <T>(operation: () => Promise<T>, retries = 3, delay
     try {
         return await operation();
     } catch (error: any) {
-        // Detectar errores de cuota o servidor
         const isQuotaError = error.message?.includes('429') || error.status === 429;
         const isServerError = error.message?.includes('500') || error.message?.includes('503') || error.status >= 500;
 
         if (retries > 0 && (isQuotaError || isServerError)) {
-            console.warn(`Error IA (${error.status || 'unknown'}). Reintentando en ${delay}ms... Intentos restantes: ${retries}`);
+            console.warn(`Reintentando IA (${error.status})... Quedan ${retries}`);
             await new Promise(r => setTimeout(r, delay));
-            // Backoff exponencial: espera más tiempo en cada reintento (1s -> 2s -> 4s)
             return retryOperation(operation, retries - 1, delay * 2);
         }
         throw error;
@@ -153,11 +188,9 @@ const retryOperation = async <T>(operation: () => Promise<T>, retries = 3, delay
 export const generateSmartBudget = async (description: string, currentPrices: PriceItem[], images: string[] = []): Promise<any[]> => {
     return apiQueue.add(async () => {
         try {
-            if (!apiKey) throw new Error("Falta la API Key. Configure VITE_API_KEY.");
-
             const priceContext = currentPrices.slice(0, 80).map(p => `- ${p.name}: ${p.price}€/${p.unit}`).join('\n');
             
-            const prompt = `Actúa como INGENIERO ELÉCTRICO (REBT España). Genera partidas de presupuesto para: "${description}".
+            const prompt = `Actúa como INGENIERO ELÉCTRICO (REBT España). Genera partidas para: "${description}".
             
             REGLAS:
             1. Desglosa cables por color (Azul, Marrón, Tierra) si aplica.
@@ -177,27 +210,24 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
                  }
             }
 
-            const operation = () => ai.models.generateContent({
-                model: MODEL_FLASH,
-                contents: { parts },
-                config: { 
+            const response = await retryOperation(() => callGenAI(
+                MODEL_FLASH,
+                { parts },
+                { 
                     temperature: 0.2, 
                     responseMimeType: "application/json",
-                    // Limitar tokens de salida para evitar cortes en redes lentas
                     maxOutputTokens: 2000 
                 }
-            });
-
-            const response = await retryOperation(operation);
+            ));
             
-            if (!response.text) throw new Error("La IA devolvió una respuesta vacía.");
+            if (!response.text) throw new Error("Respuesta vacía de IA");
             
             const result = cleanAndParseJSON(response.text);
             return Array.isArray(result) ? result : [];
             
         } catch (e: any) {
             console.error("Error generating budget:", e);
-            throw e; // Relanzar error para que la UI lo muestre
+            throw e; 
         }
     });
 };
@@ -205,18 +235,16 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
 export const analyzeProjectStatus = async (project: Project): Promise<string> => {
     return apiQueue.add(async () => {
          try {
-             if (!apiKey) return "Error: API Key no configurada.";
+             const prompt = `Analiza proyecto: ${project.name}. Presupuesto: ${project.budget}. Gastado: ${project.transactions.reduce((s,t) => t.type==='expense'?s+t.amount:s, 0)}. Progreso: ${project.progress}%. Resumen ejecutivo y riesgos (3 frases).`;
 
-             const prompt = `Analiza proyecto construcción: ${project.name}. Presupuesto: ${project.budget}. Gastado: ${project.transactions.reduce((s,t) => t.type==='expense'?s+t.amount:s, 0)}. Progreso: ${project.progress}%. Breve resumen ejecutivo y riesgos (3 frases).`;
-
-             const response = await retryOperation(() => ai.models.generateContent({
-                 model: MODEL_FLASH,
-                 contents: prompt,
-                 config: { temperature: 0.5 }
-             }));
+             const response = await retryOperation(() => callGenAI(
+                 MODEL_FLASH,
+                 prompt,
+                 { temperature: 0.5 }
+             ));
              return response.text || "No se pudo generar análisis.";
          } catch (e) {
-             return "El servicio de IA no está disponible en este momento.";
+             return "Servicio no disponible. Verifique API Key.";
          }
     });
 };
@@ -224,24 +252,21 @@ export const analyzeProjectStatus = async (project: Project): Promise<string> =>
 export const analyzeDocument = async (base64Data: string, mimeType: string) => {
      return apiQueue.add(async () => {
         try {
-            if (!apiKey) return { errorType: 'GENERIC', description: 'API Key missing' };
-
             const cleanBase64 = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
-            // Optimizar imagen para evitar timeout en escáner
             const optimizedBase64 = mimeType.startsWith('image') ? await optimizeImage(base64Data) : cleanBase64;
             
             const prompt = `Analiza documento (factura/albarán). JSON con: comercio, total (number), iva (number), fecha (YYYY-MM-DD), categoria, items array {name, quantity, price, unit}.`;
 
-            const response = await retryOperation(() => ai.models.generateContent({
-                model: MODEL_FLASH,
-                contents: {
+            const response = await retryOperation(() => callGenAI(
+                MODEL_FLASH,
+                {
                     parts: [
                         { text: prompt },
                         { inlineData: { mimeType: mimeType.startsWith('image') ? 'image/jpeg' : mimeType, data: optimizedBase64 } }
                     ]
                 },
-                config: { responseMimeType: "application/json" }
-            }));
+                { responseMimeType: "application/json" }
+            ));
             
             return cleanAndParseJSON(response.text || "{}");
         } catch (e: any) {
@@ -253,13 +278,12 @@ export const analyzeDocument = async (base64Data: string, mimeType: string) => {
 export const parseMaterialsFromInput = async (text: string): Promise<PriceItem[]> => {
      return apiQueue.add(async () => {
          try {
-             if (!apiKey) return [];
              const prompt = `Extrae materiales de: "${text}". JSON array: {name, unit, price, category}.`;
-             const response = await retryOperation(() => ai.models.generateContent({
-                 model: MODEL_FLASH,
-                 contents: prompt,
-                 config: { responseMimeType: "application/json" }
-             }));
+             const response = await retryOperation(() => callGenAI(
+                 MODEL_FLASH,
+                 prompt,
+                 { responseMimeType: "application/json" }
+             ));
              const res = cleanAndParseJSON(response.text || "[]");
              return Array.isArray(res) ? res.map((i: any) => ({...i, id: Date.now().toString() + Math.random()})) : [];
          } catch (e) {
@@ -271,22 +295,20 @@ export const parseMaterialsFromInput = async (text: string): Promise<PriceItem[]
 export const parseMaterialsFromImage = async (base64Data: string): Promise<PriceItem[]> => {
     return apiQueue.add(async () => {
         try {
-            if (!apiKey) return [];
             if (base64Data.startsWith('http')) return [];
-
             const optimized = await optimizeImage(base64Data);
-            const prompt = `Extrae materiales de imagen catálogo/tarifa. JSON array: {name, unit, price, category}.`;
+            const prompt = `Extrae materiales de imagen. JSON array: {name, unit, price, category}.`;
             
-            const response = await retryOperation(() => ai.models.generateContent({
-                model: MODEL_FLASH,
-                contents: {
+            const response = await retryOperation(() => callGenAI(
+                MODEL_FLASH,
+                {
                     parts: [
                         { text: prompt },
                         { inlineData: { mimeType: 'image/jpeg', data: optimized } }
                     ]
                 },
-                config: { responseMimeType: "application/json" }
-            }));
+                { responseMimeType: "application/json" }
+            ));
             
             const res = cleanAndParseJSON(response.text || "[]");
             return Array.isArray(res) ? res.map((i: any) => ({...i, id: Date.now().toString() + Math.random()})) : [];
@@ -299,14 +321,13 @@ export const parseMaterialsFromImage = async (base64Data: string): Promise<Price
 export const chatWithAssistant = async (message: string, context: string): Promise<string> => {
     return apiQueue.add(async () => {
         try {
-            if (!apiKey) return "Error de configuración (API Key).";
-            const response = await retryOperation(() => ai.models.generateContent({
-                model: MODEL_FLASH,
-                contents: `${context}\n\nUsuario: ${message}`,
-            }));
+            const response = await retryOperation(() => callGenAI(
+                MODEL_FLASH,
+                `${context}\n\nUsuario: ${message}`
+            ));
             return response.text || "Sin respuesta.";
         } catch (e) {
-            return "El asistente está experimentando una alta carga de trabajo. Inténtalo de nuevo en unos segundos.";
+            return "Error de conexión. Inténtalo más tarde.";
         }
     });
 };
