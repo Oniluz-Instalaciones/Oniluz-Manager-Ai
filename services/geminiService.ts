@@ -29,6 +29,7 @@ const apiKey = getApiKey();
 const ai = new GoogleGenAI({ apiKey: apiKey || 'MISSING_KEY' });
 
 // Models
+// Utilizar un modelo rápido y estable para JSON. gemini-2.5-flash es excelente para esto.
 const MODEL_FLASH = 'gemini-2.5-flash';
 
 // --- Helpers ---
@@ -69,41 +70,57 @@ const apiQueue = new RequestQueue();
 
 const cleanAndParseJSON = (text: string) => {
     try {
+        // 1. Intentar encontrar el array JSON directamente buscando los corchetes
+        const firstBracket = text.indexOf('[');
+        const lastBracket = text.lastIndexOf(']');
+        
+        if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
+            const potentialJson = text.substring(firstBracket, lastBracket + 1);
+            return JSON.parse(potentialJson);
+        }
+
+        // 2. Fallback: Limpieza estándar de markdown
         let cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
         if (cleanText.startsWith('```')) {
              cleanText = cleanText.split('\n').slice(1).join('\n').replace(/```$/, '');
         }
         return JSON.parse(cleanText);
     } catch (e) {
-        console.error("Failed to parse JSON:", text);
+        console.error("Failed to parse JSON response:", text);
         return [];
     }
 };
 
 const optimizeImage = async (base64Str: string, maxWidth = 800): Promise<string> => {
     return new Promise((resolve) => {
-        // If it's a browser env with Image
-        if (typeof Image === 'undefined') {
-            resolve(base64Str.includes(',') ? base64Str.split(',')[1] : base64Str);
+        // Si no estamos en navegador o la cadena parece una URL, la devolvemos tal cual (se filtrará luego si no es base64)
+        if (typeof Image === 'undefined' || base64Str.startsWith('http')) {
+            resolve(base64Str);
             return;
         }
 
+        // Limpiar cabecera si existe para procesar
+        const cleanStr = base64Str.includes(',') ? base64Str.split(',')[1] : base64Str;
+
         const img = new Image();
-        img.src = base64Str;
+        img.src = `data:image/jpeg;base64,${cleanStr}`; // Asegurar prefijo para carga
+        
         img.onload = () => {
             const canvas = document.createElement('canvas');
             const ratio = maxWidth / img.width;
             if (ratio >= 1) {
-                resolve(base64Str.includes(',') ? base64Str.split(',')[1] : base64Str);
+                // Si es pequeña, devolver original limpia
+                resolve(cleanStr);
                 return;
             }
             canvas.width = maxWidth;
             canvas.height = img.height * ratio;
             const ctx = canvas.getContext('2d');
             ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+            // Devolver solo la parte base64
             resolve(canvas.toDataURL('image/jpeg', 0.7).split(',')[1]);
         };
-        img.onerror = () => resolve(base64Str.includes(',') ? base64Str.split(',')[1] : base64Str);
+        img.onerror = () => resolve(cleanStr); // Si falla carga, devolver original
     });
 };
 
@@ -124,7 +141,10 @@ const retryOperation = async <T>(operation: () => Promise<T>, retries = 3): Prom
 export const generateSmartBudget = async (description: string, currentPrices: PriceItem[], images: string[] = []): Promise<any[]> => {
     return apiQueue.add(async () => {
         try {
-            if (!apiKey) throw new Error("API Key no configurada");
+            if (!apiKey) {
+                console.error("API Key faltante");
+                return [];
+            }
 
             const priceContext = currentPrices.slice(0, 100).map(p => `- ${p.name} (Categoría: ${p.category}): ${p.price}€/${p.unit}`).join('\n');
             
@@ -161,13 +181,20 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
             Devuelve ÚNICAMENTE un Array JSON válido con objetos: 
             [{ "name": "Nombre técnico exacto", "quantity": numero_estimado, "unit": "m/ud/h", "pricePerUnit": precio, "category": "Material/Mano de Obra" }]
             
-            No incluyas markdown, solo el JSON.`;
+            No incluyas markdown, solo el JSON puro.`;
 
             const parts: any[] = [{ text: prompt }];
             
             if (images.length > 0) {
-                 const optimizedImg = await optimizeImage(images[0]);
-                 parts.push({ inlineData: { mimeType: 'image/jpeg', data: optimizedImg } });
+                 // Solo procesar la primera imagen para no exceder límites
+                 const rawImg = images[0];
+                 const optimizedImg = await optimizeImage(rawImg);
+                 
+                 // CRÍTICO: Verificar que es base64 y no una URL antes de enviar
+                 // Si empieza por http, es una URL externa que la API de Gemini no acepta en inlineData
+                 if (!optimizedImg.startsWith('http')) {
+                    parts.push({ inlineData: { mimeType: 'image/jpeg', data: optimizedImg } });
+                 }
             }
 
             const operation = () => ai.models.generateContent({
@@ -181,7 +208,7 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
             return Array.isArray(result) ? result : [];
         } catch (e) {
             console.error("Error generating budget:", e);
-            return [];
+            return []; // Devolver array vacío en caso de error para que la UI lo maneje
         }
     });
 };
@@ -278,6 +305,9 @@ export const parseMaterialsFromImage = async (base64Data: string): Promise<Price
     return apiQueue.add(async () => {
         try {
             if (!apiKey) return [];
+
+            // Limpieza básica y verificación
+            if (base64Data.startsWith('http')) return []; // No procesar URLs remotas en este endpoint
 
             const cleanBase64 = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
             const prompt = `Extrae una lista de materiales de esta imagen (tarifa de precios o catálogo).
