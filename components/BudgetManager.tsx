@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Budget, BudgetItem, Project, PriceItem } from '../types';
 import { generateSmartBudget } from '../services/geminiService';
 import { Plus, Trash2, Wand2, FileText, Save, ChevronLeft, ArrowRight, Loader2, Database, Paperclip, Check } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 
 interface BudgetManagerProps {
     project: Project;
@@ -14,13 +15,14 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
     const [currentBudget, setCurrentBudget] = useState<Budget | null>(null);
     const [aiPrompt, setAiPrompt] = useState('');
     const [isGenerating, setIsGenerating] = useState(false);
+    const [isSaving, setIsSaving] = useState(false);
     const [includeDocs, setIncludeDocs] = useState(false);
 
     // --- Actions ---
 
     const handleCreateNew = () => {
         const newBudget: Budget = {
-            id: Date.now().toString(),
+            id: crypto.randomUUID(),
             projectId: project.id,
             name: `Presupuesto #${(project.budgets?.length || 0) + 1}`,
             date: new Date().toISOString().split('T')[0],
@@ -39,13 +41,27 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
         setAiPrompt('');
     };
 
-    const handleAcceptBudget = (budget: Budget) => {
+    const handleAcceptBudget = async (budget: Budget) => {
         if (!window.confirm(`¿Confirmas que el cliente ha aceptado el presupuesto "${budget.name}"?`)) return;
 
-        const updatedBudgets = (project.budgets || []).map(b => 
-            b.id === budget.id ? { ...b, status: 'Accepted' as const } : b
-        );
-        onUpdate({ ...project, budgets: updatedBudgets });
+        try {
+            // Update DB
+            const { error } = await supabase
+                .from('budgets')
+                .update({ status: 'Accepted' })
+                .eq('id', budget.id);
+
+            if (error) throw error;
+
+            // Update Local State
+            const updatedBudgets = (project.budgets || []).map(b => 
+                b.id === budget.id ? { ...b, status: 'Accepted' as const } : b
+            );
+            onUpdate({ ...project, budgets: updatedBudgets });
+        } catch (error) {
+            console.error("Error accepting budget:", error);
+            alert("Error al actualizar estado en la base de datos.");
+        }
     };
 
     const handleGenerateAI = async () => {
@@ -62,7 +78,7 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
             // Pass the dynamic database and images to the AI service
             const items = await generateSmartBudget(contextPrompt, priceDatabase, docImages);
             const enrichedItems: BudgetItem[] = items.map((item: any) => ({
-                id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+                id: crypto.randomUUID(),
                 name: item.name,
                 unit: item.unit,
                 quantity: item.quantity,
@@ -87,14 +103,13 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                      const newEndDate = new Date(startDate);
                      newEndDate.setDate(startDate.getDate() + estimatedDays + 1); // +1 buffer
                      
-                     // Update the project's end date directly
+                     // Update the project's end date directly (App handles project root update)
                      onUpdate({ 
                          ...project, 
-                         endDate: newEndDate.toISOString().split('T')[0],
-                         budgets: project.budgets?.map(b => b.id === updatedBudget.id ? updatedBudget : b)
+                         endDate: newEndDate.toISOString().split('T')[0]
                      });
                      
-                     alert(`Se han estimado ${estimatedDays} días de trabajo basados en las horas de mano de obra. La fecha de fin se ha actualizado.`);
+                     alert(`Se han estimado ${estimatedDays} días de trabajo basados en las horas de mano de obra.`);
                 }
             }
         } catch (error) {
@@ -107,7 +122,7 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
     const handleAddItem = (priceItem?: PriceItem) => {
         if (!currentBudget) return;
         const newItem: BudgetItem = {
-            id: Date.now().toString() + Math.random(),
+            id: crypto.randomUUID(),
             name: priceItem ? priceItem.name : 'Nuevo Concepto',
             unit: priceItem ? priceItem.unit : 'ud',
             quantity: 1,
@@ -150,26 +165,83 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
         setCurrentBudget({ ...budget, total });
     };
 
-    const handleSaveBudget = () => {
+    const handleSaveBudget = async () => {
         if (!currentBudget) return;
-        const budgets = project.budgets || [];
-        const existingIndex = budgets.findIndex(b => b.id === currentBudget.id);
-        
-        let updatedBudgets;
-        if (existingIndex >= 0) {
-            updatedBudgets = budgets.map((b, i) => i === existingIndex ? currentBudget : b);
-        } else {
-            updatedBudgets = [currentBudget, ...budgets];
-        }
+        setIsSaving(true);
 
-        onUpdate({ ...project, budgets: updatedBudgets });
-        setView('list');
+        try {
+            // 1. Upsert Budget (Header)
+            const { error: budgetError } = await supabase.from('budgets').upsert({
+                id: currentBudget.id,
+                project_id: project.id,
+                name: currentBudget.name,
+                date: currentBudget.date,
+                status: currentBudget.status,
+                total: currentBudget.total
+            });
+
+            if (budgetError) throw budgetError;
+
+            // 2. Sync Items (Delete all + Insert new) - Cleanest strategy for full sync
+            const { error: deleteError } = await supabase
+                .from('budget_items')
+                .delete()
+                .eq('budget_id', currentBudget.id);
+            
+            if (deleteError) throw deleteError;
+
+            if (currentBudget.items.length > 0) {
+                const itemsToInsert = currentBudget.items.map(item => ({
+                    budget_id: currentBudget.id,
+                    name: item.name,
+                    unit: item.unit,
+                    quantity: item.quantity,
+                    price_per_unit: item.pricePerUnit,
+                    category: item.category
+                }));
+
+                const { error: insertError } = await supabase
+                    .from('budget_items')
+                    .insert(itemsToInsert);
+                
+                if (insertError) throw insertError;
+            }
+
+            // 3. Update Local State (Parent Project)
+            const budgets = project.budgets || [];
+            const existingIndex = budgets.findIndex(b => b.id === currentBudget.id);
+            
+            let updatedBudgets;
+            if (existingIndex >= 0) {
+                updatedBudgets = budgets.map((b, i) => i === existingIndex ? currentBudget : b);
+            } else {
+                updatedBudgets = [currentBudget, ...budgets];
+            }
+
+            onUpdate({ ...project, budgets: updatedBudgets });
+            setView('list');
+
+        } catch (error: any) {
+            console.error("Error saving budget:", error);
+            alert("Error guardando en la nube: " + error.message);
+        } finally {
+            setIsSaving(false);
+        }
     };
 
-    const handleDeleteBudget = (id: string) => {
-        if(!window.confirm("¿Eliminar este presupuesto?")) return;
-        const updatedBudgets = (project.budgets || []).filter(b => b.id !== id);
-        onUpdate({ ...project, budgets: updatedBudgets });
+    const handleDeleteBudget = async (id: string) => {
+        if(!window.confirm("¿Eliminar este presupuesto permanentemente?")) return;
+        
+        try {
+            const { error } = await supabase.from('budgets').delete().eq('id', id);
+            if (error) throw error;
+
+            const updatedBudgets = (project.budgets || []).filter(b => b.id !== id);
+            onUpdate({ ...project, budgets: updatedBudgets });
+        } catch (error) {
+            console.error("Error deleting budget:", error);
+            alert("No se pudo eliminar de la base de datos.");
+        }
     }
 
     // --- Views ---
@@ -273,8 +345,13 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                         <div className="text-xs text-slate-400 font-bold uppercase">Total Presupuesto</div>
                         <div className="text-2xl font-bold text-slate-900 dark:text-white">{currentBudget?.total.toLocaleString()}€</div>
                     </div>
-                    <button onClick={handleSaveBudget} className="bg-green-600 text-white px-6 py-3 rounded-xl flex items-center gap-2 hover:bg-green-700 shadow-lg shadow-green-200 dark:shadow-green-900/30 font-bold transition-all">
-                        <Save className="w-4 h-4" /> Guardar
+                    <button 
+                        onClick={handleSaveBudget} 
+                        disabled={isSaving}
+                        className="bg-green-600 text-white px-6 py-3 rounded-xl flex items-center gap-2 hover:bg-green-700 shadow-lg shadow-green-200 dark:shadow-green-900/30 font-bold transition-all disabled:opacity-70 disabled:cursor-not-allowed"
+                    >
+                        {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                        {isSaving ? 'Guardando...' : 'Guardar'}
                     </button>
                 </div>
             </div>
