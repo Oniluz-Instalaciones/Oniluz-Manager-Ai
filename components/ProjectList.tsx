@@ -98,9 +98,14 @@ const ProjectList: React.FC<ProjectListProps> = ({
     let pvData: PvData | undefined;
     if (modalType === 'Photovoltaic') {
         const batteryCapacity = Number(formData.get('batteryCapacity')) || 0;
+        const panelPowerW = Number(formData.get('panelPower')) || 0;
+        const modulesCount = Number(formData.get('modulesCount')) || 0;
+        // Calculate total Peak Power in kWp
+        const totalKwp = (panelPowerW * modulesCount) / 1000;
+
         pvData = {
-            peakPower: Number(formData.get('peakPower')),
-            modulesCount: Number(formData.get('modulesCount')),
+            peakPower: totalKwp,
+            modulesCount: modulesCount,
             inverterModel: formData.get('inverterModel') as string,
             hasBattery: batteryCapacity > 0, // Auto-detect based on capacity selection
             batteryCapacity: batteryCapacity,
@@ -482,20 +487,16 @@ const ProjectList: React.FC<ProjectListProps> = ({
                         </h3>
                         <div className="flex gap-4">
                             <div className="w-1/2">
-                              <label className="text-[10px] font-bold text-amber-700/70 dark:text-amber-400 uppercase">Potencia Pico (kWp)</label>
-                              <select name="peakPower" required className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-700 rounded-lg text-sm outline-none text-slate-900 dark:text-white cursor-pointer">
-                                  <option value="3.0">3.0 kWp</option>
-                                  <option value="4.0">4.0 kWp</option>
-                                  <option value="5.0">5.0 kWp</option>
-                                  <option value="6.0">6.0 kWp</option>
-                                  <option value="8.0">8.0 kWp</option>
-                                  <option value="10.0">10.0 kWp</option>
-                                  <option value="12.0">12.0 kWp</option>
-                                  <option value="15.0">15.0 kWp</option>
-                                  <option value="20.0">20.0 kWp</option>
-                                  <option value="30.0">30.0 kWp</option>
-                                  <option value="50.0">50.0 kWp</option>
-                                  <option value="100.0">100.0 kWp</option>
+                              <label className="text-[10px] font-bold text-amber-700/70 dark:text-amber-400 uppercase">Potencia del Panel (W)</label>
+                              <select name="panelPower" required className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-700 rounded-lg text-sm outline-none text-slate-900 dark:text-white cursor-pointer">
+                                  <option value="400">400 W</option>
+                                  <option value="450">450 W</option>
+                                  <option value="480">480 W</option>
+                                  <option value="500">500 W</option>
+                                  <option value="550">550 W</option>
+                                  <option value="600">600 W</option>
+                                  <option value="650">650 W</option>
+                                  <option value="700">700 W</option>
                               </select>
                             </div>
                             <div className="w-1/2">
