@@ -3,6 +3,7 @@ import { Project, ProjectStatus, Transaction, ProjectDocument, ProjectType, PvDa
 import { Plus, Search, Building2, MapPin, Camera, PieChart, Database, Upload, FileText, Menu, Moon, Sun, ChevronRight, X, Zap, Sun as SunIcon, Battery, Calendar, HardHat, Sparkles, LogOut, Wallet } from 'lucide-react';
 import ScannerModal from './ScannerModal';
 import GlobalAssistant from './GlobalAssistant';
+import { supabase } from '../lib/supabase';
 
 interface ProjectListProps {
   projects: Project[];
@@ -148,6 +149,17 @@ const ProjectList: React.FC<ProjectListProps> = ({
         onUpdateProject(updatedProject);
         setIsScannerOpen(false);
         alert(`Guardado: 1 Gasto y ${newMaterials.length} nuevos materiales en stock.`);
+    }
+  };
+
+  // Quick update for progress bar directly on the card
+  const handleQuickProgressUpdate = async (projectId: string, newProgress: number) => {
+    const project = projects.find(p => p.id === projectId);
+    if (project) {
+        const updatedProject = { ...project, progress: newProgress };
+        onUpdateProject(updatedProject);
+        // Persist instantly
+        await supabase.from('projects').update({ progress: newProgress }).eq('id', projectId);
     }
   };
 
@@ -404,26 +416,28 @@ const ProjectList: React.FC<ProjectListProps> = ({
                       <MapPin className="w-3.5 h-3.5 mr-2 text-slate-400 dark:text-slate-500" /> {project.location}
                   </div>
 
-                  {/* Work Progress Bar (Avance de Obra) */}
-                  <div>
+                  {/* Work Progress Bar (Interactive) */}
+                  <div onClick={(e) => e.stopPropagation()} className="cursor-auto">
                       <div className="flex justify-between text-xs mb-1.5">
-                          <span className="text-slate-500 dark:text-slate-400 font-medium flex items-center gap-1.5">
-                            <HardHat className="w-3.5 h-3.5" /> Avance de Obra
+                          <span className="text-slate-500 dark:text-slate-400 font-medium flex items-center gap-1.5" title="Desliza para actualizar el avance real">
+                            <HardHat className="w-3.5 h-3.5" /> Avance de Obra (Manual)
                           </span>
                           <span className="font-bold text-[#0047AB] dark:text-blue-400">{project.progress}%</span>
                       </div>
-                      <div className="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
-                        <div 
-                          className="h-2 rounded-full bg-gradient-to-r from-[#0047AB] to-blue-400 transition-all duration-1000 ease-out"
-                          style={{ width: `${project.progress}%` }}
-                        ></div>
-                      </div>
+                      <input 
+                        type="range" 
+                        min="0" 
+                        max="100" 
+                        value={project.progress} 
+                        onChange={(e) => handleQuickProgressUpdate(project.id, Number(e.target.value))}
+                        className="w-full h-2 bg-slate-100 dark:bg-slate-700 rounded-full appearance-none cursor-pointer accent-[#0047AB] dark:accent-blue-400 hover:h-3 transition-all"
+                      />
                   </div>
 
-                  {/* Budget Execution Bar (Improved) */}
+                  {/* Budget Execution Bar */}
                   <div>
                       <div className="flex justify-between items-center text-xs mb-1.5">
-                          <span className="text-slate-500 dark:text-slate-400 font-medium flex items-center gap-1.5">
+                          <span className="text-slate-500 dark:text-slate-400 font-medium flex items-center gap-1.5" title="Calculado automáticamente: Gastos / Presupuesto">
                               <Wallet className="w-3.5 h-3.5" /> Ejecución Presupuestaria
                           </span>
                           <span className={`font-bold ${budgetPercent > 100 ? 'text-red-500' : 'text-slate-700 dark:text-slate-300'}`}>
