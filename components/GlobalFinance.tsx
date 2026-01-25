@@ -15,9 +15,8 @@ interface GlobalFinanceProps {
 
 const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdateProject }) => {
   // --- State for Filters ---
-  // Rango amplio para asegurar que se vean todos los datos
   const [dateRange, setDateRange] = useState<{ start: string; end: string }>({
-    start: '2020-01-01',
+    start: '2023-01-01',
     end: '2030-12-31'
   });
   const [selectedProject, setSelectedProject] = useState<string>('ALL');
@@ -31,34 +30,42 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
     // A. Transacciones reales (Ingresos y Gastos explícitos)
     const realTransactions = projects.flatMap(p => p.transactions.map(t => ({ 
       ...t, 
+      amount: Number(t.amount) || 0, // Ensure number
       projectName: p.name, 
       projectStatus: p.status,
       isSimulated: false
     })));
 
     // B. Materiales convertidos a Gastos (Simulados)
-    // Usamos la fecha de inicio del proyecto como referencia temporal para el gasto del material
-    const materialExpenses = projects.flatMap(p => p.materials.map(m => ({
-        id: `mat-${m.id}`, // ID virtual
-        projectId: p.id,
-        projectName: p.name,
-        projectStatus: p.status,
-        type: 'expense' as const,
-        category: 'Material (Stock)',
-        description: `Material: ${m.name}`,
-        amount: m.quantity * m.pricePerUnit,
-        date: p.startDate || new Date().toISOString().split('T')[0],
-        isSimulated: true
-    })));
+    const materialExpenses = projects.flatMap(p => p.materials.map(m => {
+        // Robust calculation to prevent NaN
+        // Check for pricePerUnit OR price_per_unit (DB snake_case leak fallback)
+        const unitPrice = Number(m.pricePerUnit) || Number((m as any).price_per_unit) || 0;
+        const quantity = Number(m.quantity) || 0;
+        const totalAmount = quantity * unitPrice;
 
-    // Combinamos ambas listas para que los materiales sumen al total de gastos
+        return {
+            id: `mat-${m.id}`, // ID virtual
+            projectId: p.id,
+            projectName: p.name,
+            projectStatus: p.status,
+            type: 'expense' as const,
+            category: 'Material (Stock)',
+            description: `Material: ${m.name}`,
+            amount: totalAmount,
+            date: p.startDate || new Date().toISOString().split('T')[0],
+            isSimulated: true
+        };
+    }));
+
+    // Combinamos ambas listas
     return [...realTransactions, ...materialExpenses];
   }, [projects]);
 
   // 2. Apply Filters
   const filteredTransactions = useMemo(() => {
     return allTransactions.filter(t => {
-      const tDate = new Date(t.date);
+      const tDate = new Date(t.date || new Date());
       const startDate = dateRange.start ? new Date(dateRange.start) : new Date('2000-01-01');
       const endDate = dateRange.end ? new Date(dateRange.end) : new Date('2100-01-01');
       
@@ -73,8 +80,14 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
   }, [allTransactions, dateRange, selectedProject, filterType]);
 
   // 3. Calculate KPI Totals based on Filtered Data
-  const totalIncome = filteredTransactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
-  const totalExpense = filteredTransactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
+  const totalIncome = filteredTransactions
+    .filter(t => t.type === 'income')
+    .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+    
+  const totalExpense = filteredTransactions
+    .filter(t => t.type === 'expense')
+    .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+    
   const netProfit = totalIncome - totalExpense;
   const profitMargin = totalIncome > 0 ? (netProfit / totalIncome) * 100 : 0;
 
@@ -86,11 +99,14 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
     const sorted = [...filteredTransactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
     sorted.forEach(t => {
-      // Group by Month (YYYY-MM)
-      const key = t.date.substring(0, 7); 
+      const dateStr = t.date || new Date().toISOString().split('T')[0];
+      const key = dateStr.substring(0, 7); // YYYY-MM
+      
       if (!grouped[key]) grouped[key] = { date: key, income: 0, expense: 0 };
-      if (t.type === 'income') grouped[key].income += t.amount;
-      else grouped[key].expense += t.amount;
+      
+      const val = Number(t.amount) || 0;
+      if (t.type === 'income') grouped[key].income += val;
+      else grouped[key].expense += val;
     });
 
     return Object.values(grouped);
@@ -102,7 +118,8 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
     const grouped: Record<string, number> = {};
     expenses.forEach(t => {
         const cat = t.category || 'Otros';
-        grouped[cat] = (grouped[cat] || 0) + t.amount;
+        const val = Number(t.amount) || 0;
+        grouped[cat] = (grouped[cat] || 0) + val;
     });
     
     return Object.keys(grouped).map(key => ({ name: key, value: grouped[key] })).sort((a, b) => b.value - a.value);
@@ -119,7 +136,7 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
         t.type,
         t.category,
         `"${t.description}"`,
-        t.amount.toFixed(2),
+        (Number(t.amount) || 0).toFixed(2),
         t.isSimulated ? 'Stock Material' : 'Transacción'
     ]);
 
@@ -288,7 +305,7 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
              <p className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider z-10">Rentabilidad Global</p>
              <div>
                  <p className={`text-3xl font-extrabold z-10 ${profitMargin >= 20 ? 'text-green-600 dark:text-green-400' : profitMargin >= 10 ? 'text-blue-600' : 'text-orange-500'}`}>
-                     {profitMargin.toFixed(1)}%
+                     {isNaN(profitMargin) ? '0.0' : profitMargin.toFixed(1)}%
                  </p>
                  <p className="text-xs text-slate-400 dark:text-slate-500 font-medium mt-1">Margen sobre ingresos</p>
              </div>
@@ -408,7 +425,7 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack, onUpdat
                             <div className={`text-xl font-extrabold font-mono ${
                                 t.type === 'income' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
                             }`}>
-                                {t.type === 'income' ? '+' : '-'}{t.amount.toLocaleString()}€
+                                {t.type === 'income' ? '+' : '-'}{t.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}€
                             </div>
                         </div>
                     ))

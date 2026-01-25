@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Project, PriceItem } from './types';
+import { Project, PriceItem, Material } from './types';
 import { PRICE_DATABASE } from './constants';
 import ProjectList from './components/ProjectList';
 import ProjectDetail from './components/ProjectDetail';
@@ -111,7 +111,16 @@ const App: React.FC = () => {
           description: p.description,
           pvData: p.pv_data, // JSONB column
           transactions: p.transactions || [],
-          materials: p.materials || [],
+          // CRITICAL FIX: Map snake_case from DB to camelCase for frontend to avoid NaN
+          materials: (p.materials || []).map((m: any) => ({
+             id: m.id,
+             projectId: m.project_id,
+             name: m.name,
+             quantity: Number(m.quantity) || 0,
+             unit: m.unit,
+             minStock: Number(m.min_stock) || 0,
+             pricePerUnit: Number(m.price_per_unit) || 0 
+          })),
           incidents: p.incidents || [],
           documents: p.documents || [],
           budgets: p.budgets?.map((b: any) => ({
