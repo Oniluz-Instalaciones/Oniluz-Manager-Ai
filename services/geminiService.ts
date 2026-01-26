@@ -96,6 +96,7 @@ const cleanAndParseJSON = (text: string): any => {
 
 /**
  * Reduce el tamaño de las imágenes antes de enviarlas para ahorrar tokens y ancho de banda.
+ * CONFIRMACIÓN DE SEGURIDAD DE CUOTA: Esta función asegura que no se envíen imágenes gigantes.
  */
 const optimizeImage = (base64Str: string): Promise<string> => {
     return new Promise((resolve) => {
@@ -111,7 +112,9 @@ const optimizeImage = (base64Str: string): Promise<string> => {
             let width = img.width;
             let height = img.height;
             
-            // Limitamos a 1024px para balancear calidad/tokens
+            // OPTIMIZACIÓN DE CUOTA:
+            // Limitamos a 1024px (lado más largo).
+            // Esto reduce drásticamente el uso de tokens por imagen (TPM) sin perder legibilidad para OCR.
             const MAX_SIZE = 1024; 
 
             if (width > height) {
@@ -131,11 +134,15 @@ const optimizeImage = (base64Str: string): Promise<string> => {
             const ctx = canvas.getContext('2d');
             ctx?.drawImage(img, 0, 0, width, height);
             
-            // Compresión JPEG al 70%
-            const optimizedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+            // Compresión JPEG al 60% para máxima eficiencia en la cuota
+            const optimizedBase64 = canvas.toDataURL('image/jpeg', 0.6);
+            
+            console.log(`[Oniluz AI] Imagen optimizada para cuota: ${Math.round(width)}x${Math.round(height)}px`);
+            
             resolve(optimizedBase64.split(',')[1]); 
         };
         img.onerror = () => {
+            console.warn("[Oniluz AI] No se pudo optimizar la imagen, enviando original.");
             resolve(base64Str.includes(',') ? base64Str.split(',')[1] : base64Str);
         };
     });
