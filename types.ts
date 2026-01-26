@@ -78,6 +78,7 @@ export interface Budget {
   status: 'Draft' | 'Sent' | 'Accepted' | 'Rejected';
   items: BudgetItem[];
   total: number;
+  aiPrompt?: string; // New field to store the AI instruction
 }
 
 export interface ProjectDocument {

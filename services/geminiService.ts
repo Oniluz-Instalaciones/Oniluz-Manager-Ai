@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
 import { Project, PriceItem } from "../types";
 
 // --- CONFIGURACIÓN DE API ---
@@ -203,7 +203,7 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
           }
         });
 
-        const response = await retryOperation(operation);
+        const response = await retryOperation(operation) as GenerateContentResponse;
         const result = cleanAndParseJSON(response.text || "{}");
         
         if (result) {
@@ -241,7 +241,7 @@ export const chatWithAssistant = async (message: string, context?: string): Prom
             }
         });
 
-        const response = await retryOperation(operation);
+        const response = await retryOperation(operation) as GenerateContentResponse;
         return response.text || "No se obtuvo respuesta.";
       } catch (error: any) {
         if (error.toString().includes('429') || (error.status === 429)) {
@@ -277,7 +277,7 @@ export const analyzeProjectStatus = async (project: Project): Promise<string> =>
             }
         });
 
-        const response = await retryOperation(operation);
+        const response = await retryOperation(operation) as GenerateContentResponse;
         const text = response.text || "";
         
         // Guardamos en caché
@@ -330,7 +330,7 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
                 }
             });
 
-            const response = await retryOperation(operation);
+            const response = await retryOperation(operation) as GenerateContentResponse;
             const result = cleanAndParseJSON(response.text || "[]");
             return Array.isArray(result) ? result : [];
         } catch {
@@ -350,7 +350,7 @@ export const parseMaterialsFromInput = async (textInput: string): Promise<PriceI
                 contents: prompt 
             });
 
-            const response = await retryOperation(operation);
+            const response = await retryOperation(operation) as GenerateContentResponse;
             const result = cleanAndParseJSON(response.text || "[]");
             return Array.isArray(result) ? result : [];
         } catch {
@@ -374,7 +374,7 @@ export const parseMaterialsFromImage = async (base64Image: string): Promise<Pric
                 }
             });
 
-            const response = await retryOperation(operation);
+            const response = await retryOperation(operation) as GenerateContentResponse;
             const result = cleanAndParseJSON(response.text || "[]");
             return Array.isArray(result) ? result : [];
         } catch {
