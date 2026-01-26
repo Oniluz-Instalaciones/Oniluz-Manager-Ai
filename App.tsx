@@ -309,16 +309,6 @@ const App: React.FC = () => {
       }
   };
 
-  const handleClearAllPrices = async () => {
-      setPriceDatabase([]);
-      // Delete all where ID is not null (effectively all)
-      const { error } = await supabase.from('price_items').delete().neq('id', '00000000-0000-0000-0000-000000000000'); 
-      if (error) {
-          console.error("Error clearing prices:", error);
-          fetchPrices();
-      }
-  };
-
   const handleBackToMenu = () => {
       setSelectedProjectId(null);
       fetchProjects(); 
@@ -369,7 +359,6 @@ const App: React.FC = () => {
             onEdit={handleEditPrice}
             onDelete={handleDeletePrice}
             onBulkAdd={handleBulkAddPrices}
-            onClearAll={handleClearAllPrices}
             onBack={() => setShowPriceDb(false)}
           />
       );

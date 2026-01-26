@@ -9,7 +9,6 @@ interface PriceDatabaseProps {
   onEdit: (item: PriceItem) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onBulkAdd: (items: PriceItem[]) => Promise<void>;
-  onClearAll: () => Promise<void>;
   onBack: () => void;
 }
 
@@ -19,7 +18,7 @@ interface ConflictItem {
     selected: 'existing' | 'incoming';
 }
 
-const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onAdd, onEdit, onDelete, onBulkAdd, onClearAll, onBack }) => {
+const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onAdd, onEdit, onDelete, onBulkAdd, onBack }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [aiInput, setAiInput] = useState('');
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
@@ -53,16 +52,6 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onAdd, onEdit, onD
     if (window.confirm('¿Eliminar este artículo permanentemente?')) {
       await onDelete(id);
     }
-  };
-
-  const handleClearDatabase = async () => {
-      if (window.confirm('⚠️ ¿ESTÁS SEGURO? Esto borrará TODOS los precios de la base de datos para todos los usuarios. Esta acción no se puede deshacer.')) {
-          if (window.confirm('Confirmación final: ¿Borrar toda la base de precios?')) {
-              setIsSaving(true);
-              await onClearAll();
-              setIsSaving(false);
-          }
-      }
   };
 
   const handleSaveItem = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -243,12 +232,6 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onAdd, onEdit, onD
             </div>
         </div>
         <div className="flex gap-3 w-full md:w-auto overflow-x-auto pb-2 md:pb-0">
-            <button 
-                onClick={handleClearDatabase}
-                className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-100 dark:border-red-800 px-4 py-2.5 rounded-xl hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors flex items-center font-bold text-xs whitespace-nowrap"
-            >
-                <Trash2 className="w-4 h-4 mr-2" /> Eliminar Todo
-            </button>
             <button 
                 onClick={() => setShowAiModal(true)}
                 className="bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 border border-purple-100 dark:border-purple-800 px-5 py-2.5 rounded-xl hover:bg-purple-100 dark:hover:bg-purple-900/50 transition-colors flex items-center font-bold shadow-sm whitespace-nowrap"
