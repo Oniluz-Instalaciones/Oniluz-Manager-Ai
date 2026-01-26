@@ -330,7 +330,13 @@ const ProjectList: React.FC<ProjectListProps> = ({
 
         {/* Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {filteredProjects.map((project) => (
+          {filteredProjects.map((project) => {
+             // Logic to find description: Prioritize AI Prompt from latest budget, else use manual description
+             const latestBudgetWithPrompt = project.budgets?.filter(b => b.aiPrompt).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+             const displayDescription = latestBudgetWithPrompt?.aiPrompt || project.description;
+             const isAiDescription = !!latestBudgetWithPrompt?.aiPrompt;
+
+             return (
             <div 
               key={project.id} 
               onClick={() => onSelectProject(project.id)}
@@ -360,13 +366,13 @@ const ProjectList: React.FC<ProjectListProps> = ({
                   )}
                 </div>
                 <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2 group-hover:text-[#0047AB] transition-colors line-clamp-2">{project.name}</h3>
-                <div className="flex items-center text-sm text-slate-500 dark:text-slate-400 mb-6">
+                <div className="flex items-center text-sm text-slate-500 dark:text-slate-400 mb-4">
                   <Building2 className="w-4 h-4 mr-1.5" /> {project.client}
                 </div>
 
                 {/* Specific PV Info Card */}
                 {project.type === 'Photovoltaic' && project.pvData && (
-                    <div className="mb-6 grid grid-cols-2 gap-2">
+                    <div className="mb-4 grid grid-cols-2 gap-2">
                           <div className="bg-amber-50 dark:bg-amber-900/20 p-2 rounded-lg text-center">
                               <span className="block text-[10px] text-amber-700 dark:text-amber-400 font-bold uppercase">Potencia</span>
                               <span className="block font-bold text-slate-800 dark:text-slate-200">{project.pvData.peakPower} kWp</span>
@@ -377,8 +383,16 @@ const ProjectList: React.FC<ProjectListProps> = ({
                           </div>
                     </div>
                 )}
+
+                {/* PROJECT DESCRIPTION (AI Prompt or Manual) */}
+                <div className="mb-4 min-h-[2.5rem]">
+                    <p className={`text-xs leading-relaxed line-clamp-3 ${isAiDescription ? 'text-indigo-600 dark:text-indigo-400 font-medium italic' : 'text-slate-600 dark:text-slate-400'}`}>
+                        {isAiDescription && <Sparkles className="w-3 h-3 inline mr-1.5 -mt-0.5 fill-current" />}
+                        {displayDescription || "Sin descripción definida."}
+                    </p>
+                </div>
                 
-                <div className="space-y-4 mt-4 pt-5 border-t border-slate-50 dark:border-slate-700">
+                <div className="space-y-4 pt-5 border-t border-slate-50 dark:border-slate-700">
                   <div className="flex items-center text-xs text-slate-500 dark:text-slate-400">
                       <MapPin className="w-3.5 h-3.5 mr-2 text-slate-400 dark:text-slate-500" /> {project.location}
                   </div>
@@ -425,7 +439,8 @@ const ProjectList: React.FC<ProjectListProps> = ({
                 </span>
               </div>
             </div>
-          ))}
+             );
+          })}
           {filteredProjects.length === 0 && (
               <div className="col-span-full py-16 text-center text-slate-400 dark:text-slate-500 bg-white dark:bg-slate-800 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700 shadow-sm">
                   <p>No se encontraron proyectos con los filtros actuales.</p>
