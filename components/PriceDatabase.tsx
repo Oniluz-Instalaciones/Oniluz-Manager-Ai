@@ -43,10 +43,16 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onAdd, onEdit, onD
         .trim();
   };
 
-  const filteredItems = items.filter(item => 
-    item.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    item.category.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Improved search logic: Filter by words (tokens)
+  const filteredItems = items.filter(item => {
+      const searchLower = searchTerm.toLowerCase().trim();
+      if (!searchLower) return true;
+
+      const tokens = searchLower.split(/\s+/);
+      const itemText = `${item.name} ${item.category} ${item.unit}`.toLowerCase();
+
+      return tokens.every(token => itemText.includes(token));
+  });
 
   const handleDelete = async (id: string) => {
     if (window.confirm('¿Eliminar este artículo permanentemente?')) {
