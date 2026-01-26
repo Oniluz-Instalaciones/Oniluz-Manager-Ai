@@ -116,7 +116,8 @@ const App: React.FC = () => {
           documents: p.documents || [],
           budgets: p.budgets?.map((b: any) => ({
              ...b,
-             items: b.items || []
+             items: b.items || [],
+             aiPrompt: b.ai_prompt
           })) || []
         }));
         setProjects(formattedProjects);

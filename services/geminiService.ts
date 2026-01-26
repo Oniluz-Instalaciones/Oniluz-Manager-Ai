@@ -1,4 +1,4 @@
-import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
+import { GoogleGenAI, GenerateContentResponse, Type } from "@google/genai";
 import { Project, PriceItem } from "../types";
 
 // --- CONFIGURACIÓN DE API ---
@@ -179,17 +179,33 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
         
         const prompt = `Analiza este documento (ticket, factura o albarán). 
         Extrae la información y devuélvela en un JSON estricto.
-        Si algún campo no es visible, usa null o 0.
-        Formato requerido:
-        {
-          "comercio": "Nombre del proveedor",
-          "fecha": "YYYY-MM-DD",
-          "total": 0.00,
-          "iva": 0.00,
-          "categoria": "Material", 
-          "items": [{ "name": "Nombre producto", "quantity": 1, "unit": "ud", "price": 0.00 }]
-        }`;
+        Si algún campo no es visible, usa null o 0.`;
         
+        // Define Schema for Document Analysis
+        const documentSchema = {
+            type: Type.OBJECT,
+            properties: {
+                comercio: { type: Type.STRING, description: "Nombre del proveedor o comercio" },
+                fecha: { type: Type.STRING, description: "Fecha en formato YYYY-MM-DD" },
+                total: { type: Type.NUMBER, description: "Importe total del documento" },
+                iva: { type: Type.NUMBER, description: "Importe total del impuesto/IVA" },
+                categoria: { type: Type.STRING, description: "Categoría del gasto (ej: Material, Combustible)" },
+                items: {
+                    type: Type.ARRAY,
+                    items: {
+                        type: Type.OBJECT,
+                        properties: {
+                            name: { type: Type.STRING },
+                            quantity: { type: Type.NUMBER },
+                            unit: { type: Type.STRING },
+                            price: { type: Type.NUMBER }
+                        }
+                    }
+                }
+            },
+            required: ["comercio", "total", "items"]
+        };
+
         const operation = () => genAI.models.generateContent({
           model: MODEL_NAME,
           contents: {
@@ -199,12 +215,21 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
             ]
           },
           config: { 
-              temperature: 0.1, // Baja temperatura para datos precisos
+              temperature: 0.1, 
+              responseMimeType: 'application/json',
+              responseSchema: documentSchema
           }
         });
 
         const response = await retryOperation(operation) as GenerateContentResponse;
-        const result = cleanAndParseJSON(response.text || "{}");
+        
+        // With responseSchema, parsing is safer but we still use safety check
+        let result;
+        try {
+            result = JSON.parse(response.text || "{}");
+        } catch {
+            result = cleanAndParseJSON(response.text || "{}");
+        }
         
         if (result) {
             return {
@@ -292,68 +317,104 @@ export const analyzeProjectStatus = async (project: Project): Promise<string> =>
 
 export const generateSmartBudget = async (description: string, currentPrices: PriceItem[], images: string[] = []): Promise<any[]> => {
     return apiQueue.add(async () => {
-        try {
-            // Contexto de precios para que la IA use precios reales
-            const priceContext = currentPrices.slice(0, 100).map(p => `- ${p.name} (Categoría: ${p.category}): ${p.price}€/${p.unit}`).join('\n');
-            
-            // Usamos systemInstruction para definir la EXPERIENCIA del modelo (Característica clave de Gemini 3)
-            const systemInstruction = `Actúa como un INGENIERO ELÉCTRICO EXPERTO EN EL REBT (Reglamento Electrotécnico para Baja Tensión de España).
-            Tu tarea es generar un presupuesto técnico y detallado.
+        // No try/catch here to allow errors to propagate to UI for debugging
+        
+        // Contexto de precios para que la IA use precios reales
+        const priceContext = currentPrices.slice(0, 100).map(p => `- ${p.name} (Categoría: ${p.category}): ${p.price}€/${p.unit}`).join('\n');
+        
+        // Usamos systemInstruction para definir la EXPERIENCIA del modelo (Característica clave de Gemini 3)
+        const systemInstruction = `Actúa como un INGENIERO ELÉCTRICO EXPERTO EN EL REBT (Reglamento Electrotécnico para Baja Tensión de España).
+        Tu tarea es generar un presupuesto técnico y detallado.
 
-            ### REGLAS OBLIGATORIAS:
-            1. CLASIFICACIÓN: Determina si es Electrificación Básica o Elevada.
-            2. CÁLCULO: Calcula secciones mínimas de cable y protecciones según REBT.
-            3. PRECIOS: Prioriza la BASE DE DATOS PROPIA proporcionada. Si no existe, estima precio de mercado España.
-            4. SALIDA: Devuelve ÚNICAMENTE un Array JSON válido.`;
+        ### REGLAS OBLIGATORIAS:
+        1. CLASIFICACIÓN: Determina si es Electrificación Básica o Elevada.
+        2. CÁLCULO: Calcula secciones mínimas de cable y protecciones según REBT.
+        3. PRECIOS: Prioriza la BASE DE DATOS PROPIA proporcionada. Si no existe, estima precio de mercado España.
+        4. SALIDA: Devuelve ÚNICAMENTE un Array JSON válido.`;
 
-            const prompt = `Genera presupuesto para: "${description}".
-            
-            ### BASE DE DATOS PROPIA:
-            ${priceContext}
+        const prompt = `Genera presupuesto para: "${description}".
+        
+        ### BASE DE DATOS PROPIA:
+        ${priceContext}`;
 
-            ### FORMATO DE SALIDA (JSON ARRAY):
-            [{ "name": "Nombre técnico", "quantity": numero, "unit": "m/ud", "pricePerUnit": precio, "category": "Material/Mano de Obra" }]`;
-
-            const parts: any[] = [{ text: prompt }];
-            
-            if (images.length > 0) {
-                 const optimizedImg = await optimizeImage(images[0]);
-                 parts.push({ inlineData: { mimeType: 'image/jpeg', data: optimizedImg } });
-            }
-
-            const operation = () => genAI.models.generateContent({
-                model: MODEL_NAME,
-                contents: { parts },
-                config: {
-                    temperature: 0.1, // Baja temperatura para rigor técnico
-                    systemInstruction: systemInstruction
-                }
-            });
-
-            const response = await retryOperation(operation) as GenerateContentResponse;
-            const result = cleanAndParseJSON(response.text || "[]");
-            return Array.isArray(result) ? result : [];
-        } catch {
-            return [];
+        const parts: any[] = [{ text: prompt }];
+        
+        if (images.length > 0) {
+                const optimizedImg = await optimizeImage(images[0]);
+                parts.push({ inlineData: { mimeType: 'image/jpeg', data: optimizedImg } });
         }
+
+        // Definimos el Schema Estricto para asegurar que la IA no falle en el formato
+        const budgetSchema = {
+            type: Type.ARRAY,
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    name: { type: Type.STRING },
+                    quantity: { type: Type.NUMBER },
+                    unit: { type: Type.STRING },
+                    pricePerUnit: { type: Type.NUMBER },
+                    category: { type: Type.STRING }
+                },
+                required: ["name", "quantity", "unit", "pricePerUnit", "category"]
+            }
+        };
+
+        const operation = () => genAI.models.generateContent({
+            model: MODEL_NAME,
+            contents: { parts },
+            config: {
+                temperature: 0.1, // Baja temperatura para rigor técnico
+                systemInstruction: systemInstruction,
+                responseMimeType: 'application/json', // Forzamos JSON
+                responseSchema: budgetSchema
+            }
+        });
+
+        console.log("Generando presupuesto con IA...");
+        const response = await retryOperation(operation) as GenerateContentResponse;
+        
+        // Logging para depuración en navegador
+        console.log("Respuesta cruda Gemini:", response.text);
+
+        const result = JSON.parse(response.text || "[]");
+        return Array.isArray(result) ? result : [];
     });
 };
 
 export const parseMaterialsFromInput = async (textInput: string): Promise<PriceItem[]> => {
     return apiQueue.add(async () => {
         try {
-            const prompt = `Extrae una lista de materiales de este texto: "${textInput}".
-            Devuelve SOLO un Array JSON: [{ "name": string, "unit": string, "price": number, "category": string }].`;
+            const prompt = `Extrae una lista de materiales de este texto: "${textInput}".`;
             
+            const materialsSchema = {
+                type: Type.ARRAY,
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        name: { type: Type.STRING },
+                        unit: { type: Type.STRING },
+                        price: { type: Type.NUMBER },
+                        category: { type: Type.STRING }
+                    },
+                    required: ["name", "unit", "price", "category"]
+                }
+            };
+
             const operation = () => genAI.models.generateContent({ 
                 model: MODEL_NAME, 
-                contents: prompt 
+                contents: prompt,
+                config: {
+                    responseMimeType: 'application/json',
+                    responseSchema: materialsSchema
+                }
             });
 
             const response = await retryOperation(operation) as GenerateContentResponse;
-            const result = cleanAndParseJSON(response.text || "[]");
+            const result = JSON.parse(response.text || "[]");
             return Array.isArray(result) ? result : [];
-        } catch {
+        } catch (e) {
+            console.error("Error parsing materials text:", e);
             return [];
         }
     });
@@ -364,20 +425,39 @@ export const parseMaterialsFromImage = async (base64Image: string): Promise<Pric
         try {
             const cleanData = await optimizeImage(base64Image);
             
+            const materialsSchema = {
+                type: Type.ARRAY,
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        name: { type: Type.STRING },
+                        unit: { type: Type.STRING },
+                        price: { type: Type.NUMBER },
+                        category: { type: Type.STRING }
+                    },
+                    required: ["name", "unit", "price", "category"]
+                }
+            };
+
             const operation = () => genAI.models.generateContent({
                 model: MODEL_NAME,
                 contents: {
                     parts: [
                         { inlineData: { mimeType: 'image/jpeg', data: cleanData } },
-                        { text: "Identifica los materiales, precios y unidades en esta imagen de tarifa o catálogo. Devuelve SOLO un Array JSON válido: [{ name, unit, price, category }]." }
+                        { text: "Identifica los materiales, precios y unidades en esta imagen de tarifa o catálogo." }
                     ]
+                },
+                config: {
+                    responseMimeType: 'application/json',
+                    responseSchema: materialsSchema
                 }
             });
 
             const response = await retryOperation(operation) as GenerateContentResponse;
-            const result = cleanAndParseJSON(response.text || "[]");
+            const result = JSON.parse(response.text || "[]");
             return Array.isArray(result) ? result : [];
-        } catch {
+        } catch (e) {
+            console.error("Error parsing materials image:", e);
             return [];
         }
     });
