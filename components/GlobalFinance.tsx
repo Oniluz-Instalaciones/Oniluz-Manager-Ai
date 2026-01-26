@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Project, Transaction } from '../types';
-import { ArrowLeft, TrendingUp, TrendingDown, DollarSign, Calendar, Filter, Download, PieChart as PieIcon, BarChart3, Search, X } from 'lucide-react';
+import { ArrowLeft, TrendingUp, TrendingDown, DollarSign, Calendar, Filter, Download, PieChart as PieIcon, BarChart3, Search, X, User } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, 
   AreaChart, Area, PieChart, Pie, Legend 
@@ -114,14 +114,15 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
   const COLORS = ['#0047AB', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
 
   const handleExportCSV = () => {
-    const headers = ['Fecha', 'Proyecto', 'Tipo', 'Categoría', 'Descripción', 'Importe'];
+    const headers = ['Fecha', 'Proyecto', 'Tipo', 'Categoría', 'Descripción', 'Importe', 'Usuario'];
     const rows = filteredTransactions.map(t => [
         t.date,
         t.projectName,
         t.type,
         t.category,
         `"${t.description}"`, // Quote description to handle commas
-        t.amount.toFixed(2)
+        t.amount.toFixed(2),
+        t.userName || 'N/A'
     ]);
 
     const csvContent = "data:text/csv;charset=utf-8," 
@@ -420,6 +421,11 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
                           <span>{t.date}</span>
                           <span className="text-slate-300 dark:text-slate-600">•</span>
                           <span className="text-[#0047AB] dark:text-blue-400 font-bold">{t.projectName}</span>
+                          {t.userName && (
+                              <span className="flex items-center gap-1 text-[10px] bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded-full ml-2">
+                                  <User className="w-2.5 h-2.5" /> {t.userName}
+                              </span>
+                          )}
                       </div>
                     </div>
                   </div>

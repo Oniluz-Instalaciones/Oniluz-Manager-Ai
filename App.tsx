@@ -32,6 +32,9 @@ const App: React.FC = () => {
   const [showPriceDb, setShowPriceDb] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
 
+  // Derive current user name safely
+  const currentUserName = session?.user?.user_metadata?.full_name || session?.user?.email || 'Usuario';
+
   // --- Auth & Initial Load ---
   useEffect(() => {
     let mounted = true;
@@ -109,7 +112,10 @@ const App: React.FC = () => {
           description: p.description,
           pvData: p.pv_data, // JSONB column
           elevatorData: p.elevator_data, // JSONB column
-          transactions: p.transactions || [],
+          transactions: p.transactions?.map((t: any) => ({
+              ...t,
+              userName: t.user_name // Map database snake_case to app camelCase
+          })) || [],
           materials: p.materials || [],
           incidents: p.incidents || [],
           documents: p.documents || [],
@@ -392,6 +398,7 @@ const App: React.FC = () => {
         onUpdate={handleUpdateProject}
         onDelete={handleDeleteProject}
         priceDatabase={priceDatabase}
+        currentUserName={currentUserName}
       />
     );
   }
@@ -408,6 +415,7 @@ const App: React.FC = () => {
       isDarkMode={darkMode}
       onToggleDarkMode={() => setDarkMode(!darkMode)}
       onLogout={handleLogout}
+      currentUserName={currentUserName}
     />
   );
 };

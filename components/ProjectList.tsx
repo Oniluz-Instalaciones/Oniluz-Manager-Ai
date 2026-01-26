@@ -15,11 +15,12 @@ interface ProjectListProps {
   isDarkMode: boolean;
   onToggleDarkMode: () => void;
   onLogout: () => void;
+  currentUserName: string;
 }
 
 const ProjectList: React.FC<ProjectListProps> = ({ 
   projects, onSelectProject, onAddProject, onUpdateProject, 
-  onOpenGlobalFinance, onOpenPriceDb, onOpenCalendar, isDarkMode, onToggleDarkMode, onLogout
+  onOpenGlobalFinance, onOpenPriceDb, onOpenCalendar, isDarkMode, onToggleDarkMode, onLogout, currentUserName
 }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalType, setModalType] = useState<ProjectType>('General'); // Track which type we are creating
@@ -698,6 +699,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
               projects={projects}
               onClose={() => setIsScannerOpen(false)}
               onSave={handleScanSave}
+              currentUserName={currentUserName}
             />
         )}
 

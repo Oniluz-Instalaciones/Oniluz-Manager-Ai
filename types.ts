@@ -41,6 +41,7 @@ export interface Transaction {
   amount: number;
   date: string;
   description: string;
+  userName?: string; // New field for the user who created it
 }
 
 export interface Material {

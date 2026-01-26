@@ -17,9 +17,10 @@ interface ProjectDetailProps {
   onUpdate: (updatedProject: Project) => void;
   onDelete: (projectId: string) => void;
   priceDatabase: PriceItem[];
+  currentUserName: string;
 }
 
-const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate, onDelete, priceDatabase }) => {
+const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate, onDelete, priceDatabase, currentUserName }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'financials' | 'stock' | 'incidents' | 'budgets' | 'documents' | 'settings'>('overview');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -90,6 +91,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
       type: formData.get('type') as 'income' | 'expense',
       category: formData.get('category') as string,
       date: new Date().toISOString().split('T')[0],
+      userName: currentUserName
     };
     
     // DB Update - Removed ID
@@ -99,7 +101,8 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
         category: newTransaction.category,
         amount: newTransaction.amount,
         date: newTransaction.date || null,
-        description: newTransaction.description
+        description: newTransaction.description,
+        user_name: currentUserName // Insert user name into DB
     });
 
     const updated = { ...project, transactions: [newTransaction, ...project.transactions] };
@@ -204,7 +207,14 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                               <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 group">
                                   <td className="px-4 py-3">
                                       <p className="font-semibold text-slate-700 dark:text-slate-200">{t.description}</p>
-                                      <p className="text-[10px] text-slate-400">{t.date}</p>
+                                      <div className="flex items-center gap-2 mt-0.5">
+                                        <p className="text-[10px] text-slate-400">{t.date}</p>
+                                        {t.userName && (
+                                            <span className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1 bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded-full">
+                                                <User className="w-2.5 h-2.5" /> {t.userName}
+                                            </span>
+                                        )}
+                                      </div>
                                   </td>
                                   <td className="px-4 py-3 text-right font-medium text-slate-600 dark:text-slate-300 relative">
                                       {t.amount.toLocaleString()}€
@@ -504,7 +514,14 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                                           <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 group">
                                               <td className="px-4 py-3">
                                                   <p className="font-semibold text-slate-700 dark:text-slate-200">{t.description}</p>
-                                                  <span className="text-[10px] bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-1.5 py-0.5 rounded">{t.category}</span>
+                                                  <div className="flex items-center gap-2 mt-0.5">
+                                                      <span className="text-[10px] bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-1.5 py-0.5 rounded">{t.category}</span>
+                                                      {t.userName && (
+                                                          <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                                                              <User className="w-2.5 h-2.5" /> {t.userName}
+                                                          </span>
+                                                      )}
+                                                  </div>
                                               </td>
                                               <td className="px-4 py-3 text-right font-medium text-green-600 dark:text-green-400 relative">
                                                   +{t.amount.toLocaleString()}€
@@ -545,7 +562,14 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                                               <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 group">
                                                   <td className="px-4 py-3">
                                                       <p className="font-semibold text-slate-700 dark:text-slate-200">{t.description}</p>
-                                                      <span className="text-[10px] bg-slate-100 dark:bg-slate-700 text-slate-500 px-1.5 py-0.5 rounded">{t.category}</span>
+                                                      <div className="flex items-center gap-2 mt-0.5">
+                                                        <span className="text-[10px] bg-slate-100 dark:bg-slate-700 text-slate-500 px-1.5 py-0.5 rounded">{t.category}</span>
+                                                        {t.userName && (
+                                                            <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                                                                <User className="w-2.5 h-2.5" /> {t.userName}
+                                                            </span>
+                                                        )}
+                                                      </div>
                                                   </td>
                                                   <td className="px-4 py-3 text-right font-medium text-slate-600 dark:text-slate-300 relative">
                                                       {t.amount.toLocaleString()}€

@@ -8,9 +8,10 @@ interface ScannerModalProps {
   projects: Project[];
   onClose: () => void;
   onSave: (projectId: string, transaction: Transaction, newMaterials: Material[]) => void;
+  currentUserName: string;
 }
 
-const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }) => {
+const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, currentUserName }) => {
   const [fileData, setFileData] = useState<string | null>(null); // Base64
   const [fileBlob, setFileBlob] = useState<Blob | null>(null);
   const [mimeType, setMimeType] = useState<string>('image/jpeg');
@@ -257,7 +258,8 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
           category: formData.category,
           amount: Number(formData.amount),
           date: formData.date,
-          description: formData.description
+          description: formData.description,
+          userName: currentUserName
         };
 
         const finalMaterials = detectedMaterials.map(m => ({ ...m, projectId: formData.projectId }));
@@ -268,7 +270,8 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave }
             category: newTransaction.category,
             amount: newTransaction.amount,
             date: newTransaction.date || null,
-            description: newTransaction.description
+            description: newTransaction.description,
+            user_name: currentUserName
         });
 
         if (finalMaterials.length > 0) {
