@@ -30,6 +30,15 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Helper for fuzzy-ish matching
+  const normalizeString = (str: string) => {
+      return str
+        .toLowerCase()
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Remove accents
+        .replace(/[^a-z0-9]/g, "") // Remove spaces and punctuation
+        .trim();
+  };
+
   // Filters
   const filteredItems = items.filter(item => 
     item.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -74,7 +83,7 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
       }
   };
 
-  // AI Import Logic with Duplication Check
+  // AI Import Logic with ROBUST Duplication Check
   const handleAiImport = async () => {
     if (!aiInput.trim() && !selectedImage) return;
     setIsProcessingAI(true);
@@ -97,24 +106,33 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
           return;
       }
 
-      // 1. Logic to check for duplicates
+      // 1. Logic to check for duplicates using NORMALIZATION
       const conflicts: ConflictItem[] = [];
       const safeItems: PriceItem[] = [];
 
       importedItems.forEach(newItem => {
-          // Normalize name for comparison
+          const normalizedNew = normalizeString(newItem.name);
+          
           const existingMatch = items.find(dbItem => 
-              dbItem.name.trim().toLowerCase() === newItem.name.trim().toLowerCase()
+              normalizeString(dbItem.name) === normalizedNew
           );
+
+          // Prepare the item with a new ID
+          const preparedItem = {
+              ...newItem,
+              id: crypto.randomUUID(),
+              // Ensure discount is set to undefined if 0 or null to avoid clutter
+              discount: newItem.discount && newItem.discount > 0 ? newItem.discount : undefined 
+          };
 
           if (existingMatch) {
               conflicts.push({
                   existing: existingMatch,
-                  incoming: { ...newItem, id: crypto.randomUUID() }, // Temp ID
-                  selected: 'existing' // Default select existing
+                  incoming: preparedItem,
+                  selected: 'existing' // Default to existing to be safe
               });
           } else {
-              safeItems.push({ ...newItem, id: crypto.randomUUID() });
+              safeItems.push(preparedItem);
           }
       });
 
@@ -124,7 +142,7 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
       // 2. Decide next step
       if (conflicts.length > 0) {
           setShowConflictModal(true);
-          setShowAiModal(false); // Close AI modal, show Conflict modal
+          setShowAiModal(false); 
       } else {
           // No conflicts, direct update
           onUpdate([...items, ...safeItems]);
@@ -143,18 +161,18 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
   };
 
   const resolveConflicts = () => {
-      // Merge:
-      // 1. Items that didn't conflict (cleanItems)
-      // 2. Items from database that didn't match any import (items that are NOT in conflicts)
-      // 3. The SELECTED version of the conflicted items
+      // Merge Strategy:
+      // 1. Non-conflicting original items (items NOT in conflict list)
+      // 2. Resolved conflicts (either the old one or the new one replaced on the old ID)
+      // 3. Completely new items (cleanItems)
 
       const resolvedConflicts = conflictItems.map(c => 
           c.selected === 'incoming' 
-          ? { ...c.incoming, id: c.existing.id } // If using new data, keep old ID to preserve refs? Or keep new data fully? Let's overwrite data on old ID.
+          ? { ...c.incoming, id: c.existing.id } // Keep existing ID, overwrite data
           : c.existing
       );
 
-      // Filter out original versions of conflicted items from the main list, then add the resolved versions
+      // Get original items that were NOT part of any conflict
       const nonConflictedOriginals = items.filter(original => 
           !conflictItems.some(c => c.existing.id === original.id)
       );
@@ -231,7 +249,7 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
                         <th className="px-6 py-4 font-bold">Categoría</th>
                         <th className="px-6 py-4 font-bold">Unidad</th>
                         <th className="px-6 py-4 font-bold text-center">Descuento</th>
-                        <th className="px-6 py-4 font-bold text-right">Precio Unitario</th>
+                        <th className="px-6 py-4 font-bold text-right">Precio Tarifa</th>
                         <th className="px-6 py-4 font-bold text-right">Acciones</th>
                     </tr>
                 </thead>
@@ -254,7 +272,16 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
                                     <span className="text-slate-300 dark:text-slate-600">-</span>
                                 )}
                             </td>
-                            <td className="px-6 py-4 text-right font-mono font-bold text-slate-900 dark:text-white text-base">{item.price.toFixed(2)}€</td>
+                            <td className="px-6 py-4 text-right">
+                                <div className="flex flex-col items-end">
+                                    <span className="font-mono font-bold text-slate-900 dark:text-white text-base">{item.price.toFixed(2)}€</span>
+                                    {item.discount && (
+                                        <span className="text-[10px] text-slate-400 line-through">
+                                            Neto: {(item.price * (1 - item.discount / 100)).toFixed(2)}€
+                                        </span>
+                                    )}
+                                </div>
+                            </td>
                             <td className="px-6 py-4 text-right">
                                 <div className="flex justify-end gap-3 opacity-0 group-hover:opacity-100 transition-all">
                                     <button onClick={() => setEditingItem(item)} className="text-[#0047AB] dark:text-blue-400 hover:text-[#003380] dark:hover:text-blue-300 font-bold bg-blue-50 dark:bg-blue-900/30 px-3 py-1.5 rounded-lg">Editar</button>
@@ -287,7 +314,7 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
                       </div>
                       <div className="flex gap-4">
                           <div className="w-1/2">
-                              <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Precio (€)</label>
+                              <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Precio Lista (€)</label>
                               <input name="price" type="number" step="0.01" defaultValue={editingItem.price} required className="w-full mt-2 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-[#0047AB] transition-colors" />
                           </div>
                           <div className="w-1/2">
@@ -429,9 +456,15 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
                                   </div>
                                   <div className="font-bold text-slate-900 dark:text-white mb-1">{conflict.existing.name}</div>
                                   <div className="flex justify-between items-end">
-                                      <div className="text-2xl font-mono text-slate-700 dark:text-slate-300">{conflict.existing.price}€</div>
+                                      <div>
+                                          <div className="text-2xl font-mono text-slate-700 dark:text-slate-300">{conflict.existing.price}€</div>
+                                          <div className="text-[10px] text-slate-400 uppercase font-bold mt-1">PVP Tarifa</div>
+                                      </div>
                                       {conflict.existing.discount && (
-                                          <span className="text-xs bg-slate-200 dark:bg-slate-700 px-2 py-0.5 rounded text-slate-600 dark:text-slate-400">-{conflict.existing.discount}%</span>
+                                          <div className="text-right">
+                                              <span className="text-xs bg-slate-200 dark:bg-slate-700 px-2 py-0.5 rounded text-slate-600 dark:text-slate-400 font-bold">-{conflict.existing.discount}%</span>
+                                              <div className="text-[10px] text-slate-500 mt-1">Neto: {(conflict.existing.price * (1 - conflict.existing.discount / 100)).toFixed(2)}€</div>
+                                          </div>
                                       )}
                                   </div>
                               </div>
@@ -453,13 +486,21 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
                                   </div>
                                   <div className="font-bold text-slate-900 dark:text-white mb-1">{conflict.incoming.name}</div>
                                   <div className="flex justify-between items-end">
-                                      <div className={`text-2xl font-mono ${conflict.incoming.price < conflict.existing.price ? 'text-green-600 dark:text-green-400' : 'text-slate-700 dark:text-slate-300'}`}>
-                                          {conflict.incoming.price}€
-                                      </div>
-                                      {conflict.incoming.discount && (
-                                          <div className="flex items-center gap-1 text-xs bg-green-100 dark:bg-green-900/40 px-2 py-0.5 rounded text-green-700 dark:text-green-300 font-bold">
-                                              <Percent className="w-3 h-3" /> {conflict.incoming.discount}% detectado
+                                      <div>
+                                          <div className={`text-2xl font-mono ${conflict.incoming.price !== conflict.existing.price ? 'text-purple-600 dark:text-purple-400' : 'text-slate-700 dark:text-slate-300'}`}>
+                                              {conflict.incoming.price}€
                                           </div>
+                                          <div className="text-[10px] text-slate-400 uppercase font-bold mt-1">PVP Detectado</div>
+                                      </div>
+                                      {conflict.incoming.discount ? (
+                                          <div className="text-right">
+                                              <div className="flex items-center gap-1 text-xs bg-green-100 dark:bg-green-900/40 px-2 py-0.5 rounded text-green-700 dark:text-green-300 font-bold justify-end">
+                                                  <Percent className="w-3 h-3" /> {conflict.incoming.discount}% detectado
+                                              </div>
+                                              <div className="text-[10px] text-slate-500 mt-1">Neto: {(conflict.incoming.price * (1 - conflict.incoming.discount / 100)).toFixed(2)}€</div>
+                                          </div>
+                                      ) : (
+                                          <div className="text-[10px] text-slate-400 italic">Sin descuento</div>
                                       )}
                                   </div>
                               </div>
@@ -473,7 +514,7 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
                           onClick={() => {
                               setShowConflictModal(false); 
                               setConflictItems([]);
-                              setCleanItems([]); // Clear pending imports too? Or just cancel conflicts? Let's cancel all to be safe.
+                              setCleanItems([]); 
                           }}
                           className="px-6 py-3 text-slate-600 dark:text-slate-400 font-bold hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-colors"
                       >
