@@ -252,16 +252,28 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
         setIsSaving(true);
 
         try {
-            // 1. Upsert Budget (Header) - Now includes ai_prompt
-            const { error: budgetError } = await supabase.from('budgets').upsert({
+            // 1. Prepare Budget Header Payload
+            const budgetPayload: any = {
                 id: currentBudget.id,
                 project_id: project.id,
                 name: currentBudget.name,
                 date: currentBudget.date,
                 status: currentBudget.status,
                 total: currentBudget.total,
-                ai_prompt: currentBudget.aiPrompt // Persist the prompt
-            });
+                ai_prompt: currentBudget.aiPrompt
+            };
+
+            // 1. Upsert Budget (Header) - With Graceful Degradation
+            // Try to save with ai_prompt first
+            let { error: budgetError } = await supabase.from('budgets').upsert(budgetPayload);
+
+            // If error relates to missing column 'ai_prompt', retry without it
+            if (budgetError && (budgetError.message.includes('ai_prompt') || budgetError.code === 'PGRST204')) {
+                console.warn("Columna 'ai_prompt' no detectada en Supabase. Guardando en modo compatibilidad (sin prompt).");
+                delete budgetPayload.ai_prompt;
+                const retry = await supabase.from('budgets').upsert(budgetPayload);
+                budgetError = retry.error;
+            }
 
             if (budgetError) throw budgetError;
 
