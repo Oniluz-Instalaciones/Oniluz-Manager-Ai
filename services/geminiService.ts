@@ -224,8 +224,18 @@ export const analyzeProjectStatus = async (project: Project): Promise<string> =>
 
 export const generateSmartBudget = async (description: string, currentPrices: PriceItem[], images: string[] = []): Promise<any[]> => {
     return apiQueue.add(async () => {
-        const priceContext = currentPrices.slice(0, 100).map(p => `- ${p.name}: ${p.price}€/${p.unit}`).join('\n');
-        const systemInstruction = `Eres un INGENIERO DE PRESUPUESTOS. Genera un array JSON con partidas. Prioriza precios dados.`;
+        // Prepare context properly
+        const priceContext = currentPrices.slice(0, 150).map(p => `- ${p.name}: ${p.price}€/${p.unit}`).join('\n');
+        
+        const systemInstruction = `Eres un INGENIERO DE PRESUPUESTOS Y EXPERTO EN MERCADO ELÉCTRICO. 
+        Tu objetivo es generar partidas presupuestarias precisas.
+        
+        REGLA DE ORO DE PRECIOS:
+        1. PRIMERO: Busca en la lista 'PRECIOS_REFERENCIA' que te proporcionaré. Si el material existe o es muy similar, DEBES USAR ESE PRECIO EXACTO y UNIDAD.
+        2. SEGUNDO: Si el material NO está en la lista de referencia, USA TU CONOCIMIENTO DE INTERNET para estimar un PRECIO DE MERCADO MEDIO REALISTA en España. NO pongas precios a 0€ ni inventes precios absurdos.
+        3. Clasifica correctamente: Material, Mano de Obra, Maquinaria.
+        
+        Genera un array JSON con las partidas necesarias para cumplir con la descripción solicitada.`;
         
         const budgetSchema = {
             type: Type.ARRAY,
@@ -242,16 +252,28 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
             }
         };
 
-        const parts: any[] = [{ text: `Presupuesto para: "${description}". Usar precios ref:\n${priceContext}` }];
+        const parts: any[] = [
+            { text: `PRECIOS_REFERENCIA (Úsalos si hay coincidencia):\n${priceContext}` },
+            { text: `SOLICITUD DE PRESUPUESTO:\n${description}` }
+        ];
+        
         if (images.length > 0) {
-                const optimizedImg = await optimizeImage(images[0]);
-                parts.push({ inlineData: { mimeType: 'image/jpeg', data: optimizedImg } });
+            // Include only the first image to save tokens/bandwidth if multiple
+            const optimizedImg = await optimizeImage(images[0]);
+            parts.push({ inlineData: { mimeType: 'image/jpeg', data: optimizedImg } });
         }
 
         const operation = () => genAI.models.generateContent({
             model: MODEL_NAME,
             contents: { parts },
-            config: { temperature: 0.2, systemInstruction, responseMimeType: 'application/json', responseSchema: budgetSchema }
+            // Enable googleSearch tool for market price estimation fallback
+            config: { 
+                temperature: 0.3, 
+                systemInstruction, 
+                responseMimeType: 'application/json', 
+                responseSchema: budgetSchema,
+                tools: [{ googleSearch: {} }] 
+            }
         });
 
         const response = await retryOperation(operation) as GenerateContentResponse;

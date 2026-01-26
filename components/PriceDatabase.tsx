@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { PriceItem } from '../types';
-import { ArrowLeft, Search, Plus, Trash2, Wand2, Loader2, Database, X, ImageIcon, AlertCircle, ArrowRight, CheckCircle, Percent, RefreshCw, Download } from 'lucide-react';
+import { ArrowLeft, Search, Plus, Trash2, Wand2, Loader2, Database, X, ImageIcon, AlertCircle, ArrowRight, CheckCircle, Percent, RefreshCw, Download, Tag, Edit3 } from 'lucide-react';
 import { parseMaterialsFromInput, parseMaterialsFromImage } from '../services/geminiService';
 
 interface PriceDatabaseProps {
@@ -170,25 +170,20 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onAdd, onEdit, onD
   const resolveConflicts = async () => {
       setIsSaving(true);
       try {
-        // 1. Process Updates (Where incoming was selected over existing)
+        // 1. Process Updates
         const updates = conflictItems
             .filter(c => c.selected === 'incoming')
             .map(c => ({
                 ...c.incoming,
-                id: c.existing.id // Force ID to match existing DB ID to trigger Update not Insert
+                id: c.existing.id
             }));
         
-        // 2. Process Inserts (Clean items)
-        // cleanItems are already prepared
-
-        // Execute Operations
+        // 2. Process Inserts
         if (cleanItems.length > 0) {
             await onBulkAdd(cleanItems);
         }
 
         if (updates.length > 0) {
-            // We have to update these one by one or create a bulk update handler in parent
-            // For now, iterate
             for (const item of updates) {
                 await onEdit(item);
             }
@@ -219,30 +214,30 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onAdd, onEdit, onD
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex flex-col font-sans transition-colors duration-300">
       {/* Header */}
-      <div className="bg-white dark:bg-slate-800 shadow-sm px-8 py-6 flex flex-col md:flex-row items-center justify-between border-b border-slate-100 dark:border-slate-700 transition-colors gap-4">
+      <div className="bg-white dark:bg-slate-800 shadow-sm px-4 sm:px-8 py-6 flex flex-col md:flex-row items-center justify-between border-b border-slate-100 dark:border-slate-700 transition-colors gap-4 sticky top-0 z-20">
         <div className="flex items-center w-full md:w-auto">
-            <button onClick={onBack} className="mr-6 p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 transition-colors">
+            <button onClick={onBack} className="mr-4 sm:mr-6 p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 transition-colors">
             <ArrowLeft className="w-6 h-6" />
             </button>
             <div>
-                <h1 className="text-3xl font-extrabold text-slate-900 dark:text-white flex items-center gap-3">
+                <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white flex items-center gap-3">
                     <Database className="text-[#0047AB] dark:text-blue-400" /> Base de Precios
                 </h1>
                 <p className="text-sm text-slate-500 dark:text-slate-400 font-medium mt-1">Sincronizada en la nube</p>
             </div>
         </div>
-        <div className="flex gap-3 w-full md:w-auto overflow-x-auto pb-2 md:pb-0">
+        <div className="flex gap-2 sm:gap-3 w-full md:w-auto overflow-x-auto pb-2 md:pb-0 no-scrollbar">
             <button 
                 onClick={() => setShowAiModal(true)}
-                className="bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 border border-purple-100 dark:border-purple-800 px-5 py-2.5 rounded-xl hover:bg-purple-100 dark:hover:bg-purple-900/50 transition-colors flex items-center font-bold shadow-sm whitespace-nowrap"
+                className="bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 border border-purple-100 dark:border-purple-800 px-4 py-2.5 rounded-xl hover:bg-purple-100 dark:hover:bg-purple-900/50 transition-colors flex items-center font-bold shadow-sm whitespace-nowrap text-xs sm:text-sm"
             >
-                <Wand2 className="w-4 h-4 mr-2" /> Importar con IA
+                <Wand2 className="w-4 h-4 mr-2" /> <span className="hidden sm:inline">Importar con IA</span><span className="sm:hidden">Importar IA</span>
             </button>
             <button 
                 onClick={() => setEditingItem({ id: '', name: '', unit: 'ud', price: 0, category: 'Material' })}
-                className="bg-[#0047AB] text-white px-5 py-2.5 rounded-xl hover:bg-[#003380] transition-colors flex items-center font-bold shadow-lg shadow-blue-900/10 whitespace-nowrap"
+                className="bg-[#0047AB] text-white px-4 py-2.5 rounded-xl hover:bg-[#003380] transition-colors flex items-center font-bold shadow-lg shadow-blue-900/10 whitespace-nowrap text-xs sm:text-sm"
             >
-                <Plus className="w-5 h-5 mr-2" /> Añadir Manual
+                <Plus className="w-5 h-5 mr-2" /> Añadir <span className="hidden sm:inline ml-1">Manual</span>
             </button>
         </div>
       </div>
@@ -250,7 +245,7 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onAdd, onEdit, onD
       <div className="flex-1 overflow-y-auto p-4 md:p-8 max-w-7xl mx-auto w-full">
         
         {/* Search */}
-        <div className="relative mb-8">
+        <div className="relative mb-6 sm:mb-8">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
             <input 
                 type="text" 
@@ -261,15 +256,15 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onAdd, onEdit, onD
             />
         </div>
 
-        {/* List */}
-        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 overflow-hidden transition-colors">
+        {/* --- DESKTOP VIEW (Table) --- */}
+        <div className="hidden md:block bg-white dark:bg-slate-800 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 overflow-hidden transition-colors">
             <table className="w-full text-left text-sm">
                 <thead className="bg-slate-50 dark:bg-slate-700/50 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 uppercase text-xs tracking-wider">
                     <tr>
                         <th className="px-6 py-4 font-bold">Nombre</th>
-                        <th className="px-6 py-4 font-bold hidden md:table-cell">Categoría</th>
-                        <th className="px-6 py-4 font-bold hidden sm:table-cell">Unidad</th>
-                        <th className="px-6 py-4 font-bold text-center hidden sm:table-cell">Dto.</th>
+                        <th className="px-6 py-4 font-bold">Categoría</th>
+                        <th className="px-6 py-4 font-bold">Unidad</th>
+                        <th className="px-6 py-4 font-bold text-center">Dto.</th>
                         <th className="px-6 py-4 font-bold text-right">Precio</th>
                         <th className="px-6 py-4 font-bold text-right">Acciones</th>
                     </tr>
@@ -278,13 +273,13 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onAdd, onEdit, onD
                     {filteredItems.map(item => (
                         <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 group transition-colors">
                             <td className="px-6 py-4 font-bold text-slate-800 dark:text-white">{item.name}</td>
-                            <td className="px-6 py-4 text-slate-500 dark:text-slate-400 hidden md:table-cell">
+                            <td className="px-6 py-4 text-slate-500 dark:text-slate-400">
                                 <span className="bg-slate-100 dark:bg-slate-700 px-2.5 py-1 rounded-md text-xs font-bold uppercase tracking-wide text-slate-600 dark:text-slate-300">
                                     {item.category}
                                 </span>
                             </td>
-                            <td className="px-6 py-4 text-slate-500 dark:text-slate-400 font-medium hidden sm:table-cell">{item.unit}</td>
-                            <td className="px-6 py-4 text-center hidden sm:table-cell">
+                            <td className="px-6 py-4 text-slate-500 dark:text-slate-400 font-medium">{item.unit}</td>
+                            <td className="px-6 py-4 text-center">
                                 {item.discount ? (
                                     <span className="text-green-600 dark:text-green-400 font-bold bg-green-50 dark:bg-green-900/30 px-2 py-1 rounded-lg text-xs">
                                         -{item.discount}%
@@ -311,16 +306,62 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onAdd, onEdit, onD
                             </td>
                         </tr>
                     ))}
-                    {filteredItems.length === 0 && (
-                        <tr>
-                            <td colSpan={6} className="px-6 py-16 text-center text-slate-400 dark:text-slate-500 font-medium">
-                                No se encontraron resultados en la nube.
-                            </td>
-                        </tr>
-                    )}
                 </tbody>
             </table>
         </div>
+
+        {/* --- MOBILE VIEW (Cards) --- */}
+        <div className="md:hidden grid grid-cols-1 gap-4">
+            {filteredItems.map(item => (
+                <div key={item.id} className="bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 relative overflow-hidden group">
+                    <div className="flex justify-between items-start mb-3">
+                        <div className="flex-1 pr-4">
+                            <h3 className="font-bold text-slate-900 dark:text-white text-base leading-tight mb-1">{item.name}</h3>
+                            <div className="flex flex-wrap gap-2 mt-2">
+                                <span className="inline-flex items-center text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded">
+                                    <Tag className="w-3 h-3 mr-1" /> {item.category}
+                                </span>
+                                <span className="inline-flex items-center text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded">
+                                    /{item.unit}
+                                </span>
+                            </div>
+                        </div>
+                        <div className="text-right">
+                            <span className="block font-mono text-xl font-bold text-[#0047AB] dark:text-blue-400">{item.price.toFixed(2)}€</span>
+                            {item.discount && (
+                                <div className="flex flex-col items-end mt-1">
+                                    <span className="text-[10px] bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-1.5 py-0.5 rounded font-bold">-{item.discount}%</span>
+                                    <span className="text-[10px] text-slate-400 line-through mt-0.5">{(item.price * (1 - item.discount / 100)).toFixed(2)}€</span>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                    
+                    {/* Mobile Actions */}
+                    <div className="flex gap-3 pt-3 border-t border-slate-100 dark:border-slate-700 mt-3">
+                        <button 
+                            onClick={() => setEditingItem(item)} 
+                            className="flex-1 py-2.5 bg-blue-50 dark:bg-blue-900/20 text-[#0047AB] dark:text-blue-400 font-bold rounded-xl text-sm flex items-center justify-center gap-2 hover:bg-blue-100 dark:hover:bg-blue-900/40 active:scale-95 transition-all"
+                        >
+                            <Edit3 className="w-4 h-4" /> Editar
+                        </button>
+                        <button 
+                            onClick={() => handleDelete(item.id)} 
+                            className="py-2.5 px-4 bg-red-50 dark:bg-red-900/20 text-red-500 dark:text-red-400 font-bold rounded-xl text-sm hover:bg-red-100 dark:hover:bg-red-900/40 active:scale-95 transition-all"
+                        >
+                            <Trash2 className="w-4 h-4" />
+                        </button>
+                    </div>
+                </div>
+            ))}
+        </div>
+
+        {filteredItems.length === 0 && (
+            <div className="py-16 text-center text-slate-400 dark:text-slate-500 font-medium bg-white dark:bg-slate-800 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700">
+                No se encontraron resultados en la nube.
+            </div>
+        )}
+
       </div>
 
       {/* Edit Modal */}
