@@ -108,6 +108,7 @@ const App: React.FC = () => {
           budget: Number(p.budget),
           description: p.description,
           pvData: p.pv_data, // JSONB column
+          elevatorData: p.elevator_data, // JSONB column
           transactions: p.transactions || [],
           materials: p.materials || [],
           incidents: p.incidents || [],
@@ -178,7 +179,8 @@ const App: React.FC = () => {
            end_date: newProject.endDate || null,   
            description: newProject.description,
            budget: newProject.budget,
-           pv_data: newProject.pvData
+           pv_data: newProject.pvData,
+           elevator_data: newProject.elevatorData
         })
         .select()
         .single();

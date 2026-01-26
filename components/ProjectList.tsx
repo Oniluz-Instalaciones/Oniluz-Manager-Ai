@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Project, ProjectStatus, Transaction, ProjectDocument, ProjectType, PvData, Material } from '../types';
-import { Plus, Search, Building2, MapPin, Camera, PieChart, Database, Upload, FileText, Menu, Moon, Sun, ChevronRight, X, Zap, Sun as SunIcon, Battery, Calendar, HardHat, Sparkles, LogOut } from 'lucide-react';
+import { Project, ProjectStatus, Transaction, ProjectDocument, ProjectType, PvData, Material, ElevatorData } from '../types';
+import { Plus, Search, Building2, MapPin, Camera, PieChart, Database, Upload, FileText, Menu, Moon, Sun, ChevronRight, X, Zap, Sun as SunIcon, Battery, Calendar, HardHat, Sparkles, LogOut, MoveVertical, Ruler, Layers } from 'lucide-react';
 import ScannerModal from './ScannerModal';
 import GlobalAssistant from './GlobalAssistant';
 
@@ -107,10 +107,24 @@ const ProjectList: React.FC<ProjectListProps> = ({
         };
     }
 
+    // Elevator Specific Data extraction
+    let elevatorData: ElevatorData | undefined;
+    if (modalType === 'Elevator') {
+        elevatorData = {
+            solutionType: formData.get('solutionType') as any,
+            location: formData.get('elevatorLocation') as any,
+            floors: Number(formData.get('floors')),
+            stairWidth: Number(formData.get('stairWidth')),
+            stairMaterial: formData.get('stairMaterial') as any,
+            parkingSide: formData.get('parkingSide') as any
+        };
+    }
+
     const newProject: Project = {
       id: projectId,
       type: modalType,
       pvData: pvData,
+      elevatorData: elevatorData,
       name: formData.get('name') as string,
       client: formData.get('client') as string,
       location: formData.get('location') as string,
@@ -188,6 +202,12 @@ const ProjectList: React.FC<ProjectListProps> = ({
                   className="bg-amber-500 text-white px-5 py-3 rounded-xl hover:bg-amber-600 transition-all flex items-center font-semibold shadow-lg shadow-amber-500/20 transform hover:-translate-y-0.5"
               >
                   <SunIcon className="w-5 h-5 mr-2" /> <span className="hidden sm:inline">Nuevo FV</span>
+              </button>
+              <button 
+                  onClick={() => handleOpenCreateModal('Elevator')}
+                  className="bg-rose-600 text-white px-5 py-3 rounded-xl hover:bg-rose-700 transition-all flex items-center font-semibold shadow-lg shadow-rose-600/20 transform hover:-translate-y-0.5"
+              >
+                  <MoveVertical className="w-5 h-5 mr-2" /> <span className="hidden sm:inline">Válida</span>
               </button>
 
               {/* Menu Dropdown */}
@@ -358,6 +378,11 @@ const ProjectList: React.FC<ProjectListProps> = ({
                           <SunIcon className="w-3.5 h-3.5" />
                           <span className="text-[10px] font-bold uppercase">FV</span>
                       </div>
+                  ) : project.type === 'Elevator' ? (
+                      <div className="flex items-center gap-1.5 bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 px-2.5 py-1 rounded-lg border border-rose-100 dark:border-rose-800">
+                          <MoveVertical className="w-3.5 h-3.5" />
+                          <span className="text-[10px] font-bold uppercase">Válida</span>
+                      </div>
                   ) : (
                       <div className="flex items-center gap-1.5 bg-blue-50 dark:bg-blue-900/30 text-[#0047AB] dark:text-blue-400 px-2.5 py-1 rounded-lg border border-blue-100 dark:border-blue-800">
                           <Zap className="w-3.5 h-3.5" />
@@ -380,6 +405,24 @@ const ProjectList: React.FC<ProjectListProps> = ({
                           <div className="bg-amber-50 dark:bg-amber-900/20 p-2 rounded-lg text-center">
                               <span className="block text-[10px] text-amber-700 dark:text-amber-400 font-bold uppercase">Módulos</span>
                               <span className="block font-bold text-slate-800 dark:text-slate-200">{project.pvData.modulesCount}</span>
+                          </div>
+                    </div>
+                )}
+
+                {/* Specific Elevator Info Card */}
+                {project.type === 'Elevator' && project.elevatorData && (
+                    <div className="mb-4 grid grid-cols-2 gap-2">
+                          <div className="bg-rose-50 dark:bg-rose-900/20 p-2 rounded-lg text-center col-span-2 flex justify-between px-4 items-center">
+                              <span className="block text-[10px] text-rose-700 dark:text-rose-400 font-bold uppercase">Tipo</span>
+                              <span className="block font-bold text-slate-800 dark:text-slate-200 text-sm">{project.elevatorData.solutionType}</span>
+                          </div>
+                          <div className="bg-rose-50 dark:bg-rose-900/20 p-2 rounded-lg text-center">
+                              <span className="block text-[10px] text-rose-700 dark:text-rose-400 font-bold uppercase">Plantas</span>
+                              <span className="block font-bold text-slate-800 dark:text-slate-200">{project.elevatorData.floors}</span>
+                          </div>
+                          <div className="bg-rose-50 dark:bg-rose-900/20 p-2 rounded-lg text-center">
+                              <span className="block text-[10px] text-rose-700 dark:text-rose-400 font-bold uppercase">Ubicación</span>
+                              <span className="block font-bold text-slate-800 dark:text-slate-200 text-xs mt-1">{project.elevatorData.location}</span>
                           </div>
                     </div>
                 )}
@@ -423,7 +466,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
                       </div>
                       <div className="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
                           <div 
-                          className={`h-2 rounded-full transition-all duration-500 ${project.type === 'Photovoltaic' ? 'bg-amber-500' : 'bg-[#0047AB]'}`}
+                          className={`h-2 rounded-full transition-all duration-500 ${project.type === 'Photovoltaic' ? 'bg-amber-500' : project.type === 'Elevator' ? 'bg-rose-500' : 'bg-[#0047AB]'}`}
                           style={{ width: `${project.budget > 0 ? Math.min(((project.transactions.filter(t=>t.type==='expense').reduce((a,b)=>a+b.amount,0) / project.budget) * 100), 100) : 0}%` }}
                           ></div>
                       </div>
@@ -460,7 +503,8 @@ const ProjectList: React.FC<ProjectListProps> = ({
               <div className="flex justify-between items-center mb-8">
                   <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
                       {modalType === 'Photovoltaic' && <SunIcon className="w-6 h-6 text-amber-500" />}
-                      {modalType === 'Photovoltaic' ? 'Nuevo Proyecto FV' : 'Nuevo Proyecto'}
+                      {modalType === 'Elevator' && <MoveVertical className="w-6 h-6 text-rose-500" />}
+                      {modalType === 'Photovoltaic' ? 'Nuevo Proyecto FV' : modalType === 'Elevator' ? 'Nueva Instalación Válida' : 'Nuevo Proyecto'}
                   </h2>
                   <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><X className="w-5 h-5"/></button>
               </div>
@@ -527,6 +571,62 @@ const ProjectList: React.FC<ProjectListProps> = ({
                     </div>
                 )}
 
+                {/* Specific Elevator Fields (Válida) */}
+                {modalType === 'Elevator' && (
+                    <div className="bg-rose-50 dark:bg-rose-900/20 p-5 rounded-2xl border border-rose-100 dark:border-rose-800 space-y-4">
+                        <h3 className="text-sm font-bold text-rose-700 dark:text-rose-500 uppercase tracking-wide flex items-center gap-2">
+                            <MoveVertical className="w-4 h-4" /> Configuración Elevador
+                        </h3>
+                        <div>
+                             <label className="text-[10px] font-bold text-rose-700/70 dark:text-rose-400 uppercase">Tipo de Solución</label>
+                             <select name="solutionType" className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-700 rounded-lg text-sm">
+                                 <option value="Silla Recta">Silla Salvaescaleras Recta</option>
+                                 <option value="Silla Curva">Silla Salvaescaleras Curva</option>
+                                 <option value="Plataforma">Plataforma Salvaescaleras</option>
+                                 <option value="Elevador Vertical">Elevador Vertical (Corto Recorrido)</option>
+                             </select>
+                        </div>
+                        <div className="flex gap-4">
+                            <div className="w-1/2">
+                                <label className="text-[10px] font-bold text-rose-700/70 dark:text-rose-400 uppercase">Nº Plantas/Paradas</label>
+                                <input name="floors" type="number" min="1" required className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-700 rounded-lg text-sm" />
+                            </div>
+                            <div className="w-1/2">
+                                <label className="text-[10px] font-bold text-rose-700/70 dark:text-rose-400 uppercase">Ubicación</label>
+                                <select name="elevatorLocation" className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-700 rounded-lg text-sm">
+                                    <option value="Interior">Interior</option>
+                                    <option value="Intemperie">Intemperie (Exterior)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div className="flex gap-4">
+                            <div className="w-1/2">
+                                <label className="text-[10px] font-bold text-rose-700/70 dark:text-rose-400 uppercase">Ancho Escalera (cm)</label>
+                                <div className="relative">
+                                    <Ruler className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" />
+                                    <input name="stairWidth" type="number" placeholder="Ej: 80" className="w-full mt-1 pl-7 p-2 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-700 rounded-lg text-sm" />
+                                </div>
+                            </div>
+                             <div className="w-1/2">
+                                <label className="text-[10px] font-bold text-rose-700/70 dark:text-rose-400 uppercase">Lado Aparcamiento</label>
+                                <select name="parkingSide" className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-700 rounded-lg text-sm">
+                                    <option value="Derecha">Derecha</option>
+                                    <option value="Izquierda">Izquierda</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div>
+                             <label className="text-[10px] font-bold text-rose-700/70 dark:text-rose-400 uppercase">Material Escalera (Fijación)</label>
+                             <select name="stairMaterial" className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-700 rounded-lg text-sm">
+                                 <option value="Hormigón">Hormigón / Obra</option>
+                                 <option value="Madera">Madera</option>
+                                 <option value="Metal">Metálica</option>
+                                 <option value="Mármol">Mármol / Granito</option>
+                             </select>
+                        </div>
+                    </div>
+                )}
+
                 <div>
                   <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Descripción</label>
                   <textarea name="description" rows={3} className="w-full mt-2 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] focus:border-[#0047AB] text-slate-900 dark:text-white transition-all"></textarea>
@@ -583,7 +683,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
 
                 <div className="flex gap-4 mt-8">
                   <button type="button" onClick={() => { setIsModalOpen(false); setInitialFiles([]); }} className="flex-1 py-3 text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors font-semibold">Cancelar</button>
-                  <button type="submit" className={`flex-1 py-3 text-white rounded-xl font-semibold shadow-lg transition-colors ${modalType === 'Photovoltaic' ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/20' : 'bg-[#0047AB] hover:bg-[#003380] shadow-blue-900/20'}`}>
+                  <button type="submit" className={`flex-1 py-3 text-white rounded-xl font-semibold shadow-lg transition-colors ${modalType === 'Photovoltaic' ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/20' : modalType === 'Elevator' ? 'bg-rose-600 hover:bg-rose-700 shadow-rose-600/20' : 'bg-[#0047AB] hover:bg-[#003380] shadow-blue-900/20'}`}>
                       Crear Proyecto
                   </button>
                 </div>

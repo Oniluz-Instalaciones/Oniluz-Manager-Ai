@@ -13,7 +13,7 @@ export enum Priority {
   CRITICAL = 'Crítica',
 }
 
-export type ProjectType = 'General' | 'Photovoltaic';
+export type ProjectType = 'General' | 'Photovoltaic' | 'Elevator';
 
 export interface PvData {
   peakPower: number; // kWp
@@ -22,6 +22,15 @@ export interface PvData {
   hasBattery: boolean;
   batteryCapacity?: number; // kWh
   installationType: 'Residential' | 'Industrial' | 'Solar Farm';
+}
+
+export interface ElevatorData {
+  solutionType: 'Silla Recta' | 'Silla Curva' | 'Plataforma' | 'Elevador Vertical';
+  location: 'Interior' | 'Intemperie';
+  floors: number;
+  stairWidth?: number; // cm
+  stairMaterial: 'Hormigón' | 'Madera' | 'Metal' | 'Mármol';
+  parkingSide: 'Izquierda' | 'Derecha';
 }
 
 export interface Transaction {
@@ -96,6 +105,7 @@ export interface Project {
   id: string;
   type: ProjectType;
   pvData?: PvData;
+  elevatorData?: ElevatorData;
   name: string;
   client: string;
   location: string;
