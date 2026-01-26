@@ -20,11 +20,8 @@ const App: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  const [priceDatabase, setPriceDatabase] = useState<PriceItem[]>(() => {
-    const saved = localStorage.getItem('voltmanager_pricedb');
-    if (saved) return JSON.parse(saved);
-    return PRICE_DATABASE.map((p, i) => ({ ...p, id: `pd-${i}` }));
-  });
+  // Price Database is now fetched from Supabase, not local storage
+  const [priceDatabase, setPriceDatabase] = useState<PriceItem[]>([]);
 
   const [darkMode, setDarkMode] = useState(() => {
     return localStorage.getItem('voltmanager_theme') === 'dark';
@@ -63,7 +60,8 @@ const App: React.FC = () => {
           setShowGlobalFinance(false);
           setShowPriceDb(false);
           setShowCalendar(false);
-          setProjects([]); // Clear sensitive data from memory
+          setProjects([]); 
+          setPriceDatabase([]);
         }
       }
     });
@@ -129,16 +127,25 @@ const App: React.FC = () => {
     }
   };
 
+  const fetchPrices = async () => {
+      if (!session) return;
+      // We assume table 'price_items' exists. 
+      const { data, error } = await supabase.from('price_items').select('*').order('name');
+      if (error) {
+          console.warn("Could not fetch prices from Supabase (maybe table missing?).", error);
+      } else {
+          setPriceDatabase(data || []);
+      }
+  };
+
   useEffect(() => {
     if (session) {
       fetchProjects();
+      fetchPrices();
     }
   }, [session]);
 
-  // --- Persistence & Effects ---
-  useEffect(() => {
-    localStorage.setItem('voltmanager_pricedb', JSON.stringify(priceDatabase));
-  }, [priceDatabase]);
+  // --- Effects ---
 
   useEffect(() => {
     if (darkMode) {
@@ -154,24 +161,21 @@ const App: React.FC = () => {
 
   const handleLogout = async () => {
     await signOut();
-    // State reset is handled by the onAuthStateChange listener
   };
 
   const handleAddProject = async (newProject: Project) => {
     try {
-      // 1. Insert Project into DB (Let Supabase generate ID)
       const { data, error } = await supabase
         .from('projects')
         .insert({
-           // NO ID included here, DB generates UUID
            type: newProject.type,
            name: newProject.name,
            client: newProject.client,
            location: newProject.location,
            status: newProject.status,
            progress: newProject.progress,
-           start_date: newProject.startDate || null, // Sanitize empty dates
-           end_date: newProject.endDate || null,     // Sanitize empty dates
+           start_date: newProject.startDate || null, 
+           end_date: newProject.endDate || null,   
            description: newProject.description,
            budget: newProject.budget,
            pv_data: newProject.pvData
@@ -181,21 +185,14 @@ const App: React.FC = () => {
 
       if (error) throw error;
 
-      const createdProjectData = data;
-      const realId = createdProjectData.id;
-      
-      // 2. Update local state with the returned real ID
-      const finalProject: Project = {
-          ...newProject,
-          id: realId
-      };
+      const realId = data.id;
+      const finalProject: Project = { ...newProject, id: realId };
       
       setProjects([finalProject, ...projects]);
 
-      // 3. Upload initial documents using real ID
       if (newProject.documents.length > 0) {
           const docsToInsert = newProject.documents.map(d => ({
-              project_id: realId, // Use real generated ID
+              project_id: realId, 
               name: d.name,
               type: d.type,
               date: d.date,
@@ -207,7 +204,7 @@ const App: React.FC = () => {
     } catch (err) {
       console.error("Error creating project in DB:", err);
       alert("Error al guardar en la nube. Inténtelo de nuevo.");
-      fetchProjects(); // Revert to server state
+      fetchProjects(); 
     }
   };
 
@@ -239,8 +236,87 @@ const App: React.FC = () => {
     }
   };
 
-  const handleUpdatePriceDb = (newItems: PriceItem[]) => {
-      setPriceDatabase(newItems);
+  // --- Price Database Handlers (Supabase) ---
+
+  const handleAddPrice = async (item: PriceItem) => {
+      // Optimistic update
+      setPriceDatabase(prev => [...prev, item]);
+      
+      const { error } = await supabase.from('price_items').insert({
+          id: item.id,
+          name: item.name,
+          unit: item.unit,
+          price: item.price,
+          category: item.category,
+          discount: item.discount
+      });
+      
+      if (error) {
+          console.error("Error adding price:", error);
+          alert("No se pudo guardar en la nube.");
+          fetchPrices(); // Revert
+      }
+  };
+
+  const handleEditPrice = async (item: PriceItem) => {
+      setPriceDatabase(prev => prev.map(p => p.id === item.id ? item : p));
+
+      const { error } = await supabase.from('price_items').update({
+          name: item.name,
+          unit: item.unit,
+          price: item.price,
+          category: item.category,
+          discount: item.discount
+      }).eq('id', item.id);
+
+      if (error) {
+          console.error("Error updating price:", error);
+          fetchPrices();
+      }
+  };
+
+  const handleDeletePrice = async (id: string) => {
+      setPriceDatabase(prev => prev.filter(p => p.id !== id));
+      
+      const { error } = await supabase.from('price_items').delete().eq('id', id);
+      if (error) {
+          console.error("Error deleting price:", error);
+          fetchPrices();
+      }
+  };
+
+  const handleBulkAddPrices = async (items: PriceItem[]) => {
+      const existingIds = new Set(priceDatabase.map(p => p.id));
+      const newItems = items.filter(i => !existingIds.has(i.id));
+      
+      if (newItems.length === 0) return;
+
+      setPriceDatabase(prev => [...prev, ...newItems]);
+
+      const dbItems = newItems.map(item => ({
+          id: item.id,
+          name: item.name,
+          unit: item.unit,
+          price: item.price,
+          category: item.category,
+          discount: item.discount
+      }));
+
+      const { error } = await supabase.from('price_items').insert(dbItems);
+      if (error) {
+          console.error("Error bulk adding prices:", error);
+          fetchPrices();
+      }
+  };
+
+  const handleClearAllPrices = async () => {
+      setPriceDatabase([]);
+      // Delete all where ID is not null (effectively all)
+      const { error } = await supabase.from('price_items').delete().neq('id', '00000000-0000-0000-0000-000000000000'); 
+      if (error) {
+          console.error("Error clearing prices:", error);
+          fetchPrices();
+      }
   };
 
   const handleBackToMenu = () => {
@@ -248,7 +324,7 @@ const App: React.FC = () => {
       fetchProjects(); 
   };
 
-  // --- Conditional Rendering ---
+  // --- Render ---
 
   if (isAuthLoading) {
     return (
@@ -274,10 +350,6 @@ const App: React.FC = () => {
     return <Login />;
   }
 
-  // --- Authenticated App Rendering ---
-
-  const selectedProject = projects.find(p => p.id === selectedProjectId);
-
   if (isLoading && projects.length === 0) {
       return (
           <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900">
@@ -293,7 +365,11 @@ const App: React.FC = () => {
       return (
           <PriceDatabase 
             items={priceDatabase}
-            onUpdate={handleUpdatePriceDb}
+            onAdd={handleAddPrice}
+            onEdit={handleEditPrice}
+            onDelete={handleDeletePrice}
+            onBulkAdd={handleBulkAddPrices}
+            onClearAll={handleClearAllPrices}
             onBack={() => setShowPriceDb(false)}
           />
       );
@@ -317,10 +393,10 @@ const App: React.FC = () => {
       );
   }
 
-  if (selectedProjectId && selectedProject) {
+  if (selectedProjectId && projects.find(p => p.id === selectedProjectId)) {
     return (
       <ProjectDetail 
-        project={selectedProject} 
+        project={projects.find(p => p.id === selectedProjectId)!} 
         onBack={handleBackToMenu}
         onUpdate={handleUpdateProject}
         onDelete={handleDeleteProject}

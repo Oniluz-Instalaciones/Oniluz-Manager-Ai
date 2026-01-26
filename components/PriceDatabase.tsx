@@ -1,11 +1,15 @@
 import React, { useState, useRef } from 'react';
 import { PriceItem } from '../types';
-import { ArrowLeft, Search, Plus, Save, Trash2, Wand2, Loader2, Database, Download, Upload, X, ImageIcon, AlertCircle, ArrowRight, CheckCircle, Percent } from 'lucide-react';
+import { ArrowLeft, Search, Plus, Trash2, Wand2, Loader2, Database, X, ImageIcon, AlertCircle, ArrowRight, CheckCircle, Percent, RefreshCw, Download } from 'lucide-react';
 import { parseMaterialsFromInput, parseMaterialsFromImage } from '../services/geminiService';
 
 interface PriceDatabaseProps {
   items: PriceItem[];
-  onUpdate: (items: PriceItem[]) => void;
+  onAdd: (item: PriceItem) => Promise<void>;
+  onEdit: (item: PriceItem) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+  onBulkAdd: (items: PriceItem[]) => Promise<void>;
+  onClearAll: () => Promise<void>;
   onBack: () => void;
 }
 
@@ -15,11 +19,12 @@ interface ConflictItem {
     selected: 'existing' | 'incoming';
 }
 
-const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }) => {
+const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onAdd, onEdit, onDelete, onBulkAdd, onClearAll, onBack }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [aiInput, setAiInput] = useState('');
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [isProcessingAI, setIsProcessingAI] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [showAiModal, setShowAiModal] = useState(false);
   const [editingItem, setEditingItem] = useState<PriceItem | null>(null);
   
@@ -34,42 +39,58 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
   const normalizeString = (str: string) => {
       return str
         .toLowerCase()
-        .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Remove accents
-        .replace(/[^a-z0-9]/g, "") // Remove spaces and punctuation
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "") 
+        .replace(/[^a-z0-9]/g, "") 
         .trim();
   };
 
-  // Filters
   const filteredItems = items.filter(item => 
     item.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
     item.category.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // CRUD
-  const handleDelete = (id: string) => {
-    if (window.confirm('¿Eliminar este artículo de la base de precios?')) {
-      onUpdate(items.filter(i => i.id !== id));
+  const handleDelete = async (id: string) => {
+    if (window.confirm('¿Eliminar este artículo permanentemente?')) {
+      await onDelete(id);
     }
   };
 
-  const handleSaveItem = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const newItem: PriceItem = {
-      id: editingItem ? editingItem.id : Date.now().toString(),
-      name: formData.get('name') as string,
-      unit: formData.get('unit') as string,
-      price: Number(formData.get('price')),
-      category: formData.get('category') as string,
-      discount: Number(formData.get('discount')) || undefined
-    };
+  const handleClearDatabase = async () => {
+      if (window.confirm('⚠️ ¿ESTÁS SEGURO? Esto borrará TODOS los precios de la base de datos para todos los usuarios. Esta acción no se puede deshacer.')) {
+          if (window.confirm('Confirmación final: ¿Borrar toda la base de precios?')) {
+              setIsSaving(true);
+              await onClearAll();
+              setIsSaving(false);
+          }
+      }
+  };
 
-    if (editingItem) {
-      onUpdate(items.map(i => i.id === newItem.id ? newItem : i));
-    } else {
-      onUpdate([...items, newItem]);
+  const handleSaveItem = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setIsSaving(true);
+    try {
+        const formData = new FormData(e.currentTarget);
+        const newItem: PriceItem = {
+          id: editingItem?.id && editingItem.id !== '' ? editingItem.id : crypto.randomUUID(),
+          name: formData.get('name') as string,
+          unit: formData.get('unit') as string,
+          price: Number(formData.get('price')),
+          category: formData.get('category') as string,
+          discount: Number(formData.get('discount')) || undefined
+        };
+
+        if (editingItem && editingItem.id) {
+          await onEdit(newItem);
+        } else {
+          await onAdd(newItem);
+        }
+        setEditingItem(null);
+    } catch (e) {
+        console.error(e);
+        alert("Error al guardar");
+    } finally {
+        setIsSaving(false);
     }
-    setEditingItem(null);
   };
 
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -83,7 +104,6 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
       }
   };
 
-  // AI Import Logic with ROBUST Duplication Check
   const handleAiImport = async () => {
     if (!aiInput.trim() && !selectedImage) return;
     setIsProcessingAI(true);
@@ -106,7 +126,6 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
           return;
       }
 
-      // 1. Logic to check for duplicates using NORMALIZATION
       const conflicts: ConflictItem[] = [];
       const safeItems: PriceItem[] = [];
 
@@ -117,11 +136,10 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
               normalizeString(dbItem.name) === normalizedNew
           );
 
-          // Prepare the item with a new ID
+          // Prepare Item
           const preparedItem = {
               ...newItem,
               id: crypto.randomUUID(),
-              // Ensure discount is set to undefined if 0 or null to avoid clutter
               discount: newItem.discount && newItem.discount > 0 ? newItem.discount : undefined 
           };
 
@@ -129,7 +147,7 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
               conflicts.push({
                   existing: existingMatch,
                   incoming: preparedItem,
-                  selected: 'existing' // Default to existing to be safe
+                  selected: 'existing' // Default to existing
               });
           } else {
               safeItems.push(preparedItem);
@@ -139,17 +157,17 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
       setCleanItems(safeItems);
       setConflictItems(conflicts);
 
-      // 2. Decide next step
       if (conflicts.length > 0) {
           setShowConflictModal(true);
           setShowAiModal(false); 
       } else {
-          // No conflicts, direct update
-          onUpdate([...items, ...safeItems]);
+          if (safeItems.length > 0) {
+              await onBulkAdd(safeItems);
+              alert(`Se han importado ${safeItems.length} artículos correctamente.`);
+          }
           setAiInput('');
           setSelectedImage(null);
           setShowAiModal(false);
-          alert(`Se han importado ${safeItems.length} artículos correctamente.`);
       }
 
     } catch (error) {
@@ -160,33 +178,47 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
     }
   };
 
-  const resolveConflicts = () => {
-      // Merge Strategy:
-      // 1. Non-conflicting original items (items NOT in conflict list)
-      // 2. Resolved conflicts (either the old one or the new one replaced on the old ID)
-      // 3. Completely new items (cleanItems)
+  const resolveConflicts = async () => {
+      setIsSaving(true);
+      try {
+        // 1. Process Updates (Where incoming was selected over existing)
+        const updates = conflictItems
+            .filter(c => c.selected === 'incoming')
+            .map(c => ({
+                ...c.incoming,
+                id: c.existing.id // Force ID to match existing DB ID to trigger Update not Insert
+            }));
+        
+        // 2. Process Inserts (Clean items)
+        // cleanItems are already prepared
 
-      const resolvedConflicts = conflictItems.map(c => 
-          c.selected === 'incoming' 
-          ? { ...c.incoming, id: c.existing.id } // Keep existing ID, overwrite data
-          : c.existing
-      );
+        // Execute Operations
+        if (cleanItems.length > 0) {
+            await onBulkAdd(cleanItems);
+        }
 
-      // Get original items that were NOT part of any conflict
-      const nonConflictedOriginals = items.filter(original => 
-          !conflictItems.some(c => c.existing.id === original.id)
-      );
+        if (updates.length > 0) {
+            // We have to update these one by one or create a bulk update handler in parent
+            // For now, iterate
+            for (const item of updates) {
+                await onEdit(item);
+            }
+        }
 
-      const finalDB = [...nonConflictedOriginals, ...resolvedConflicts, ...cleanItems];
-      
-      onUpdate(finalDB);
-      
-      // Cleanup
-      setConflictItems([]);
-      setCleanItems([]);
-      setAiInput('');
-      setSelectedImage(null);
-      setShowConflictModal(false);
+        // Cleanup
+        setConflictItems([]);
+        setCleanItems([]);
+        setAiInput('');
+        setSelectedImage(null);
+        setShowConflictModal(false);
+        alert("Importación y actualizaciones completadas.");
+
+      } catch (error) {
+          console.error(error);
+          alert("Error al guardar los cambios de la importación.");
+      } finally {
+          setIsSaving(false);
+      }
   };
 
   const toggleConflictSelection = (index: number, selection: 'existing' | 'incoming') => {
@@ -198,8 +230,8 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex flex-col font-sans transition-colors duration-300">
       {/* Header */}
-      <div className="bg-white dark:bg-slate-800 shadow-sm px-8 py-6 flex items-center justify-between border-b border-slate-100 dark:border-slate-700 transition-colors">
-        <div className="flex items-center">
+      <div className="bg-white dark:bg-slate-800 shadow-sm px-8 py-6 flex flex-col md:flex-row items-center justify-between border-b border-slate-100 dark:border-slate-700 transition-colors gap-4">
+        <div className="flex items-center w-full md:w-auto">
             <button onClick={onBack} className="mr-6 p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 transition-colors">
             <ArrowLeft className="w-6 h-6" />
             </button>
@@ -207,26 +239,32 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
                 <h1 className="text-3xl font-extrabold text-slate-900 dark:text-white flex items-center gap-3">
                     <Database className="text-[#0047AB] dark:text-blue-400" /> Base de Precios
                 </h1>
-                <p className="text-sm text-slate-500 dark:text-slate-400 font-medium mt-1">Gestión de tarifas y materiales</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400 font-medium mt-1">Sincronizada en la nube</p>
             </div>
         </div>
-        <div className="flex gap-3">
+        <div className="flex gap-3 w-full md:w-auto overflow-x-auto pb-2 md:pb-0">
+            <button 
+                onClick={handleClearDatabase}
+                className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-100 dark:border-red-800 px-4 py-2.5 rounded-xl hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors flex items-center font-bold text-xs whitespace-nowrap"
+            >
+                <Trash2 className="w-4 h-4 mr-2" /> Eliminar Todo
+            </button>
             <button 
                 onClick={() => setShowAiModal(true)}
-                className="bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 border border-purple-100 dark:border-purple-800 px-5 py-2.5 rounded-xl hover:bg-purple-100 dark:hover:bg-purple-900/50 transition-colors flex items-center font-bold shadow-sm"
+                className="bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 border border-purple-100 dark:border-purple-800 px-5 py-2.5 rounded-xl hover:bg-purple-100 dark:hover:bg-purple-900/50 transition-colors flex items-center font-bold shadow-sm whitespace-nowrap"
             >
                 <Wand2 className="w-4 h-4 mr-2" /> Importar con IA
             </button>
             <button 
                 onClick={() => setEditingItem({ id: '', name: '', unit: 'ud', price: 0, category: 'Material' })}
-                className="bg-[#0047AB] text-white px-5 py-2.5 rounded-xl hover:bg-[#003380] transition-colors flex items-center font-bold shadow-lg shadow-blue-900/10"
+                className="bg-[#0047AB] text-white px-5 py-2.5 rounded-xl hover:bg-[#003380] transition-colors flex items-center font-bold shadow-lg shadow-blue-900/10 whitespace-nowrap"
             >
                 <Plus className="w-5 h-5 mr-2" /> Añadir Manual
             </button>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-8 max-w-7xl mx-auto w-full">
+      <div className="flex-1 overflow-y-auto p-4 md:p-8 max-w-7xl mx-auto w-full">
         
         {/* Search */}
         <div className="relative mb-8">
@@ -246,10 +284,10 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
                 <thead className="bg-slate-50 dark:bg-slate-700/50 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 uppercase text-xs tracking-wider">
                     <tr>
                         <th className="px-6 py-4 font-bold">Nombre</th>
-                        <th className="px-6 py-4 font-bold">Categoría</th>
-                        <th className="px-6 py-4 font-bold">Unidad</th>
-                        <th className="px-6 py-4 font-bold text-center">Descuento</th>
-                        <th className="px-6 py-4 font-bold text-right">Precio Tarifa</th>
+                        <th className="px-6 py-4 font-bold hidden md:table-cell">Categoría</th>
+                        <th className="px-6 py-4 font-bold hidden sm:table-cell">Unidad</th>
+                        <th className="px-6 py-4 font-bold text-center hidden sm:table-cell">Dto.</th>
+                        <th className="px-6 py-4 font-bold text-right">Precio</th>
                         <th className="px-6 py-4 font-bold text-right">Acciones</th>
                     </tr>
                 </thead>
@@ -257,13 +295,13 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
                     {filteredItems.map(item => (
                         <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 group transition-colors">
                             <td className="px-6 py-4 font-bold text-slate-800 dark:text-white">{item.name}</td>
-                            <td className="px-6 py-4 text-slate-500 dark:text-slate-400">
+                            <td className="px-6 py-4 text-slate-500 dark:text-slate-400 hidden md:table-cell">
                                 <span className="bg-slate-100 dark:bg-slate-700 px-2.5 py-1 rounded-md text-xs font-bold uppercase tracking-wide text-slate-600 dark:text-slate-300">
                                     {item.category}
                                 </span>
                             </td>
-                            <td className="px-6 py-4 text-slate-500 dark:text-slate-400 font-medium">{item.unit}</td>
-                            <td className="px-6 py-4 text-center">
+                            <td className="px-6 py-4 text-slate-500 dark:text-slate-400 font-medium hidden sm:table-cell">{item.unit}</td>
+                            <td className="px-6 py-4 text-center hidden sm:table-cell">
                                 {item.discount ? (
                                     <span className="text-green-600 dark:text-green-400 font-bold bg-green-50 dark:bg-green-900/30 px-2 py-1 rounded-lg text-xs">
                                         -{item.discount}%
@@ -293,7 +331,7 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
                     {filteredItems.length === 0 && (
                         <tr>
                             <td colSpan={6} className="px-6 py-16 text-center text-slate-400 dark:text-slate-500 font-medium">
-                                No se encontraron resultados.
+                                No se encontraron resultados en la nube.
                             </td>
                         </tr>
                     )}
@@ -334,7 +372,9 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
                       </div>
                       <div className="flex gap-4 mt-8">
                           <button type="button" onClick={() => setEditingItem(null)} className="flex-1 py-3 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-600 font-bold transition-colors">Cancelar</button>
-                          <button type="submit" className="flex-1 py-3 bg-[#0047AB] text-white rounded-xl hover:bg-[#003380] font-bold shadow-lg shadow-blue-900/20 transition-colors">Guardar</button>
+                          <button type="submit" disabled={isSaving} className="flex-1 py-3 bg-[#0047AB] text-white rounded-xl hover:bg-[#003380] font-bold shadow-lg shadow-blue-900/20 transition-colors flex items-center justify-center gap-2">
+                             {isSaving && <Loader2 className="w-4 h-4 animate-spin" />} Guardar
+                          </button>
                       </div>
                   </form>
               </div>
@@ -429,7 +469,7 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
                              <AlertCircle className="text-amber-500 w-6 h-6" /> Conflicto de Importación
                         </h2>
                         <p className="text-sm text-amber-700 dark:text-amber-400 mt-1">
-                            Algunos materiales importados ya existen. Elige qué versión conservar.
+                            Algunos materiales importados ya existen en la nube. Elige qué versión conservar.
                         </p>
                       </div>
                       <span className="bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 px-3 py-1 rounded-full text-xs font-bold">
@@ -451,7 +491,7 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
                                 }`}
                               >
                                   <div className="flex justify-between mb-2">
-                                      <span className="text-xs font-bold uppercase text-slate-400">Base Actual</span>
+                                      <span className="text-xs font-bold uppercase text-slate-400">Nube Actual</span>
                                       {conflict.selected === 'existing' && <CheckCircle className="w-4 h-4 text-blue-500" />}
                                   </div>
                                   <div className="font-bold text-slate-900 dark:text-white mb-1">{conflict.existing.name}</div>
@@ -522,8 +562,10 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
                       </button>
                       <button 
                           onClick={resolveConflicts}
-                          className="px-8 py-3 bg-[#0047AB] text-white font-bold rounded-xl hover:bg-[#003380] shadow-lg shadow-blue-900/20 transition-colors"
+                          disabled={isSaving}
+                          className="px-8 py-3 bg-[#0047AB] text-white font-bold rounded-xl hover:bg-[#003380] shadow-lg shadow-blue-900/20 transition-colors flex items-center gap-2"
                       >
+                          {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
                           Confirmar Selección
                       </button>
                   </div>
