@@ -6,9 +6,9 @@ import { Project, PriceItem } from "../types";
 const apiKey = 'AIzaSyAPt-4D6bA9qLK-BrijbJBcmnBU1ojXOA8';
 const genAI = new GoogleGenAI({ apiKey });
 
-// MODELO: Actualizado a Gemini 1.5 Pro (Versión Estable más potente).
-// Nota: "Gemini 3.5" no existe. Se usa 1.5 Pro que ofrece la mayor capacidad de razonamiento actual.
-const MODEL_NAME = 'gemini-1.5-pro';
+// MODELO: Actualizado a Gemini 2.5 Flash.
+// Este modelo ofrece una excelente relación velocidad/coste/inteligencia.
+const MODEL_NAME = 'gemini-2.5-flash';
 
 // --- SISTEMA DE CACHÉ ---
 // Almacena respuestas recientes para no gastar cuota en consultas repetidas.
@@ -43,8 +43,8 @@ class RequestQueue {
             const op = this.queue.shift();
             if (op) {
                 await op();
-                // Pausa aumentada a 4000ms para Gemini 1.5 Pro (Límite más estricto en capa gratuita)
-                await new Promise(r => setTimeout(r, 4000)); 
+                // Pausa reducida a 1000ms para Gemini 2.5 Flash (Más rápido y con mayor límite de cuota)
+                await new Promise(r => setTimeout(r, 1000)); 
             }
         }
         
@@ -144,7 +144,7 @@ const optimizeImage = (base64Str: string): Promise<string> => {
 /**
  * Wrapper para reintentar automáticamente si hay error de cuota (429) o sobrecarga (503).
  */
-const retryOperation = async <T>(operation: () => Promise<T>, retries = 3, delay = 5000): Promise<T> => {
+const retryOperation = async <T>(operation: () => Promise<T>, retries = 3, delay = 2000): Promise<T> => {
     try {
         return await operation();
     } catch (error: any) {
@@ -372,7 +372,7 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
             }
         });
 
-        console.log("Generando presupuesto con IA (Modelo Estable Pro)...");
+        console.log(`Generando presupuesto con IA (${MODEL_NAME})...`);
         const response = await retryOperation(operation) as GenerateContentResponse;
         
         // Logging para depuración en navegador
