@@ -1,8 +1,28 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Project, ProjectStatus, Transaction, ProjectDocument, ProjectType, PvData, Material, ElevatorData } from '../types';
-import { Plus, Search, Building2, MapPin, Camera, PieChart, Database, Upload, FileText, Menu, Moon, Sun, ChevronRight, X, Zap, Sun as SunIcon, Battery, Calendar, HardHat, Sparkles, LogOut, MoveVertical, Ruler, Layers } from 'lucide-react';
+import { Plus, Search, Building2, MapPin, Camera, PieChart, Database, Upload, FileText, Menu, Moon, Sun, ChevronRight, X, Zap, Sun as SunIcon, Battery, Calendar, HardHat, Sparkles, LogOut, Ruler, Layers } from 'lucide-react';
 import ScannerModal from './ScannerModal';
 import GlobalAssistant from './GlobalAssistant';
+
+const HangGlider = ({ className }: { className?: string }) => (
+  <svg 
+    xmlns="http://www.w3.org/2000/svg" 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    stroke="currentColor" 
+    strokeWidth="2" 
+    strokeLinecap="round" 
+    strokeLinejoin="round" 
+    className={className}
+  >
+    <path d="M22 10L12 2L2 10" />
+    <path d="M12 2v12" />
+    <path d="M12 14l-5 4" />
+    <path d="M12 14l5 4" />
+    <path d="M2 10l5 8" />
+    <path d="M22 10l-5 8" />
+  </svg>
+);
 
 interface ProjectListProps {
   projects: Project[];
@@ -208,7 +228,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
                   onClick={() => handleOpenCreateModal('Elevator')}
                   className="bg-rose-600 text-white px-5 py-3 rounded-xl hover:bg-rose-700 transition-all flex items-center font-semibold shadow-lg shadow-rose-600/20 transform hover:-translate-y-0.5"
               >
-                  <MoveVertical className="w-5 h-5 mr-2" /> <span className="hidden sm:inline">Válida</span>
+                  <HangGlider className="w-5 h-5 mr-2" /> <span className="hidden sm:inline">Válida</span>
               </button>
 
               {/* Menu Dropdown */}
@@ -381,7 +401,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
                       </div>
                   ) : project.type === 'Elevator' ? (
                       <div className="flex items-center gap-1.5 bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 px-2.5 py-1 rounded-lg border border-rose-100 dark:border-rose-800">
-                          <MoveVertical className="w-3.5 h-3.5" />
+                          <HangGlider className="w-3.5 h-3.5" />
                           <span className="text-[10px] font-bold uppercase">Válida</span>
                       </div>
                   ) : (
@@ -504,7 +524,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
               <div className="flex justify-between items-center mb-8">
                   <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
                       {modalType === 'Photovoltaic' && <SunIcon className="w-6 h-6 text-amber-500" />}
-                      {modalType === 'Elevator' && <MoveVertical className="w-6 h-6 text-rose-500" />}
+                      {modalType === 'Elevator' && <HangGlider className="w-6 h-6 text-rose-500" />}
                       {modalType === 'Photovoltaic' ? 'Nuevo Proyecto FV' : modalType === 'Elevator' ? 'Nueva Instalación Válida' : 'Nuevo Proyecto'}
                   </h2>
                   <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><X className="w-5 h-5"/></button>
@@ -576,7 +596,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
                 {modalType === 'Elevator' && (
                     <div className="bg-rose-50 dark:bg-rose-900/20 p-5 rounded-2xl border border-rose-100 dark:border-rose-800 space-y-4">
                         <h3 className="text-sm font-bold text-rose-700 dark:text-rose-500 uppercase tracking-wide flex items-center gap-2">
-                            <MoveVertical className="w-4 h-4" /> Configuración Elevador
+                            <HangGlider className="w-4 h-4" /> Configuración Elevador
                         </h3>
                         <div>
                              <label className="text-[10px] font-bold text-rose-700/70 dark:text-rose-400 uppercase">Tipo de Solución</label>
