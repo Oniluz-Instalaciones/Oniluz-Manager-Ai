@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Budget, BudgetItem, Project, PriceItem } from '../types';
 import { generateSmartBudget } from '../services/geminiService';
-import { Plus, Trash2, Wand2, FileText, Save, ChevronLeft, ArrowRight, Loader2, Database, Paperclip, Check, X, Percent, Euro, MessageSquareQuote } from 'lucide-react';
+import { Plus, Trash2, Wand2, FileText, Save, ChevronLeft, ArrowRight, Loader2, Database, Paperclip, Check, X, Percent, Euro } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 interface BudgetManagerProps {
@@ -34,8 +34,7 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
             date: new Date().toISOString().split('T')[0],
             status: 'Draft',
             items: [],
-            total: 0,
-            aiPrompt: ''
+            total: 0
         };
         setCurrentBudget(newBudget);
         setView('edit');
@@ -45,9 +44,7 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
     const handleEdit = (budget: Budget) => {
         setCurrentBudget({ ...budget });
         setView('edit');
-        // If the budget has a saved prompt, we can optionally pre-fill the AI box, 
-        // but it's better to leave the generator clean and show the saved prompt in the header.
-        setAiPrompt(''); 
+        setAiPrompt('');
     };
 
     const openAcceptModal = (budget: Budget) => {
@@ -179,12 +176,7 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
             
             if (currentBudget) {
                 const updatedItems = [...currentBudget.items, ...enrichedItems];
-                // IMPORTANT: Save the AI Prompt into the budget object
-                const updatedBudget = { 
-                    ...currentBudget, 
-                    items: updatedItems,
-                    aiPrompt: aiPrompt 
-                };
+                const updatedBudget = { ...currentBudget, items: updatedItems };
                 updateBudgetTotals(updatedBudget);
             }
         } catch (error) {
@@ -245,15 +237,14 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
         setIsSaving(true);
 
         try {
-            // 1. Upsert Budget (Header) - Now includes ai_prompt
+            // 1. Upsert Budget (Header)
             const { error: budgetError } = await supabase.from('budgets').upsert({
                 id: currentBudget.id,
                 project_id: project.id,
                 name: currentBudget.name,
                 date: currentBudget.date,
                 status: currentBudget.status,
-                total: currentBudget.total,
-                ai_prompt: currentBudget.aiPrompt // Persist the prompt
+                total: currentBudget.total
             });
 
             if (budgetError) throw budgetError;
@@ -531,19 +522,6 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                 {/* Main Content */}
                 <div className="lg:col-span-4 space-y-6">
                     
-                    {/* NEW SECTION: Saved AI Prompt Display */}
-                    <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm transition-colors">
-                        <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-3 flex items-center gap-2">
-                            <MessageSquareQuote className="w-4 h-4" /> Notas / Prompt Original
-                        </h3>
-                        <textarea
-                            value={currentBudget?.aiPrompt || ''}
-                            onChange={(e) => setCurrentBudget(currentBudget ? { ...currentBudget, aiPrompt: e.target.value } : null)}
-                            placeholder="Aquí se guardará la instrucción dada a la IA o puedes escribir notas manuales sobre este presupuesto..."
-                            className="w-full p-4 text-sm bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-slate-300 dark:focus:ring-slate-500 outline-none resize-none h-24 text-slate-700 dark:text-slate-300 transition-colors"
-                        />
-                    </div>
-
                     {/* AI Generator */}
                     <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-slate-800 dark:to-slate-800/50 p-6 rounded-2xl border border-blue-100 dark:border-slate-700 shadow-sm relative overflow-hidden transition-colors">
                         <div className="absolute top-0 right-0 w-32 h-32 bg-blue-200/20 dark:bg-blue-500/10 rounded-full blur-3xl -mr-16 -mt-16"></div>
