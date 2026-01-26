@@ -144,7 +144,7 @@ const ProjectCalendar: React.FC<ProjectCalendarProps> = ({ projects, onBack }) =
     };
 
     return (
-        <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex flex-col font-sans transition-colors duration-300">
+        <div className="min-h-screen bg-slate-100 dark:bg-slate-900 flex flex-col font-sans transition-colors duration-300">
             {/* Header */}
             <div className="bg-white dark:bg-slate-800 shadow-sm px-4 sm:px-8 py-4 border-b border-slate-100 dark:border-slate-700 transition-colors sticky top-0 z-40">
                 <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between gap-4">

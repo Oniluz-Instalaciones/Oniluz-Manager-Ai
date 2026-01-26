@@ -182,7 +182,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
 
   return (
     <>
-      <div className="p-6 max-w-7xl mx-auto pb-24 bg-slate-50 dark:bg-slate-900 min-h-screen transition-colors duration-300">
+      <div className="p-6 max-w-7xl mx-auto pb-24 bg-slate-100 dark:bg-slate-900 min-h-screen transition-colors duration-300">
         <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-6">
           <div>
             <h1 className="text-4xl font-extrabold text-slate-900 dark:text-white flex items-center gap-4 tracking-tight">
@@ -600,7 +600,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
                         </h3>
                         <div>
                              <label className="text-[10px] font-bold text-rose-700/70 dark:text-rose-400 uppercase">Tipo de Solución</label>
-                             <select name="solutionType" className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-700 rounded-lg text-sm">
+                             <select name="solutionType" className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-700 rounded-lg text-sm text-slate-900 dark:text-white">
                                  <option value="Silla Recta">Silla Salvaescaleras Recta</option>
                                  <option value="Silla Curva">Silla Salvaescaleras Curva</option>
                                  <option value="Plataforma">Plataforma Salvaescaleras</option>
@@ -610,11 +610,11 @@ const ProjectList: React.FC<ProjectListProps> = ({
                         <div className="flex gap-4">
                             <div className="w-1/2">
                                 <label className="text-[10px] font-bold text-rose-700/70 dark:text-rose-400 uppercase">Nº Plantas/Paradas</label>
-                                <input name="floors" type="number" min="1" required className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-700 rounded-lg text-sm" />
+                                <input name="floors" type="number" min="1" required className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-700 rounded-lg text-sm text-slate-900 dark:text-white" />
                             </div>
                             <div className="w-1/2">
                                 <label className="text-[10px] font-bold text-rose-700/70 dark:text-rose-400 uppercase">Ubicación</label>
-                                <select name="elevatorLocation" className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-700 rounded-lg text-sm">
+                                <select name="elevatorLocation" className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-700 rounded-lg text-sm text-slate-900 dark:text-white">
                                     <option value="Interior">Interior</option>
                                     <option value="Intemperie">Intemperie (Exterior)</option>
                                 </select>
@@ -625,12 +625,12 @@ const ProjectList: React.FC<ProjectListProps> = ({
                                 <label className="text-[10px] font-bold text-rose-700/70 dark:text-rose-400 uppercase">Ancho Escalera (cm)</label>
                                 <div className="relative">
                                     <Ruler className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" />
-                                    <input name="stairWidth" type="number" placeholder="Ej: 80" className="w-full mt-1 pl-7 p-2 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-700 rounded-lg text-sm" />
+                                    <input name="stairWidth" type="number" placeholder="Ej: 80" className="w-full mt-1 pl-7 p-2 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-700 rounded-lg text-sm text-slate-900 dark:text-white" />
                                 </div>
                             </div>
                              <div className="w-1/2">
                                 <label className="text-[10px] font-bold text-rose-700/70 dark:text-rose-400 uppercase">Lado Aparcamiento</label>
-                                <select name="parkingSide" className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-700 rounded-lg text-sm">
+                                <select name="parkingSide" className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-700 rounded-lg text-sm text-slate-900 dark:text-white">
                                     <option value="Derecha">Derecha</option>
                                     <option value="Izquierda">Izquierda</option>
                                 </select>
@@ -638,7 +638,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
                         </div>
                         <div>
                              <label className="text-[10px] font-bold text-rose-700/70 dark:text-rose-400 uppercase">Material Escalera (Fijación)</label>
-                             <select name="stairMaterial" className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-700 rounded-lg text-sm">
+                             <select name="stairMaterial" className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-700 rounded-lg text-sm text-slate-900 dark:text-white">
                                  <option value="Hormigón">Hormigón / Obra</option>
                                  <option value="Madera">Madera</option>
                                  <option value="Metal">Metálica</option>

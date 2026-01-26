@@ -218,7 +218,7 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onAdd, onEdit, onD
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex flex-col font-sans transition-colors duration-300">
+    <div className="min-h-screen bg-slate-100 dark:bg-slate-900 flex flex-col font-sans transition-colors duration-300">
       {/* Header */}
       <div className="bg-white dark:bg-slate-800 shadow-sm px-4 sm:px-8 py-6 flex flex-col md:flex-row items-center justify-between border-b border-slate-100 dark:border-slate-700 transition-colors gap-4 sticky top-0 z-20">
         <div className="flex items-center w-full md:w-auto">
