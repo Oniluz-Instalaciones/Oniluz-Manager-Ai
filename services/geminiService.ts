@@ -6,8 +6,9 @@ import { Project, PriceItem } from "../types";
 const apiKey = 'AIzaSyAPt-4D6bA9qLK-BrijbJBcmnBU1ojXOA8';
 const genAI = new GoogleGenAI({ apiKey });
 
-// MODELO: Cambiado a 1.5 Flash (Estable) para evitar errores 503 y asegurar disponibilidad.
-const MODEL_NAME = 'gemini-1.5-flash';
+// MODELO: Actualizado a Gemini 1.5 Pro (Versión Estable más potente).
+// Nota: "Gemini 3.5" no existe. Se usa 1.5 Pro que ofrece la mayor capacidad de razonamiento actual.
+const MODEL_NAME = 'gemini-1.5-pro';
 
 // --- SISTEMA DE CACHÉ ---
 // Almacena respuestas recientes para no gastar cuota en consultas repetidas.
@@ -42,8 +43,8 @@ class RequestQueue {
             const op = this.queue.shift();
             if (op) {
                 await op();
-                // Pausa ajustada para la versión estable
-                await new Promise(r => setTimeout(r, 1000)); 
+                // Pausa aumentada a 4000ms para Gemini 1.5 Pro (Límite más estricto en capa gratuita)
+                await new Promise(r => setTimeout(r, 4000)); 
             }
         }
         
@@ -143,7 +144,7 @@ const optimizeImage = (base64Str: string): Promise<string> => {
 /**
  * Wrapper para reintentar automáticamente si hay error de cuota (429) o sobrecarga (503).
  */
-const retryOperation = async <T>(operation: () => Promise<T>, retries = 3, delay = 2000): Promise<T> => {
+const retryOperation = async <T>(operation: () => Promise<T>, retries = 3, delay = 5000): Promise<T> => {
     try {
         return await operation();
     } catch (error: any) {
@@ -261,7 +262,7 @@ export const chatWithAssistant = async (message: string, context?: string): Prom
             model: MODEL_NAME,
             contents: message,
             config: {
-                // Pasamos el contexto como instrucción de sistema para mejor rendimiento en Gemini 3
+                // Pasamos el contexto como instrucción de sistema para mejor rendimiento
                 systemInstruction: context || 'Eres un asistente útil para gestión de obras eléctricas.'
             }
         });
@@ -371,7 +372,7 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
             }
         });
 
-        console.log("Generando presupuesto con IA (Modelo Estable)...");
+        console.log("Generando presupuesto con IA (Modelo Estable Pro)...");
         const response = await retryOperation(operation) as GenerateContentResponse;
         
         // Logging para depuración en navegador
