@@ -393,7 +393,8 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
 export const parseMaterialsFromInput = async (textInput: string): Promise<PriceItem[]> => {
     return apiQueue.add(async () => {
         try {
-            const prompt = `Extrae una lista de materiales de este texto: "${textInput}".`;
+            const prompt = `Extrae una lista de materiales de este texto: "${textInput}".
+            Si detectas algún descuento (ej: -20%, dto 15%), extrae el porcentaje numérico en el campo 'discount'.`;
             
             const materialsSchema = {
                 type: Type.ARRAY,
@@ -403,7 +404,8 @@ export const parseMaterialsFromInput = async (textInput: string): Promise<PriceI
                         name: { type: Type.STRING },
                         unit: { type: Type.STRING },
                         price: { type: Type.NUMBER },
-                        category: { type: Type.STRING }
+                        category: { type: Type.STRING },
+                        discount: { type: Type.NUMBER, description: "Descuento en porcentaje (0-100)" }
                     },
                     required: ["name", "unit", "price", "category"]
                 }
@@ -441,7 +443,8 @@ export const parseMaterialsFromImage = async (base64Image: string): Promise<Pric
                         name: { type: Type.STRING },
                         unit: { type: Type.STRING },
                         price: { type: Type.NUMBER },
-                        category: { type: Type.STRING }
+                        category: { type: Type.STRING },
+                        discount: { type: Type.NUMBER, description: "Descuento en porcentaje (0-100)" }
                     },
                     required: ["name", "unit", "price", "category"]
                 }
@@ -452,7 +455,7 @@ export const parseMaterialsFromImage = async (base64Image: string): Promise<Pric
                 contents: {
                     parts: [
                         { inlineData: { mimeType: 'image/jpeg', data: cleanData } },
-                        { text: "Identifica los materiales, precios y unidades en esta imagen de tarifa o catálogo." }
+                        { text: "Identifica los materiales, precios y unidades en esta imagen de tarifa o catálogo. Si hay columna de descuento, extráelo." }
                     ]
                 },
                 config: {

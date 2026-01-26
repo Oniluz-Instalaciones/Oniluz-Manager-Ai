@@ -1,12 +1,18 @@
 import React, { useState, useRef } from 'react';
 import { PriceItem } from '../types';
-import { ArrowLeft, Search, Plus, Save, Trash2, Wand2, Loader2, Database, Download, Upload, X, ImageIcon } from 'lucide-react';
+import { ArrowLeft, Search, Plus, Save, Trash2, Wand2, Loader2, Database, Download, Upload, X, ImageIcon, AlertCircle, ArrowRight, CheckCircle, Percent } from 'lucide-react';
 import { parseMaterialsFromInput, parseMaterialsFromImage } from '../services/geminiService';
 
 interface PriceDatabaseProps {
   items: PriceItem[];
   onUpdate: (items: PriceItem[]) => void;
   onBack: () => void;
+}
+
+interface ConflictItem {
+    existing: PriceItem;
+    incoming: PriceItem;
+    selected: 'existing' | 'incoming';
 }
 
 const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }) => {
@@ -16,6 +22,12 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
   const [isProcessingAI, setIsProcessingAI] = useState(false);
   const [showAiModal, setShowAiModal] = useState(false);
   const [editingItem, setEditingItem] = useState<PriceItem | null>(null);
+  
+  // States for Conflict Resolution
+  const [conflictItems, setConflictItems] = useState<ConflictItem[]>([]);
+  const [cleanItems, setCleanItems] = useState<PriceItem[]>([]);
+  const [showConflictModal, setShowConflictModal] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Filters
@@ -40,6 +52,7 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
       unit: formData.get('unit') as string,
       price: Number(formData.get('price')),
       category: formData.get('category') as string,
+      discount: Number(formData.get('discount')) || undefined
     };
 
     if (editingItem) {
@@ -61,39 +74,107 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
       }
   };
 
-  // AI Import
+  // AI Import Logic with Duplication Check
   const handleAiImport = async () => {
     if (!aiInput.trim() && !selectedImage) return;
     setIsProcessingAI(true);
     try {
-      let newItems: PriceItem[] = [];
+      let importedItems: PriceItem[] = [];
       
       if (selectedImage) {
           const imageItems = await parseMaterialsFromImage(selectedImage);
-          newItems = [...newItems, ...imageItems];
+          importedItems = [...importedItems, ...imageItems];
       }
       
       if (aiInput.trim()) {
           const textItems = await parseMaterialsFromInput(aiInput);
-          newItems = [...newItems, ...textItems];
+          importedItems = [...importedItems, ...textItems];
       }
 
-      // Merge strategy: Add new ones
-      if (newItems.length > 0) {
-        onUpdate([...newItems, ...items]);
-        setAiInput('');
-        setSelectedImage(null);
-        setShowAiModal(false);
-        alert(`Se han importado ${newItems.length} artículos correctamente.`);
-      } else {
+      if (importedItems.length === 0) {
           alert("No se encontraron artículos válidos.");
+          setIsProcessingAI(false);
+          return;
       }
+
+      // 1. Logic to check for duplicates
+      const conflicts: ConflictItem[] = [];
+      const safeItems: PriceItem[] = [];
+
+      importedItems.forEach(newItem => {
+          // Normalize name for comparison
+          const existingMatch = items.find(dbItem => 
+              dbItem.name.trim().toLowerCase() === newItem.name.trim().toLowerCase()
+          );
+
+          if (existingMatch) {
+              conflicts.push({
+                  existing: existingMatch,
+                  incoming: { ...newItem, id: crypto.randomUUID() }, // Temp ID
+                  selected: 'existing' // Default select existing
+              });
+          } else {
+              safeItems.push({ ...newItem, id: crypto.randomUUID() });
+          }
+      });
+
+      setCleanItems(safeItems);
+      setConflictItems(conflicts);
+
+      // 2. Decide next step
+      if (conflicts.length > 0) {
+          setShowConflictModal(true);
+          setShowAiModal(false); // Close AI modal, show Conflict modal
+      } else {
+          // No conflicts, direct update
+          onUpdate([...items, ...safeItems]);
+          setAiInput('');
+          setSelectedImage(null);
+          setShowAiModal(false);
+          alert(`Se han importado ${safeItems.length} artículos correctamente.`);
+      }
+
     } catch (error) {
       alert("Error al procesar con IA. Verifica el formato o inténtalo de nuevo.");
       console.error(error);
     } finally {
       setIsProcessingAI(false);
     }
+  };
+
+  const resolveConflicts = () => {
+      // Merge:
+      // 1. Items that didn't conflict (cleanItems)
+      // 2. Items from database that didn't match any import (items that are NOT in conflicts)
+      // 3. The SELECTED version of the conflicted items
+
+      const resolvedConflicts = conflictItems.map(c => 
+          c.selected === 'incoming' 
+          ? { ...c.incoming, id: c.existing.id } // If using new data, keep old ID to preserve refs? Or keep new data fully? Let's overwrite data on old ID.
+          : c.existing
+      );
+
+      // Filter out original versions of conflicted items from the main list, then add the resolved versions
+      const nonConflictedOriginals = items.filter(original => 
+          !conflictItems.some(c => c.existing.id === original.id)
+      );
+
+      const finalDB = [...nonConflictedOriginals, ...resolvedConflicts, ...cleanItems];
+      
+      onUpdate(finalDB);
+      
+      // Cleanup
+      setConflictItems([]);
+      setCleanItems([]);
+      setAiInput('');
+      setSelectedImage(null);
+      setShowConflictModal(false);
+  };
+
+  const toggleConflictSelection = (index: number, selection: 'existing' | 'incoming') => {
+      const updated = [...conflictItems];
+      updated[index].selected = selection;
+      setConflictItems(updated);
   };
 
   return (
@@ -149,6 +230,7 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
                         <th className="px-6 py-4 font-bold">Nombre</th>
                         <th className="px-6 py-4 font-bold">Categoría</th>
                         <th className="px-6 py-4 font-bold">Unidad</th>
+                        <th className="px-6 py-4 font-bold text-center">Descuento</th>
                         <th className="px-6 py-4 font-bold text-right">Precio Unitario</th>
                         <th className="px-6 py-4 font-bold text-right">Acciones</th>
                     </tr>
@@ -163,6 +245,15 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
                                 </span>
                             </td>
                             <td className="px-6 py-4 text-slate-500 dark:text-slate-400 font-medium">{item.unit}</td>
+                            <td className="px-6 py-4 text-center">
+                                {item.discount ? (
+                                    <span className="text-green-600 dark:text-green-400 font-bold bg-green-50 dark:bg-green-900/30 px-2 py-1 rounded-lg text-xs">
+                                        -{item.discount}%
+                                    </span>
+                                ) : (
+                                    <span className="text-slate-300 dark:text-slate-600">-</span>
+                                )}
+                            </td>
                             <td className="px-6 py-4 text-right font-mono font-bold text-slate-900 dark:text-white text-base">{item.price.toFixed(2)}€</td>
                             <td className="px-6 py-4 text-right">
                                 <div className="flex justify-end gap-3 opacity-0 group-hover:opacity-100 transition-all">
@@ -174,7 +265,7 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
                     ))}
                     {filteredItems.length === 0 && (
                         <tr>
-                            <td colSpan={5} className="px-6 py-16 text-center text-slate-400 dark:text-slate-500 font-medium">
+                            <td colSpan={6} className="px-6 py-16 text-center text-slate-400 dark:text-slate-500 font-medium">
                                 No se encontraron resultados.
                             </td>
                         </tr>
@@ -204,9 +295,15 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
                               <input name="unit" defaultValue={editingItem.unit} required className="w-full mt-2 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-[#0047AB] transition-colors" />
                           </div>
                       </div>
-                      <div>
-                          <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Categoría</label>
-                          <input name="category" defaultValue={editingItem.category} required className="w-full mt-2 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-[#0047AB] transition-colors" />
+                      <div className="flex gap-4">
+                          <div className="w-1/2">
+                              <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Categoría</label>
+                              <input name="category" defaultValue={editingItem.category} required className="w-full mt-2 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-[#0047AB] transition-colors" />
+                          </div>
+                          <div className="w-1/2">
+                              <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Descuento (%)</label>
+                              <input name="discount" type="number" defaultValue={editingItem.discount} className="w-full mt-2 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-[#0047AB] transition-colors" />
+                          </div>
                       </div>
                       <div className="flex gap-4 mt-8">
                           <button type="button" onClick={() => setEditingItem(null)} className="flex-1 py-3 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-600 font-bold transition-colors">Cancelar</button>
@@ -228,7 +325,7 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
                       <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Importar Precios con IA</h2>
                   </div>
                   <p className="text-sm text-slate-600 dark:text-slate-400 mb-6 font-medium leading-relaxed">
-                      Sube una foto de una tarifa o pega el texto directamente. La IA detectará los artículos y actualizará tu base de datos automáticamente.
+                      Sube una foto de una tarifa o pega el texto directamente. La IA detectará los artículos, precios y descuentos automáticamente.
                   </p>
                   
                   {/* Image Upload Area */}
@@ -276,7 +373,7 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
                   <textarea 
                     value={aiInput}
                     onChange={(e) => setAiInput(e.target.value)}
-                    placeholder="Ejemplo: Cable RV-K 3x1.5mm a 0.85€/m, Interruptor automático 16A 8.50€..."
+                    placeholder="Ejemplo: Cable RV-K 3x1.5mm a 0.85€/m -20%, Interruptor automático 16A 8.50€..."
                     className="w-full h-32 p-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-purple-500 outline-none mb-6 resize-none transition-colors"
                   ></textarea>
                   
@@ -289,6 +386,104 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onUpdate, onBack }
                       >
                           {isProcessingAI ? <Loader2 className="w-5 h-5 animate-spin" /> : <Download className="w-5 h-5" />}
                           {isProcessingAI ? 'Procesando...' : 'Procesar'}
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* Conflict Resolution Modal */}
+      {showConflictModal && (
+          <div className="fixed inset-0 bg-slate-900/80 flex items-center justify-center p-4 z-[60] backdrop-blur-md">
+              <div className="bg-white dark:bg-slate-800 rounded-3xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl border border-slate-100 dark:border-slate-700">
+                  <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-amber-50 dark:bg-amber-900/20 rounded-t-3xl">
+                      <div>
+                        <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                             <AlertCircle className="text-amber-500 w-6 h-6" /> Conflicto de Importación
+                        </h2>
+                        <p className="text-sm text-amber-700 dark:text-amber-400 mt-1">
+                            Algunos materiales importados ya existen. Elige qué versión conservar.
+                        </p>
+                      </div>
+                      <span className="bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 px-3 py-1 rounded-full text-xs font-bold">
+                          {conflictItems.length} Conflictos
+                      </span>
+                  </div>
+                  
+                  <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                      {conflictItems.map((conflict, idx) => (
+                          <div key={idx} className="flex flex-col md:flex-row gap-4 items-center bg-slate-50 dark:bg-slate-900/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                              
+                              {/* Existing Side */}
+                              <div 
+                                onClick={() => toggleConflictSelection(idx, 'existing')}
+                                className={`flex-1 w-full p-4 rounded-xl border-2 cursor-pointer transition-all ${
+                                    conflict.selected === 'existing' 
+                                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
+                                    : 'border-transparent bg-white dark:bg-slate-800 hover:border-slate-300 dark:hover:border-slate-600'
+                                }`}
+                              >
+                                  <div className="flex justify-between mb-2">
+                                      <span className="text-xs font-bold uppercase text-slate-400">Base Actual</span>
+                                      {conflict.selected === 'existing' && <CheckCircle className="w-4 h-4 text-blue-500" />}
+                                  </div>
+                                  <div className="font-bold text-slate-900 dark:text-white mb-1">{conflict.existing.name}</div>
+                                  <div className="flex justify-between items-end">
+                                      <div className="text-2xl font-mono text-slate-700 dark:text-slate-300">{conflict.existing.price}€</div>
+                                      {conflict.existing.discount && (
+                                          <span className="text-xs bg-slate-200 dark:bg-slate-700 px-2 py-0.5 rounded text-slate-600 dark:text-slate-400">-{conflict.existing.discount}%</span>
+                                      )}
+                                  </div>
+                              </div>
+
+                              <ArrowRight className="text-slate-400 hidden md:block" />
+
+                              {/* Incoming Side */}
+                              <div 
+                                onClick={() => toggleConflictSelection(idx, 'incoming')}
+                                className={`flex-1 w-full p-4 rounded-xl border-2 cursor-pointer transition-all ${
+                                    conflict.selected === 'incoming' 
+                                    ? 'border-green-500 bg-green-50 dark:bg-green-900/20' 
+                                    : 'border-transparent bg-white dark:bg-slate-800 hover:border-slate-300 dark:hover:border-slate-600'
+                                }`}
+                              >
+                                  <div className="flex justify-between mb-2">
+                                      <span className="text-xs font-bold uppercase text-slate-400">Importado (IA)</span>
+                                      {conflict.selected === 'incoming' && <CheckCircle className="w-4 h-4 text-green-500" />}
+                                  </div>
+                                  <div className="font-bold text-slate-900 dark:text-white mb-1">{conflict.incoming.name}</div>
+                                  <div className="flex justify-between items-end">
+                                      <div className={`text-2xl font-mono ${conflict.incoming.price < conflict.existing.price ? 'text-green-600 dark:text-green-400' : 'text-slate-700 dark:text-slate-300'}`}>
+                                          {conflict.incoming.price}€
+                                      </div>
+                                      {conflict.incoming.discount && (
+                                          <div className="flex items-center gap-1 text-xs bg-green-100 dark:bg-green-900/40 px-2 py-0.5 rounded text-green-700 dark:text-green-300 font-bold">
+                                              <Percent className="w-3 h-3" /> {conflict.incoming.discount}% detectado
+                                          </div>
+                                      )}
+                                  </div>
+                              </div>
+
+                          </div>
+                      ))}
+                  </div>
+
+                  <div className="p-6 border-t border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 rounded-b-3xl flex justify-end gap-4">
+                      <button 
+                          onClick={() => {
+                              setShowConflictModal(false); 
+                              setConflictItems([]);
+                              setCleanItems([]); // Clear pending imports too? Or just cancel conflicts? Let's cancel all to be safe.
+                          }}
+                          className="px-6 py-3 text-slate-600 dark:text-slate-400 font-bold hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-colors"
+                      >
+                          Cancelar Importación
+                      </button>
+                      <button 
+                          onClick={resolveConflicts}
+                          className="px-8 py-3 bg-[#0047AB] text-white font-bold rounded-xl hover:bg-[#003380] shadow-lg shadow-blue-900/20 transition-colors"
+                      >
+                          Confirmar Selección
                       </button>
                   </div>
               </div>

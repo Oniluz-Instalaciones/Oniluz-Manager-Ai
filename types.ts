@@ -1,3 +1,4 @@
+
 export enum ProjectStatus {
   PLANNING = 'En Planificación',
   IN_PROGRESS = 'En Curso',
@@ -59,6 +60,7 @@ export interface PriceItem {
   unit: string;
   price: number;
   category: string;
+  discount?: number; // Percentage discount detected by AI
 }
 
 export interface BudgetItem {
