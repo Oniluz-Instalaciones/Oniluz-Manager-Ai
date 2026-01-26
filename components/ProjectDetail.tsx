@@ -403,8 +403,8 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                 <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 flex flex-col items-center">
                     <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-2 w-full text-left uppercase tracking-wider">Desglose de Gastos</h3>
                     {financialData.length > 0 ? (
-                        <div className="h-[200px] w-full">
-                          <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+                        <div className="h-[200px] w-full min-h-[200px] min-w-0">
+                          <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
                               <Pie data={financialData} cx="50%" cy="50%" innerRadius={40} outerRadius={60} paddingAngle={5} dataKey="value" stroke="none">
                                 {financialData.map((entry, index) => (

@@ -6,8 +6,8 @@ import { Project, PriceItem } from "../types";
 const apiKey = 'AIzaSyAPt-4D6bA9qLK-BrijbJBcmnBU1ojXOA8';
 const genAI = new GoogleGenAI({ apiKey });
 
-// MODELO: Actualizado a Gemini 3 Flash (El más rápido y capaz actualmente)
-const MODEL_NAME = 'gemini-3-flash-preview';
+// MODELO: Cambiado a 1.5 Flash (Estable) para evitar errores 503 y asegurar disponibilidad.
+const MODEL_NAME = 'gemini-1.5-flash';
 
 // --- SISTEMA DE CACHÉ ---
 // Almacena respuestas recientes para no gastar cuota en consultas repetidas.
@@ -42,8 +42,8 @@ class RequestQueue {
             const op = this.queue.shift();
             if (op) {
                 await op();
-                // Pausa reducida a 800ms porque Gemini 3 es más rápido y eficiente
-                await new Promise(r => setTimeout(r, 800)); 
+                // Pausa ajustada para la versión estable
+                await new Promise(r => setTimeout(r, 1000)); 
             }
         }
         
@@ -141,17 +141,17 @@ const optimizeImage = (base64Str: string): Promise<string> => {
 };
 
 /**
- * Wrapper para reintentar automáticamente si hay error de cuota (429).
+ * Wrapper para reintentar automáticamente si hay error de cuota (429) o sobrecarga (503).
  */
 const retryOperation = async <T>(operation: () => Promise<T>, retries = 3, delay = 2000): Promise<T> => {
     try {
         return await operation();
     } catch (error: any) {
         const errorStr = error.toString();
-        const isQuota = errorStr.includes('429') || (error.status === 429) || errorStr.includes('Resource has been exhausted');
+        const isTransient = errorStr.includes('429') || errorStr.includes('503') || (error.status === 429) || (error.status === 503);
         
-        if (retries > 0 && isQuota) {
-            console.warn(`Cuota excedida (429). Reintentando en ${delay}ms... (Intentos restantes: ${retries})`);
+        if (retries > 0 && isTransient) {
+            console.warn(`Error transitorio (${error.status || 'red'}). Reintentando en ${delay}ms... (Intentos restantes: ${retries})`);
             await new Promise(r => setTimeout(r, delay));
             return retryOperation(operation, retries - 1, delay * 2); // Backoff exponencial
         }
@@ -319,22 +319,22 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
     return apiQueue.add(async () => {
         // No try/catch here to allow errors to propagate to UI for debugging
         
-        // Contexto de precios para que la IA use precios reales
+        // Contexto de precios
         const priceContext = currentPrices.slice(0, 100).map(p => `- ${p.name} (Categoría: ${p.category}): ${p.price}€/${p.unit}`).join('\n');
         
-        // Usamos systemInstruction para definir la EXPERIENCIA del modelo (Característica clave de Gemini 3)
-        const systemInstruction = `Actúa como un INGENIERO ELÉCTRICO EXPERTO EN EL REBT (Reglamento Electrotécnico para Baja Tensión de España).
-        Tu tarea es generar un presupuesto técnico y detallado.
+        // System instruction robusta para el modelo estable
+        const systemInstruction = `Actúa como un INGENIERO ELÉCTRICO y FOTOVOLTAICO EXPERTO.
+        Tu tarea es generar un presupuesto técnico y detallado basado en la solicitud del usuario.
 
-        ### REGLAS OBLIGATORIAS:
-        1. CLASIFICACIÓN: Determina si es Electrificación Básica o Elevada.
-        2. CÁLCULO: Calcula secciones mínimas de cable y protecciones según REBT.
-        3. PRECIOS: Prioriza la BASE DE DATOS PROPIA proporcionada. Si no existe, estima precio de mercado España.
-        4. SALIDA: Devuelve ÚNICAMENTE un Array JSON válido.`;
+        ### REGLAS CRÍTICAS DE GENERACIÓN:
+        1. **PRIORIDAD DE BASE DE DATOS**: Usa los precios proporcionados en "BASE DE DATOS PROPIA" siempre que sea posible.
+        2. **GENERACIÓN INTELIGENTE**: Si el usuario pide algo específico (ej: "8 paneles solares", "Batería 10kW") y NO está en la base de datos propia, **IGNORA la restricción de la base de datos y GENERA la partida** con un precio de mercado estimado realista en España.
+        3. **DETALLE TÉCNICO**: Incluye pequeños materiales (cableado, protecciones DC/AC, estructura) si son necesarios para que la instalación sea funcional según REBT.
+        4. **SALIDA**: Devuelve ÚNICAMENTE un Array JSON válido.`;
 
-        const prompt = `Genera presupuesto para: "${description}".
+        const prompt = `Genera presupuesto detallado para: "${description}".
         
-        ### BASE DE DATOS PROPIA:
+        ### BASE DE DATOS PROPIA (Usar como referencia, pero complementar si falta material específico):
         ${priceContext}`;
 
         const parts: any[] = [{ text: prompt }];
@@ -344,7 +344,7 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
                 parts.push({ inlineData: { mimeType: 'image/jpeg', data: optimizedImg } });
         }
 
-        // Definimos el Schema Estricto para asegurar que la IA no falle en el formato
+        // Schema estricto
         const budgetSchema = {
             type: Type.ARRAY,
             items: {
@@ -364,14 +364,14 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
             model: MODEL_NAME,
             contents: { parts },
             config: {
-                temperature: 0.1, // Baja temperatura para rigor técnico
+                temperature: 0.2, 
                 systemInstruction: systemInstruction,
-                responseMimeType: 'application/json', // Forzamos JSON
+                responseMimeType: 'application/json',
                 responseSchema: budgetSchema
             }
         });
 
-        console.log("Generando presupuesto con IA...");
+        console.log("Generando presupuesto con IA (Modelo Estable)...");
         const response = await retryOperation(operation) as GenerateContentResponse;
         
         // Logging para depuración en navegador
