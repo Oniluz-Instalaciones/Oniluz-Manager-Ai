@@ -178,8 +178,9 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                 id: crypto.randomUUID(),
                 name: item.name,
                 unit: item.unit,
-                quantity: item.quantity,
-                pricePerUnit: item.pricePerUnit,
+                // Robust Fallbacks to prevent NaN
+                quantity: Number(item.quantity) || 1,
+                pricePerUnit: Number(item.pricePerUnit) || 0,
                 category: item.category
             }));
             
@@ -660,7 +661,7 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                                             />
                                         </td>
                                         <td className="px-4 py-3 text-right font-bold text-slate-900 dark:text-white">
-                                            {(item.quantity * item.pricePerUnit).toFixed(2)}€
+                                            {((item.quantity || 0) * (item.pricePerUnit || 0)).toFixed(2)}€
                                         </td>
                                         <td className="px-4 py-3 text-center">
                                             <button onClick={() => handleDeleteItem(item.id)} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all p-2 rounded hover:bg-red-50 dark:hover:bg-red-900/30">

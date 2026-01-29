@@ -77,6 +77,20 @@ const cleanAndParseJSON = (text: string): any => {
     }
 };
 
+// Helper function to safely convert any potential number string to a valid float
+const sanitizeNumber = (value: any): number => {
+    if (typeof value === 'number' && !isNaN(value)) return value;
+    if (!value) return 0;
+    
+    // Convert to string, replace commas with dots (European format), remove currency symbols and non-numeric chars except dot/minus
+    const cleanStr = String(value)
+        .replace(',', '.')
+        .replace(/[^0-9.-]/g, '');
+        
+    const parsed = parseFloat(cleanStr);
+    return isNaN(parsed) ? 0 : parsed;
+};
+
 const optimizeImage = (base64Str: string): Promise<string> => {
     return new Promise((resolve) => {
         if (!base64Str.startsWith('data:image')) {
@@ -175,7 +189,7 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
         let result;
         try { result = JSON.parse(response.text || "{}"); } catch { result = cleanAndParseJSON(response.text || "{}"); }
         
-        if (result) return { ...fallbackData, ...result, total: Number(result.total) || 0, iva: Number(result.iva) || 0 };
+        if (result) return { ...fallbackData, ...result, total: sanitizeNumber(result.total), iva: sanitizeNumber(result.iva) };
         throw new Error("JSON inválido");
       } catch (error: any) {
         const isQuotaError = error.toString().includes('429') || (error.status === 429);
@@ -234,6 +248,7 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
         1. PRIMERO: Busca en la lista 'PRECIOS_REFERENCIA' que te proporcionaré. Si el material existe o es muy similar, DEBES USAR ESE PRECIO EXACTO y UNIDAD.
         2. SEGUNDO: Si el material NO está en la lista de referencia, estima un PRECIO DE MERCADO MEDIO REALISTA en España. NO pongas precios a 0€ ni inventes precios absurdos.
         3. Clasifica correctamente: Material, Mano de Obra, Maquinaria.
+        4. IMPORTANTE: Devuelve números puros para precios y cantidades (ej: 10.50), NO uses comas ni símbolos de moneda en el JSON.
         
         Genera un array JSON con las partidas necesarias para cumplir con la descripción solicitada.`;
         
@@ -266,7 +281,6 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
         const operation = () => genAI.models.generateContent({
             model: MODEL_NAME,
             contents: { parts },
-            // FIX: Removed 'tools: [{ googleSearch: {} }]' to prevent 400 INVALID_ARGUMENT when used with responseMimeType 'application/json'
             config: { 
                 temperature: 0.3, 
                 systemInstruction, 
@@ -283,7 +297,15 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
             console.warn("JSON parse failed, attempting cleanup", e);
             result = cleanAndParseJSON(response.text || "[]");
         }
-        return Array.isArray(result) ? result : [];
+        
+        const rawItems = Array.isArray(result) ? result : [];
+        
+        // Critical Step: Sanitize and validate numbers to prevent NaN
+        return rawItems.map((item: any) => ({
+            ...item,
+            quantity: sanitizeNumber(item.quantity),
+            pricePerUnit: sanitizeNumber(item.pricePerUnit)
+        }));
     });
 };
 
@@ -323,7 +345,13 @@ export const parseMaterialsFromInput = async (textInput: string): Promise<PriceI
 
             const response = await retryOperation(operation) as GenerateContentResponse;
             const result = JSON.parse(response.text || "[]");
-            return Array.isArray(result) ? result : [];
+            const rawItems = Array.isArray(result) ? result : [];
+            
+            return rawItems.map((item: any) => ({
+                ...item,
+                price: sanitizeNumber(item.price),
+                discount: sanitizeNumber(item.discount)
+            }));
         } catch (e) {
             console.error("Error parsing materials text:", e);
             return [];
@@ -374,7 +402,13 @@ export const parseMaterialsFromImage = async (base64Image: string): Promise<Pric
 
             const response = await retryOperation(operation) as GenerateContentResponse;
             const result = JSON.parse(response.text || "[]");
-            return Array.isArray(result) ? result : [];
+            const rawItems = Array.isArray(result) ? result : [];
+            
+            return rawItems.map((item: any) => ({
+                ...item,
+                price: sanitizeNumber(item.price),
+                discount: sanitizeNumber(item.discount)
+            }));
         } catch (e) {
             console.error("Error parsing materials image:", e);
             return [];
