@@ -3,7 +3,7 @@ import { Project, PriceItem } from "../types";
 
 // --- CONFIGURACIÓN DE API ---
 // Se utiliza la librería moderna @google/genai.
-const apiKey = 'AIzaSyAPt-4D6bA9qLK-BrijbJBcmnBU1ojXOA8';
+const apiKey = process.env.API_KEY || 'AIzaSyAPt-4D6bA9qLK-BrijbJBcmnBU1ojXOA8'; // Fallback for dev if env missing
 const genAI = new GoogleGenAI({ apiKey });
 
 // MODELO: Actualizado a Gemini 2.5 Flash.
@@ -232,7 +232,7 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
         
         REGLA DE ORO DE PRECIOS:
         1. PRIMERO: Busca en la lista 'PRECIOS_REFERENCIA' que te proporcionaré. Si el material existe o es muy similar, DEBES USAR ESE PRECIO EXACTO y UNIDAD.
-        2. SEGUNDO: Si el material NO está en la lista de referencia, USA TU CONOCIMIENTO DE INTERNET para estimar un PRECIO DE MERCADO MEDIO REALISTA en España. NO pongas precios a 0€ ni inventes precios absurdos.
+        2. SEGUNDO: Si el material NO está en la lista de referencia, estima un PRECIO DE MERCADO MEDIO REALISTA en España. NO pongas precios a 0€ ni inventes precios absurdos.
         3. Clasifica correctamente: Material, Mano de Obra, Maquinaria.
         
         Genera un array JSON con las partidas necesarias para cumplir con la descripción solicitada.`;
@@ -266,18 +266,23 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
         const operation = () => genAI.models.generateContent({
             model: MODEL_NAME,
             contents: { parts },
-            // Enable googleSearch tool for market price estimation fallback
+            // FIX: Removed 'tools: [{ googleSearch: {} }]' to prevent 400 INVALID_ARGUMENT when used with responseMimeType 'application/json'
             config: { 
                 temperature: 0.3, 
                 systemInstruction, 
                 responseMimeType: 'application/json', 
-                responseSchema: budgetSchema,
-                tools: [{ googleSearch: {} }] 
+                responseSchema: budgetSchema
             }
         });
 
         const response = await retryOperation(operation) as GenerateContentResponse;
-        const result = JSON.parse(response.text || "[]");
+        let result;
+        try {
+            result = JSON.parse(response.text || "[]");
+        } catch (e) {
+            console.warn("JSON parse failed, attempting cleanup", e);
+            result = cleanAndParseJSON(response.text || "[]");
+        }
         return Array.isArray(result) ? result : [];
     });
 };
