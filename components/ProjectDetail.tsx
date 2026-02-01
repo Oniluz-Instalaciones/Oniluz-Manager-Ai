@@ -108,8 +108,8 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
             category: newTransaction.category,
             amount: newTransaction.amount,
             date: newTransaction.date || null,
-            description: newTransaction.description,
-            user_name: currentUserName
+            description: newTransaction.description
+            // user_name removed to fix schema error
         });
 
         if (error) throw error;

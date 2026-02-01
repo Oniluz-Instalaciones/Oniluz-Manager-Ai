@@ -275,8 +275,8 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
             category: newTransaction.category,
             amount: newTransaction.amount,
             date: newTransaction.date || null,
-            description: newTransaction.description,
-            user_name: currentUserName
+            description: newTransaction.description
+            // user_name removed to fix schema error
         });
 
         if (finalMaterials.length > 0) {
