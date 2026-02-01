@@ -152,7 +152,14 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
   const fallbackData = { comercio: "", fecha: new Date().toISOString().split('T')[0], total: 0, iva: 0, categoria: "Material", description: "Introducir datos manualmente", items: [] };
   return apiQueue.add(async () => {
       try {
-        const cleanBase64 = await optimizeImage(base64String);
+        let cleanBase64;
+        // Solo optimizamos si es imagen, si es PDF pasamos el base64 limpio directamente
+        if (mimeType.startsWith('image/')) {
+            cleanBase64 = await optimizeImage(base64String);
+        } else {
+            cleanBase64 = base64String.includes(',') ? base64String.split(',')[1] : base64String;
+        }
+
         const prompt = `Analiza este documento (ticket, factura o albarán). Extrae la información en JSON estricto.`;
         
         const documentSchema = {
@@ -181,7 +188,17 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
 
         const operation = () => genAI.models.generateContent({
           model: MODEL_NAME,
-          contents: { parts: [{ inlineData: { mimeType: 'image/jpeg', data: cleanBase64 } }, { text: prompt }] },
+          contents: { 
+              parts: [
+                  { 
+                      inlineData: { 
+                          mimeType: mimeType, 
+                          data: cleanBase64 
+                      } 
+                  }, 
+                  { text: prompt }
+              ] 
+          },
           config: { temperature: 0.1, responseMimeType: 'application/json', responseSchema: documentSchema }
         });
 
@@ -192,6 +209,7 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
         if (result) return { ...fallbackData, ...result, total: sanitizeNumber(result.total), iva: sanitizeNumber(result.iva) };
         throw new Error("JSON inválido");
       } catch (error: any) {
+        console.error("Gemini API Error:", error);
         const isQuotaError = error.toString().includes('429') || (error.status === 429);
         return { ...fallbackData, errorType: isQuotaError ? 'QUOTA' : 'GENERIC', description: isQuotaError ? "Límite de cuota alcanzado." : "Error al procesar" };
       }
