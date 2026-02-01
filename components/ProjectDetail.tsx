@@ -3,7 +3,7 @@ import { Project, Transaction, Material, Incident, ProjectStatus, Priority, Pric
 import { 
   ArrowLeft, Plus, Trash2, AlertTriangle, CheckCircle, 
   TrendingUp, TrendingDown, Package, FileText, Settings, BrainCircuit, X, Receipt, Paperclip, ChevronDown, Building2, Calendar, RotateCcw, Edit3,
-  Hammer, Coffee, User, Wallet, BarChart3
+  Hammer, Coffee, User, Wallet, BarChart3, Save, Loader2
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { analyzeProjectStatus } from '../services/geminiService';
@@ -24,6 +24,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
   const [activeTab, setActiveTab] = useState<'overview' | 'financials' | 'stock' | 'incidents' | 'budgets' | 'documents' | 'settings'>('overview');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false); // Global saving state for manual actions
   
   // State for transaction form type to toggle category input
   const [transactionType, setTransactionType] = useState<'income' | 'expense'>('expense');
@@ -82,9 +83,14 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
 
   const handleAddTransaction = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (isSaving) return;
+    setIsSaving(true);
+
     const formData = new FormData(e.currentTarget);
+    const newId = crypto.randomUUID();
+
     const newTransaction: Transaction = {
-      id: crypto.randomUUID(), // Temp ID for UI
+      id: newId,
       projectId: project.id,
       description: formData.get('description') as string,
       amount: Number(formData.get('amount')),
@@ -94,27 +100,42 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
       userName: currentUserName
     };
     
-    // DB Update - Removed ID
-    await supabase.from('transactions').insert({
-        project_id: newTransaction.projectId,
-        type: newTransaction.type,
-        category: newTransaction.category,
-        amount: newTransaction.amount,
-        date: newTransaction.date || null,
-        description: newTransaction.description,
-        user_name: currentUserName // Insert user name into DB
-    });
+    try {
+        const { error } = await supabase.from('transactions').insert({
+            id: newTransaction.id,
+            project_id: newTransaction.projectId,
+            type: newTransaction.type,
+            category: newTransaction.category,
+            amount: newTransaction.amount,
+            date: newTransaction.date || null,
+            description: newTransaction.description,
+            user_name: currentUserName
+        });
 
-    const updated = { ...project, transactions: [newTransaction, ...project.transactions] };
-    updateProjectWithHistory(updated);
-    e.currentTarget.reset();
+        if (error) throw error;
+
+        const updated = { ...project, transactions: [newTransaction, ...project.transactions] };
+        updateProjectWithHistory(updated);
+        // Cast to any to access reset method on currentTarget
+        (e.target as HTMLFormElement).reset();
+    } catch (error: any) {
+        console.error("Error adding transaction:", error);
+        alert("Error al guardar el movimiento: " + error.message);
+    } finally {
+        setIsSaving(false);
+    }
   };
 
   const handleAddMaterial = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (isSaving) return;
+    setIsSaving(true);
+
     const formData = new FormData(e.currentTarget);
+    const newId = crypto.randomUUID();
+
     const newMaterial: Material = {
-      id: crypto.randomUUID(), // Temp ID for UI
+      id: newId,
       projectId: project.id,
       name: formData.get('name') as string,
       quantity: Number(formData.get('quantity')),
@@ -123,36 +144,62 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
       pricePerUnit: Number(formData.get('pricePerUnit')),
     };
 
-    // DB Update - Removed ID
-    await supabase.from('materials').insert({
-        project_id: newMaterial.projectId,
-        name: newMaterial.name,
-        quantity: newMaterial.quantity,
-        unit: newMaterial.unit,
-        min_stock: newMaterial.minStock,
-        price_per_unit: newMaterial.pricePerUnit
-    });
+    try {
+        const { error } = await supabase.from('materials').insert({
+            id: newMaterial.id,
+            project_id: newMaterial.projectId,
+            name: newMaterial.name,
+            quantity: newMaterial.quantity,
+            unit: newMaterial.unit,
+            min_stock: newMaterial.minStock,
+            price_per_unit: newMaterial.pricePerUnit
+        });
 
-    updateProjectWithHistory({ ...project, materials: [...project.materials, newMaterial] });
-    e.currentTarget.reset();
+        if (error) throw error;
+
+        updateProjectWithHistory({ ...project, materials: [...project.materials, newMaterial] });
+        (e.target as HTMLFormElement).reset();
+    } catch (error: any) {
+        console.error("Error adding material:", error);
+        alert("Error al guardar material: " + error.message);
+    } finally {
+        setIsSaving(false);
+    }
   };
 
   const handleDeleteMaterial = async (id: string) => {
-      await supabase.from('materials').delete().eq('id', id);
-      updateProjectWithHistory({...project, materials: project.materials.filter(m => m.id !== id)});
+      try {
+          const { error } = await supabase.from('materials').delete().eq('id', id);
+          if (error) throw error;
+          updateProjectWithHistory({...project, materials: project.materials.filter(m => m.id !== id)});
+      } catch (error: any) {
+          console.error("Error deleting material:", error);
+          alert("Error al eliminar material");
+      }
   }
 
   const handleDeleteTransaction = async (id: string) => {
       if(!window.confirm("¿Eliminar este movimiento?")) return;
-      await supabase.from('transactions').delete().eq('id', id);
-      updateProjectWithHistory({...project, transactions: project.transactions.filter(t => t.id !== id)});
+      try {
+          const { error } = await supabase.from('transactions').delete().eq('id', id);
+          if (error) throw error;
+          updateProjectWithHistory({...project, transactions: project.transactions.filter(t => t.id !== id)});
+      } catch (error: any) {
+          console.error("Error deleting transaction:", error);
+          alert("Error al eliminar movimiento");
+      }
   }
 
   const handleAddIncident = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (isSaving) return;
+    setIsSaving(true);
+
     const formData = new FormData(e.currentTarget);
+    const newId = crypto.randomUUID();
+
     const newIncident: Incident = {
-      id: crypto.randomUUID(), // Temp ID for UI
+      id: newId,
       projectId: project.id,
       title: formData.get('title') as string,
       description: formData.get('description') as string,
@@ -161,18 +208,27 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
       date: new Date().toISOString().split('T')[0],
     };
 
-    // DB Update - Removed ID
-    await supabase.from('incidents').insert({
-        project_id: newIncident.projectId,
-        title: newIncident.title,
-        description: newIncident.description,
-        priority: newIncident.priority,
-        status: newIncident.status,
-        date: newIncident.date || null
-    });
+    try {
+        const { error } = await supabase.from('incidents').insert({
+            id: newIncident.id,
+            project_id: newIncident.projectId,
+            title: newIncident.title,
+            description: newIncident.description,
+            priority: newIncident.priority,
+            status: newIncident.status,
+            date: newIncident.date || null
+        });
 
-    updateProjectWithHistory({ ...project, incidents: [newIncident, ...project.incidents] });
-    e.currentTarget.reset();
+        if (error) throw error;
+
+        updateProjectWithHistory({ ...project, incidents: [newIncident, ...project.incidents] });
+        (e.target as HTMLFormElement).reset();
+    } catch (error: any) {
+        console.error("Error adding incident:", error);
+        alert("Error al crear incidencia: " + error.message);
+    } finally {
+        setIsSaving(false);
+    }
   };
 
   const toggleIncidentStatus = async (id: string) => {
@@ -477,8 +533,9 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                           <input name="category" placeholder="Categoría (ej. Anticipo, Certificación)" required className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white transition-colors" />
                       )}
 
-                      <button type="submit" className={`w-full py-3 rounded-xl text-sm font-bold transition-all shadow-md flex justify-center items-center text-white ${transactionType === 'expense' ? 'bg-red-500 hover:bg-red-600' : 'bg-green-600 hover:bg-green-700'}`}>
-                        <Plus className="w-4 h-4 mr-1" /> {transactionType === 'expense' ? 'Registrar Gasto' : 'Registrar Ingreso'}
+                      <button type="submit" disabled={isSaving} className={`w-full py-3 rounded-xl text-sm font-bold transition-all shadow-md flex justify-center items-center text-white disabled:opacity-70 disabled:cursor-not-allowed ${transactionType === 'expense' ? 'bg-red-500 hover:bg-red-600' : 'bg-green-600 hover:bg-green-700'}`}>
+                        {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Plus className="w-4 h-4 mr-1" />}
+                        {isSaving ? 'Guardando...' : (transactionType === 'expense' ? 'Registrar Gasto' : 'Registrar Ingreso')}
                       </button>
                     </form>
                 </div>
@@ -653,8 +710,9 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                          <input name="pricePerUnit" type="number" step="0.01" placeholder="Precio/u" required className="w-1/2 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white transition-colors" />
                          <input name="minStock" type="number" placeholder="Min Stock" required className="w-1/2 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white transition-colors" />
                       </div>
-                      <button type="submit" className="w-full py-3 bg-[#0047AB] text-white rounded-xl hover:bg-[#003380] text-sm font-bold transition-all shadow-md flex justify-center items-center">
-                        <Plus className="w-4 h-4 mr-1" /> Registrar Stock
+                      <button type="submit" disabled={isSaving} className="w-full py-3 bg-[#0047AB] text-white rounded-xl hover:bg-[#003380] text-sm font-bold transition-all shadow-md flex justify-center items-center disabled:opacity-70 disabled:cursor-not-allowed">
+                        {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Plus className="w-4 h-4 mr-1" />}
+                        {isSaving ? 'Guardando...' : 'Registrar Stock'}
                       </button>
                    </form>
                 </div>
@@ -727,8 +785,9 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                       <label className="text-xs font-bold text-slate-500 dark:text-slate-400 block mb-2 uppercase">Descripción</label>
                       <input name="description" required className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-sm outline-none focus:ring-2 focus:ring-red-500 text-slate-900 dark:text-white transition-colors" />
                    </div>
-                   <button type="submit" className="w-full md:w-auto px-8 py-3 bg-red-600 text-white rounded-xl hover:bg-red-700 text-sm font-bold shadow-lg shadow-red-200 dark:shadow-red-900/30">
-                      Reportar
+                   <button type="submit" disabled={isSaving} className="w-full md:w-auto px-8 py-3 bg-red-600 text-white rounded-xl hover:bg-red-700 text-sm font-bold shadow-lg shadow-red-200 dark:shadow-red-900/30 flex items-center justify-center disabled:opacity-70 disabled:cursor-not-allowed">
+                      {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                      {isSaving ? 'Enviando...' : 'Reportar'}
                    </button>
                 </form>
              </div>

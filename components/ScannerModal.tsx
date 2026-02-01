@@ -262,9 +262,14 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
           userName: currentUserName
         };
 
-        const finalMaterials = detectedMaterials.map(m => ({ ...m, projectId: formData.projectId }));
+        const finalMaterials = detectedMaterials.map(m => ({ 
+          ...m, 
+          id: crypto.randomUUID(), // Ensure ID is generated
+          projectId: formData.projectId 
+        }));
 
         await supabase.from('transactions').insert({
+            id: newTransaction.id,
             project_id: newTransaction.projectId,
             type: newTransaction.type,
             category: newTransaction.category,
@@ -276,6 +281,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
 
         if (finalMaterials.length > 0) {
             const matsForDb = finalMaterials.map(m => ({
+                id: m.id,
                 project_id: m.projectId,
                 name: m.name,
                 quantity: m.quantity,
@@ -415,195 +421,184 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
                     <Loader2 className="w-6 h-6 animate-spin" />
                     Analizando documento con IA...
                  </div>
-                 <span className="text-xs text-slate-400 dark:text-slate-500 font-medium">Detectando tipo, precios y materiales</span>
+                 <span className="text-xs text-slate-400 dark:text-slate-500 font-medium">Extrayendo fechas, importes y materiales</span>
                </div>
             </div>
           )}
 
           {step === 'form' && (
-            <form onSubmit={handleSubmit} className="space-y-6 p-6">
-              
-              {/* Special Error Handling for Quota vs Generic */}
-              {scanErrorType === 'QUOTA' && (
-                  <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-4 rounded-xl flex flex-col gap-3">
-                      <div className="flex items-start gap-3">
-                        <CreditCard className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+            <div className="p-6 space-y-6">
+                {scanErrorType && (
+                    <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-100 dark:border-orange-800 p-4 rounded-xl flex items-start gap-3">
+                        <AlertTriangle className="w-5 h-5 text-orange-500 shrink-0 mt-0.5" />
                         <div>
-                            <h4 className="text-sm font-bold text-red-800 dark:text-red-300">Límite Gratuito Alcanzado</h4>
-                            <p className="text-xs text-red-700 dark:text-red-400 mt-1">
-                                Has superado la cuota gratuita de la IA. Para seguir usando el escáner automático, debes activar la facturación.
+                            <h4 className="font-bold text-orange-700 dark:text-orange-400 text-sm">Aviso de Escaneo</h4>
+                            <p className="text-xs text-orange-600 dark:text-orange-300 mt-1">
+                                {scanErrorType === 'QUOTA' 
+                                ? "El servicio de IA está saturado momentáneamente. Por favor, revisa los datos extraídos manualmente." 
+                                : "Hubo un problema al leer el documento. Verifica los campos manualmente."}
                             </p>
                         </div>
-                      </div>
-                      <a 
-                        href="https://aistudio.google.com/app/billing" 
-                        target="_blank" 
-                        rel="noreferrer"
-                        className="flex items-center justify-center gap-2 bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-200 py-2 rounded-lg text-xs font-bold hover:bg-red-200 dark:hover:bg-red-900/60 transition-colors"
-                      >
-                         <ExternalLink className="w-3 h-3" /> Activar Facturación en Google
-                      </a>
-                  </div>
-              )}
-
-              {scanErrorType === 'GENERIC' && (
-                  <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 p-4 rounded-xl flex items-start gap-3">
-                      <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
-                      <div>
-                          <h4 className="text-sm font-bold text-amber-800 dark:text-amber-400">Escaneo Manual Activado</h4>
-                          <p className="text-xs text-amber-700 dark:text-amber-500 mt-1">
-                              No se pudieron extraer datos automáticamente. Por favor, introduce los datos manualmente.
-                          </p>
-                      </div>
-                  </div>
-              )}
-
-              <div className="flex items-center justify-between mb-2">
-                 <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                     formData.docType === 'DELIVERY_NOTE' ? 'bg-orange-100 text-orange-700' :
-                     formData.docType === 'BUDGET' ? 'bg-purple-100 text-purple-700' :
-                     'bg-green-100 text-green-700'
-                 }`}>
-                     {formData.docType === 'DELIVERY_NOTE' ? 'Albarán' : formData.docType === 'BUDGET' ? 'Presupuesto' : 'Factura'}
-                 </span>
-                 {formData.supplier && <span className="text-xs font-bold text-slate-500">{formData.supplier}</span>}
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Proyecto Destino</label>
-                <select 
-                  value={formData.projectId} 
-                  onChange={(e) => setFormData({...formData, projectId: e.target.value})}
-                  className="w-full mt-2 p-3 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white font-semibold shadow-sm transition-colors"
-                  required
-                >
-                  <option value="" disabled>Selecciona un proyecto</option>
-                  {projects.map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 space-y-4">
-                 <h3 className="text-sm font-bold text-slate-800 dark:text-white border-b border-slate-100 dark:border-slate-700 pb-2">Datos Económicos</h3>
-                 <div className="flex gap-4">
-                    <div className="w-1/2">
-                       <label className="text-[10px] font-bold text-slate-400 uppercase">Total (€)</label>
-                       <input 
-                         type="number" 
-                         step="0.01"
-                         value={formData.amount}
-                         onChange={(e) => setFormData({...formData, amount: Number(e.target.value)})}
-                         className="w-full mt-1 p-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg font-bold text-slate-900 dark:text-white text-lg focus:ring-2 focus:ring-[#0047AB] transition-all outline-none" 
-                       />
                     </div>
-                    <div className="w-1/2">
-                       <label className="text-[10px] font-bold text-slate-400 uppercase">IVA (€)</label>
-                       <input 
-                         type="number"
-                         step="0.01"
-                         value={formData.tax}
-                         onChange={(e) => setFormData({...formData, tax: Number(e.target.value)})}
-                         className="w-full mt-1 p-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-700 dark:text-slate-300 focus:ring-2 focus:ring-[#0047AB] transition-all outline-none" 
-                       />
+                )}
+
+                <div className="space-y-4">
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">Proyecto</label>
+                        <select 
+                            value={formData.projectId}
+                            onChange={(e) => setFormData({...formData, projectId: e.target.value})}
+                            className="w-full mt-1 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none font-bold text-slate-900 dark:text-white"
+                        >
+                            <option value="">Seleccionar Proyecto...</option>
+                            {projects.map(p => (
+                                <option key={p.id} value={p.id}>{p.name}</option>
+                            ))}
+                        </select>
                     </div>
-                 </div>
-                 <div className="flex gap-4">
-                     <div className="w-2/3">
-                        <label className="text-[10px] font-bold text-slate-400 uppercase">Descripción</label>
-                        <input 
-                          value={formData.description}
-                          onChange={(e) => setFormData({...formData, description: e.target.value})}
-                          className="w-full mt-1 p-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-[#0047AB] transition-all outline-none" 
-                        />
-                     </div>
-                     <div className="w-1/3">
-                        <label className="text-[10px] font-bold text-slate-400 uppercase">Fecha</label>
-                        <input 
-                          type="date" 
-                          value={formData.date}
-                          onChange={(e) => setFormData({...formData, date: e.target.value})}
-                          className="w-full mt-1 p-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-[#0047AB] transition-all outline-none" 
-                        />
-                     </div>
-                 </div>
-              </div>
 
-              <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 space-y-4">
-                 <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-700 pb-2">
-                    <h3 className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                        <Package className="w-4 h-4 text-[#0047AB] dark:text-blue-400" /> Materiales
-                    </h3>
-                    <button type="button" onClick={addEmptyMaterial} className="text-xs text-[#0047AB] dark:text-blue-400 font-bold flex items-center hover:underline">
-                        <Plus className="w-3 h-3 mr-1" /> Añadir
-                    </button>
-                 </div>
-                 
-                 {detectedMaterials.length === 0 ? (
-                     <p className="text-center text-xs text-slate-400 py-4">No se han detectado materiales específicos.</p>
-                 ) : (
-                     <div className="space-y-3">
-                         {detectedMaterials.map((mat, idx) => (
-                             <div key={idx} className="flex flex-col gap-2 p-3 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-700 relative group transition-all hover:border-[#0047AB]/30">
-                                 <button 
-                                    type="button" 
-                                    onClick={() => removeMaterial(idx)}
-                                    className="absolute top-2 right-2 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                                 >
-                                     <Trash2 className="w-4 h-4" />
-                                 </button>
-                                 <input 
-                                     placeholder="Nombre material"
-                                     value={mat.name}
-                                     onChange={(e) => updateMaterial(idx, 'name', e.target.value)}
-                                     className="w-full bg-transparent border-none text-sm font-bold text-slate-800 dark:text-white p-0 focus:ring-0 placeholder-slate-300 focus:text-[#0047AB] transition-colors"
-                                 />
-                                 <div className="flex gap-2">
-                                     <div className="w-1/3">
-                                         <label className="text-[9px] uppercase text-slate-400 font-bold block mb-1">Cant.</label>
-                                         <input 
-                                             type="number"
-                                             value={mat.quantity}
-                                             onChange={(e) => updateMaterial(idx, 'quantity', Number(e.target.value))}
-                                             className="w-full bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-600 text-xs p-1.5 focus:border-[#0047AB] focus:ring-1 focus:ring-[#0047AB] outline-none transition-all font-bold text-slate-700 dark:text-slate-200"
-                                         />
-                                     </div>
-                                     <div className="w-1/3">
-                                         <label className="text-[9px] uppercase text-slate-400 font-bold block mb-1">Ud.</label>
-                                         <input 
-                                             value={mat.unit}
-                                             onChange={(e) => updateMaterial(idx, 'unit', e.target.value)}
-                                             className="w-full bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-600 text-xs p-1.5 focus:border-[#0047AB] focus:ring-1 focus:ring-[#0047AB] outline-none transition-all text-slate-700 dark:text-slate-200"
-                                         />
-                                     </div>
-                                     <div className="w-1/3">
-                                         <label className="text-[9px] uppercase text-slate-400 font-bold block mb-1">Precio/u</label>
-                                         <input 
-                                             type="number"
-                                             step="0.01"
-                                             value={mat.pricePerUnit}
-                                             onChange={(e) => updateMaterial(idx, 'pricePerUnit', Number(e.target.value))}
-                                             className="w-full bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-600 text-xs p-1.5 focus:border-[#0047AB] focus:ring-1 focus:ring-[#0047AB] outline-none transition-all text-slate-700 dark:text-slate-200"
-                                         />
-                                     </div>
-                                 </div>
-                             </div>
-                         ))}
-                     </div>
-                 )}
-              </div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">Fecha</label>
+                            <input 
+                                type="date"
+                                value={formData.date}
+                                onChange={(e) => setFormData({...formData, date: e.target.value})}
+                                className="w-full mt-1 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none font-bold text-slate-900 dark:text-white"
+                            />
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">Importe Total</label>
+                            <input 
+                                type="number"
+                                step="0.01"
+                                value={formData.amount}
+                                onChange={(e) => setFormData({...formData, amount: Number(e.target.value)})}
+                                className="w-full mt-1 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none font-bold text-slate-900 dark:text-white"
+                            />
+                        </div>
+                    </div>
 
-              <div className="pt-2 flex gap-4">
-                 <button type="button" onClick={() => setStep('capture')} className="flex-1 py-3 text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-600 font-bold transition-colors">Reintentar</button>
-                 <button type="submit" disabled={isUploading} className="flex-1 py-3 text-white bg-green-600 rounded-xl hover:bg-green-700 shadow-lg shadow-green-200 dark:shadow-green-900/30 font-bold flex items-center justify-center gap-2 transition-transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
-                    {isUploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
-                    {isUploading ? 'Guardando...' : 'Guardar Todo'}
-                 </button>
-              </div>
-            </form>
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">Descripción / Proveedor</label>
+                        <input 
+                            type="text"
+                            value={formData.description}
+                            onChange={(e) => setFormData({...formData, description: e.target.value})}
+                            className="w-full mt-1 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none font-bold text-slate-900 dark:text-white"
+                        />
+                    </div>
+
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">Categoría</label>
+                        <select 
+                            value={formData.category}
+                            onChange={(e) => setFormData({...formData, category: e.target.value})}
+                            className="w-full mt-1 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none font-bold text-slate-900 dark:text-white"
+                        >
+                            <option value="Material">Material</option>
+                            <option value="Combustible">Combustible</option>
+                            <option value="Dietas">Dietas</option>
+                            <option value="Herramienta">Herramienta</option>
+                            <option value="Varios">Varios</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div className="border-t border-slate-100 dark:border-slate-700 pt-6">
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                            <Package className="w-5 h-5 text-[#0047AB] dark:text-blue-400" /> Materiales Detectados
+                        </h3>
+                        <button onClick={addEmptyMaterial} className="text-xs font-bold text-[#0047AB] dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-3 py-1.5 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors">
+                            + Añadir
+                        </button>
+                    </div>
+                    
+                    <div className="space-y-3">
+                        {detectedMaterials.map((mat, idx) => (
+                            <div key={mat.id} className="bg-slate-50 dark:bg-slate-700/50 p-3 rounded-xl border border-slate-100 dark:border-slate-600 flex gap-3 items-center">
+                                <div className="flex-1 space-y-2">
+                                    <input 
+                                        value={mat.name}
+                                        onChange={(e) => updateMaterial(idx, 'name', e.target.value)}
+                                        className="w-full bg-transparent border-b border-slate-200 dark:border-slate-600 focus:border-[#0047AB] outline-none text-sm font-bold text-slate-800 dark:text-white pb-1"
+                                        placeholder="Nombre del material"
+                                    />
+                                    <div className="flex gap-2">
+                                        <input 
+                                            type="number"
+                                            value={mat.quantity}
+                                            onChange={(e) => updateMaterial(idx, 'quantity', Number(e.target.value))}
+                                            className="w-16 bg-transparent border-b border-slate-200 dark:border-slate-600 focus:border-[#0047AB] outline-none text-xs text-slate-600 dark:text-slate-300 pb-1 text-center"
+                                            placeholder="Cant"
+                                        />
+                                        <input 
+                                            value={mat.unit}
+                                            onChange={(e) => updateMaterial(idx, 'unit', e.target.value)}
+                                            className="w-16 bg-transparent border-b border-slate-200 dark:border-slate-600 focus:border-[#0047AB] outline-none text-xs text-slate-600 dark:text-slate-300 pb-1 text-center"
+                                            placeholder="Ud"
+                                        />
+                                        <input 
+                                            type="number"
+                                            step="0.01"
+                                            value={mat.pricePerUnit}
+                                            onChange={(e) => updateMaterial(idx, 'pricePerUnit', Number(e.target.value))}
+                                            className="flex-1 bg-transparent border-b border-slate-200 dark:border-slate-600 focus:border-[#0047AB] outline-none text-xs text-slate-600 dark:text-slate-300 pb-1 text-right"
+                                            placeholder="Precio/u"
+                                        />
+                                    </div>
+                                </div>
+                                <button onClick={() => removeMaterial(idx)} className="text-slate-400 hover:text-red-500 p-1">
+                                    <Trash2 className="w-4 h-4" />
+                                </button>
+                            </div>
+                        ))}
+                        {detectedMaterials.length === 0 && (
+                            <p className="text-center text-xs text-slate-400 italic py-2">No se detectaron materiales automáticamente.</p>
+                        )}
+                    </div>
+                </div>
+            </div>
           )}
 
         </div>
+
+        {/* Footer Actions */}
+        <div className="p-5 border-t border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 flex gap-3 shrink-0">
+            {step === 'form' ? (
+                <>
+                    <button 
+                        onClick={() => setStep('capture')}
+                        className="flex-1 py-3 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 rounded-xl font-bold hover:bg-slate-50 dark:hover:bg-slate-600 transition-colors"
+                    >
+                        Cancelar
+                    </button>
+                    <button 
+                        onClick={handleSubmit}
+                        disabled={isUploading}
+                        className="flex-[2] py-3 bg-[#0047AB] text-white rounded-xl font-bold shadow-lg shadow-blue-900/20 hover:bg-[#003380] transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+                    >
+                        {isUploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
+                        {isUploading ? 'Guardando...' : 'Guardar Todo'}
+                    </button>
+                </>
+            ) : step === 'review' ? (
+                <>
+                    <button 
+                        onClick={() => { setFileData(null); setStep('capture'); }}
+                        className="flex-1 py-3 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 rounded-xl font-bold hover:bg-slate-50 dark:hover:bg-slate-600 transition-colors flex items-center justify-center gap-2"
+                    >
+                        <RefreshCw className="w-4 h-4" /> Repetir
+                    </button>
+                </>
+            ) : (
+                <button onClick={handleClose} className="w-full py-3 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors">
+                    Cerrar
+                </button>
+            )}
+        </div>
+
       </div>
     </div>
   );
