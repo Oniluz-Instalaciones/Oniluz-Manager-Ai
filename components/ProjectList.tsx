@@ -49,6 +49,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<ProjectStatus | 'ALL'>('ALL');
+  const [typeFilter, setTypeFilter] = useState<ProjectType | 'ALL'>('ALL'); // NEW: Type Filter State
   const [showIncidentsOnly, setShowIncidentsOnly] = useState(false);
   const [initialFiles, setInitialFiles] = useState<ProjectDocument[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -66,12 +67,13 @@ const ProjectList: React.FC<ProjectListProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Filter Logic: Filter by Search/Status (Types are now MERGED)
+  // Filter Logic: Filter by Search, Status AND Type
   const filteredProjects = projects.filter(p => {
     const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) || p.client.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === 'ALL' || p.status === statusFilter;
     const matchesIncidents = !showIncidentsOnly || p.incidents.some(i => i.status === 'Open');
-    return matchesSearch && matchesStatus && matchesIncidents;
+    const matchesType = typeFilter === 'ALL' || p.type === typeFilter; // NEW: Type check
+    return matchesSearch && matchesStatus && matchesIncidents && matchesType;
   });
 
   // Calculate stats based on FILTERED view
@@ -309,8 +311,56 @@ const ProjectList: React.FC<ProjectListProps> = ({
           </div>
         </div>
 
-        {/* Interactive Filters (Cards with Depth) */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-5 mb-10">
+        {/* Business Unit Tabs (New Feature) */}
+        <div className="flex p-1 space-x-1 bg-slate-200/50 dark:bg-slate-800/50 rounded-xl mb-8 overflow-x-auto border border-slate-200 dark:border-slate-700">
+           {/* All */}
+           <button
+             onClick={() => setTypeFilter('ALL')}
+             className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all whitespace-nowrap px-4 ${
+               typeFilter === 'ALL'
+                 ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-sm'
+                 : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+             }`}
+           >
+             Todos
+           </button>
+           {/* General */}
+           <button
+             onClick={() => setTypeFilter('General')}
+             className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-2 whitespace-nowrap px-4 ${
+               typeFilter === 'General'
+                 ? 'bg-white dark:bg-slate-700 text-[#0047AB] dark:text-blue-400 shadow-sm'
+                 : 'text-slate-500 dark:text-slate-400 hover:text-[#0047AB] dark:hover:text-blue-400'
+             }`}
+           >
+             <Zap className="w-4 h-4" /> Eléctrico
+           </button>
+           {/* PV */}
+           <button
+             onClick={() => setTypeFilter('Photovoltaic')}
+             className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-2 whitespace-nowrap px-4 ${
+               typeFilter === 'Photovoltaic'
+                 ? 'bg-white dark:bg-slate-700 text-amber-600 dark:text-amber-400 shadow-sm'
+                 : 'text-slate-500 dark:text-slate-400 hover:text-amber-600 dark:hover:text-amber-400'
+             }`}
+           >
+             <SunIcon className="w-4 h-4" /> Fotovoltaica
+           </button>
+           {/* Elevator */}
+           <button
+             onClick={() => setTypeFilter('Elevator')}
+             className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-2 whitespace-nowrap px-4 ${
+               typeFilter === 'Elevator'
+                 ? 'bg-white dark:bg-slate-700 text-rose-600 dark:text-rose-400 shadow-sm'
+                 : 'text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400'
+             }`}
+           >
+             <HangGlider className="w-4 h-4" /> Válida
+           </button>
+        </div>
+
+        {/* Interactive Filters (Cards with Depth) - Context Aware based on Type Filter */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-5 mb-8">
           <button 
             onClick={() => { setStatusFilter('ALL'); setShowIncidentsOnly(false); }}
             className={`p-6 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border transition-all text-left group ${
@@ -319,7 +369,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
                 : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-500'
             }`}
           >
-              <div className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Total Proyectos</div>
+              <div className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Total {typeFilter !== 'ALL' ? (typeFilter === 'General' ? 'Elec' : typeFilter === 'Photovoltaic' ? 'FV' : 'Válida') : ''}</div>
               <div className="text-3xl font-bold text-slate-800 dark:text-white group-hover:text-[#0047AB] transition-colors">{totalProjects}</div>
           </button>
           
@@ -336,7 +386,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
           </button>
           
           <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100 dark:border-slate-700 cursor-default">
-              <div className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Presupuesto Total</div>
+              <div className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Presupuesto {typeFilter !== 'ALL' ? 'Dpto.' : 'Total'}</div>
               <div className="text-3xl font-bold text-slate-800 dark:text-white">
                 {(totalBudget/1000).toFixed(1)}k€
               </div>
@@ -362,7 +412,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
           <input 
             type="text" 
-            placeholder="Buscar en todos los proyectos..."
+            placeholder={`Buscar en proyectos ${typeFilter !== 'ALL' ? (typeFilter === 'General' ? 'eléctricos' : typeFilter === 'Photovoltaic' ? 'fotovoltaicos' : 'válida') : 'todos'}...`}
             className="w-full pl-12 pr-4 py-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl focus:ring-2 focus:ring-[#0047AB] focus:border-[#0047AB] outline-none transition-all shadow-sm text-slate-700 dark:text-slate-200 placeholder:text-slate-400"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -508,9 +558,9 @@ const ProjectList: React.FC<ProjectListProps> = ({
           {filteredProjects.length === 0 && (
               <div className="col-span-full py-16 text-center text-slate-400 dark:text-slate-500 bg-white dark:bg-slate-800 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700 shadow-sm">
                   <p>No se encontraron proyectos con los filtros actuales.</p>
-                  {(statusFilter !== 'ALL' || showIncidentsOnly) && (
-                      <button onClick={() => { setStatusFilter('ALL'); setShowIncidentsOnly(false); }} className="text-[#0047AB] text-sm mt-3 hover:underline font-medium">
-                          Limpiar Filtros
+                  {(statusFilter !== 'ALL' || showIncidentsOnly || typeFilter !== 'ALL') && (
+                      <button onClick={() => { setStatusFilter('ALL'); setShowIncidentsOnly(false); setTypeFilter('ALL'); }} className="text-[#0047AB] text-sm mt-3 hover:underline font-medium">
+                          Limpiar Todos los Filtros
                       </button>
                   )}
               </div>

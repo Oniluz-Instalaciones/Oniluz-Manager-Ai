@@ -121,7 +121,11 @@ const App: React.FC = () => {
           documents: p.documents || [],
           budgets: p.budgets?.map((b: any) => ({
              ...b,
-             items: b.items || [],
+             // CRITICAL FIX: Map snake_case DB columns to camelCase TS properties
+             items: b.items?.map((i: any) => ({
+                 ...i,
+                 pricePerUnit: i.price_per_unit // Map DB price_per_unit to frontend pricePerUnit
+             })) || [],
              aiPrompt: b.ai_prompt
           })) || []
         }));
