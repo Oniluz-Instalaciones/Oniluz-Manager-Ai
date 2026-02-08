@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Project, ProjectStatus, Transaction, ProjectDocument, ProjectType, PvData, Material, ElevatorData } from '../types';
-import { Plus, Search, Building2, MapPin, Camera, PieChart, Database, Upload, FileText, Menu, Moon, Sun, ChevronRight, X, Zap, Sun as SunIcon, Battery, Calendar, HardHat, Sparkles, LogOut, Ruler, Layers } from 'lucide-react';
+import { Plus, Search, Building2, MapPin, Camera, PieChart, Database, Upload, FileText, Menu, Moon, Sun, ChevronRight, X, Zap, Sun as SunIcon, Battery, Calendar, HardHat, Sparkles, LogOut, Ruler, Layers, Navigation } from 'lucide-react';
 import ScannerModal from './ScannerModal';
 import GlobalAssistant from './GlobalAssistant';
+import { calculateDrivingDistance } from '../services/geminiService';
 
 const HangGlider = ({ className }: { className?: string }) => (
   <svg 
@@ -52,6 +53,10 @@ const ProjectList: React.FC<ProjectListProps> = ({
   const [typeFilter, setTypeFilter] = useState<ProjectType | 'ALL'>('ALL'); // NEW: Type Filter State
   const [showIncidentsOnly, setShowIncidentsOnly] = useState(false);
   const [initialFiles, setInitialFiles] = useState<ProjectDocument[]>([]);
+  const [calculatedDistance, setCalculatedDistance] = useState<number | null>(null);
+  const [isCalculatingDistance, setIsCalculatingDistance] = useState(false);
+  const [locationInput, setLocationInput] = useState(''); // Track location input for distance calculation
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -113,7 +118,22 @@ const ProjectList: React.FC<ProjectListProps> = ({
 
   const handleOpenCreateModal = (type: ProjectType) => {
       setModalType(type);
+      setCalculatedDistance(null);
+      setLocationInput('');
       setIsModalOpen(true);
+  };
+
+  const handleCalculateDistance = async () => {
+      if (!locationInput) return;
+      setIsCalculatingDistance(true);
+      try {
+          const dist = await calculateDrivingDistance(locationInput);
+          setCalculatedDistance(dist);
+      } catch (error) {
+          console.error("Error distance:", error);
+      } finally {
+          setIsCalculatingDistance(false);
+      }
   };
 
   const handleCreateProject = (e: React.FormEvent<HTMLFormElement>) => {
@@ -146,7 +166,8 @@ const ProjectList: React.FC<ProjectListProps> = ({
             floors: Number(formData.get('floors')),
             stairWidth: Number(formData.get('stairWidth')),
             stairMaterial: formData.get('stairMaterial') as any,
-            parkingSide: formData.get('parkingSide') as any
+            parkingSide: formData.get('parkingSide') as any,
+            distanceFromBase: calculatedDistance || undefined
         };
     }
 
@@ -321,7 +342,8 @@ const ProjectList: React.FC<ProjectListProps> = ({
           </div>
         </div>
 
-        {/* ... (rest of filtering UI remains the same) ... */}
+        {/* ... (Business Unit Tabs and Filters remain unchanged) ... */}
+        
         {/* Business Unit Tabs (New Feature) */}
         <div className="flex p-1 space-x-1 bg-slate-200/50 dark:bg-slate-800/50 rounded-xl mb-8 overflow-x-auto border border-slate-200 dark:border-slate-700">
            {/* All */}
@@ -625,7 +647,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
                   <input name="client" required className="w-full mt-2 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] focus:border-[#0047AB] text-slate-900 dark:text-white transition-all" />
                 </div>
                 
-                {/* NEW: Contact Info */}
+                {/* Contact Info */}
                 <div className="flex gap-4">
                     <div className="w-1/2">
                         <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Teléfono</label>
@@ -649,7 +671,32 @@ const ProjectList: React.FC<ProjectListProps> = ({
                 </div>
                 <div>
                   <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Ubicación</label>
-                  <input name="location" required className="w-full mt-2 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] focus:border-[#0047AB] text-slate-900 dark:text-white transition-all" />
+                  <div className="flex gap-2">
+                      <input 
+                        name="location" 
+                        required 
+                        value={locationInput}
+                        onChange={(e) => setLocationInput(e.target.value)}
+                        className="w-full mt-2 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] focus:border-[#0047AB] text-slate-900 dark:text-white transition-all" 
+                      />
+                      {modalType === 'Elevator' && (
+                          <button 
+                            type="button" 
+                            onClick={handleCalculateDistance}
+                            disabled={!locationInput || isCalculatingDistance}
+                            className="mt-2 p-3 bg-blue-50 dark:bg-slate-700 text-[#0047AB] dark:text-blue-400 border border-blue-100 dark:border-slate-600 rounded-xl hover:bg-blue-100 dark:hover:bg-slate-600 transition-colors"
+                            title="Calcular distancia desde base"
+                          >
+                              <Navigation className={`w-5 h-5 ${isCalculatingDistance ? 'animate-pulse' : ''}`} />
+                          </button>
+                      )}
+                  </div>
+                  {modalType === 'Elevator' && calculatedDistance !== null && (
+                      <div className="mt-2 flex items-center gap-2 text-xs font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700/50 p-2 rounded-lg border border-slate-200 dark:border-slate-600">
+                          <MapPin className="w-3.5 h-3.5 text-[#0047AB] dark:text-blue-400" />
+                          <span>📍 Distancia desde base (Oropesa): <span className="text-[#0047AB] dark:text-blue-400 font-extrabold">{calculatedDistance} km</span></span>
+                      </div>
+                  )}
                 </div>
 
                 {/* Specific PV Fields */}

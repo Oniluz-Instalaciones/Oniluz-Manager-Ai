@@ -462,3 +462,40 @@ export const parseMaterialsFromImage = async (base64Image: string): Promise<Pric
         }
     });
 };
+
+// NEW: Calculate driving distance using Gemini Reasoning
+export const calculateDrivingDistance = async (destination: string): Promise<number> => {
+    return apiQueue.add(async () => {
+        const origin = "Calle Don Eduardo Martín 27, 45560 Oropesa, Toledo";
+        const prompt = `Calcula la distancia de conducción en kilómetros desde '${origin}' hasta '${destination}'.
+        
+        INSTRUCCIONES:
+        1. Estima la distancia real por carretera (ruta más rápida).
+        2. Responde SOLO con un objeto JSON válido con la propiedad 'distance' (número).
+        3. Ejemplo respuesta: { "distance": 120.5 }
+        4. Si no puedes encontrar el destino o la ruta, devuelve { "distance": 0 }`;
+
+        const schema = {
+            type: Type.OBJECT,
+            properties: {
+                distance: { type: Type.NUMBER, description: "Distancia en km" }
+            },
+            required: ["distance"]
+        };
+
+        try {
+            const operation = () => genAI.models.generateContent({
+                model: MODEL_NAME,
+                contents: prompt,
+                config: { responseMimeType: 'application/json', responseSchema: schema }
+            });
+
+            const response = await retryOperation(operation) as GenerateContentResponse;
+            const result = JSON.parse(response.text || '{"distance": 0}');
+            return result.distance || 0;
+        } catch (error) {
+            console.error("Error calculating distance:", error);
+            return 0;
+        }
+    });
+};

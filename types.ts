@@ -31,6 +31,7 @@ export interface ElevatorData {
   stairWidth?: number; // cm
   stairMaterial: 'Hormigón' | 'Madera' | 'Metal' | 'Mármol';
   parkingSide: 'Izquierda' | 'Derecha';
+  distanceFromBase?: number; // km from Oropesa
 }
 
 export interface Transaction {
