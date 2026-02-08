@@ -682,10 +682,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
                         <div>
                              <label className="text-[10px] font-bold text-rose-700/70 dark:text-rose-400 uppercase">Tipo de Solución</label>
                              <select name="solutionType" className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-700 rounded-lg text-sm text-slate-900 dark:text-white">
-                                 <option value="Silla Recta">Silla Salvaescaleras Recta</option>
-                                 <option value="Silla Curva">Silla Salvaescaleras Curva</option>
-                                 <option value="Plataforma">Plataforma Salvaescaleras</option>
-                                 <option value="Elevador Vertical">Elevador Vertical (Corto Recorrido)</option>
+                                 <option value="Nexus">Nexus</option>
                              </select>
                         </div>
                         <div className="flex gap-4">
