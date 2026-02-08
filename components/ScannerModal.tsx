@@ -16,6 +16,33 @@ interface DetectedItem extends Material {
     addToStock: boolean;
 }
 
+// Helper to fix date format mismatch (DD/MM/YYYY -> YYYY-MM-DD)
+const normalizeDate = (dateStr: string | undefined): string => {
+    if (!dateStr) return new Date().toISOString().split('T')[0];
+
+    // Remove any timestamps or extra text, keep only date part if strictly formatted
+    let cleanDate = dateStr.trim();
+
+    // Check for DD/MM/YYYY or DD-MM-YYYY format
+    // Regex logic: 1 or 2 digits, separator, 1 or 2 digits, separator, 4 digits
+    if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}$/.test(cleanDate)) {
+        const [day, month, year] = cleanDate.split(/[\/\-]/);
+        // Ensure padded zeros (e.g., 1 -> 01)
+        const paddedDay = day.padStart(2, '0');
+        const paddedMonth = month.padStart(2, '0');
+        return `${year}-${paddedMonth}-${paddedDay}`;
+    }
+
+    // Attempt to parse standard formats
+    const timestamp = Date.parse(cleanDate);
+    if (!isNaN(timestamp)) {
+        return new Date(timestamp).toISOString().split('T')[0];
+    }
+
+    // Fallback to today if parsing completely fails to prevent DB crash
+    return new Date().toISOString().split('T')[0];
+};
+
 const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, currentUserName }) => {
   const [fileData, setFileData] = useState<string | null>(null); // Base64
   const [fileBlob, setFileBlob] = useState<Blob | null>(null);
@@ -162,10 +189,11 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
       }
 
       // AUTOMATIC STOCK LOGIC
-      // If Category is 'Material' or 'Herramienta' => Default to Stock = TRUE
-      // If Category is 'Dietas', 'Combustible', 'Transporte', 'Varios' => Default to Stock = FALSE
       const stockCategories = ['Material', 'Herramienta'];
       const shouldAddToStock = stockCategories.includes(data.categoria || '');
+
+      // Normalize date here before setting state
+      const safeDate = normalizeDate(data.fecha);
 
       setFormData(prev => ({
         ...prev,
@@ -174,8 +202,8 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
         amount: data.total || 0,
         tax: data.iva || 0,
         description: data.comercio ? `Gasto en ${data.comercio}` : 'Gasto detectado',
-        category: data.categoria || 'Varios', // Default fallback
-        date: data.fecha || prev.date
+        category: data.categoria || 'Varios',
+        date: safeDate // Use normalized date YYYY-MM-DD
       }));
 
       if (data.items && Array.isArray(data.items)) {
@@ -187,7 +215,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
               unit: item.unit || 'ud',
               pricePerUnit: item.price ? Number(item.price) : 0,
               minStock: 5,
-              addToStock: shouldAddToStock // Controlled solely by AI category
+              addToStock: shouldAddToStock
           }));
           setDetectedMaterials(newMats);
       } else {
