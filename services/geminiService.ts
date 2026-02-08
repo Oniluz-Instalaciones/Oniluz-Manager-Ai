@@ -160,7 +160,17 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
             cleanBase64 = base64String.includes(',') ? base64String.split(',')[1] : base64String;
         }
 
-        const prompt = `Analiza este documento (ticket, factura o albarán). Extrae la información en JSON estricto.`;
+        const prompt = `Actúa como el CONTABLE de una empresa eléctrica. Analiza esta imagen (ticket/factura) y extrae los datos en JSON.
+        
+        REGLAS CRÍTICAS DE CATEGORIZACIÓN (Debes elegir UNA):
+        1. 'Dietas': Si contiene café, comida, almuerzo, restaurante, bar, agua, supermercado.
+        2. 'Transporte': Si contiene tren, ave, taxi, uber, parking, peaje, billete.
+        3. 'Combustible': Si contiene gasolina, diesel, gasolinera.
+        4. 'Material': Si contiene cables, mecanismos, material eléctrico, ferretería, tornillos.
+        5. 'Herramienta': Si son herramientas de trabajo (taladro, destornillador).
+        6. 'Varios': Solo si no encaja en ninguna anterior.
+
+        Extrae 'items' línea por línea con su nombre y precio.`;
         
         const documentSchema = {
             type: Type.OBJECT,
@@ -169,7 +179,11 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
                 fecha: { type: Type.STRING },
                 total: { type: Type.NUMBER },
                 iva: { type: Type.NUMBER },
-                categoria: { type: Type.STRING },
+                categoria: { 
+                    type: Type.STRING, 
+                    enum: ['Material', 'Dietas', 'Transporte', 'Combustible', 'Herramienta', 'Varios'],
+                    description: "Categoría estricta del gasto" 
+                },
                 items: {
                     type: Type.ARRAY,
                     items: {
@@ -183,7 +197,7 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
                     }
                 }
             },
-            required: ["comercio", "total", "items"]
+            required: ["comercio", "total", "items", "categoria"]
         };
 
         const operation = () => genAI.models.generateContent({
@@ -199,7 +213,7 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
                   { text: prompt }
               ] 
           },
-          config: { temperature: 0.1, responseMimeType: 'application/json', responseSchema: documentSchema }
+          config: { temperature: 0.0, responseMimeType: 'application/json', responseSchema: documentSchema }
         });
 
         const response = await retryOperation(operation) as GenerateContentResponse;

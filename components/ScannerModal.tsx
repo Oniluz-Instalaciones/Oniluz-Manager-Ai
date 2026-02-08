@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Project, Transaction, Material } from '../types';
-import { Camera, X, Loader2, Save, Image as ImageIcon, Package, Trash2, Plus, RefreshCw, Upload, FileText, AlertTriangle, CreditCard, ExternalLink, ArchiveRestore, Ban } from 'lucide-react';
+import { Camera, X, Loader2, Save, Image as ImageIcon, Package, Trash2, Plus, RefreshCw, Upload, FileText, AlertTriangle, CreditCard, ExternalLink, ArchiveRestore, Ban, Tag } from 'lucide-react';
 import { analyzeDocument } from '../services/geminiService';
 import { supabase } from '../lib/supabase';
 
@@ -161,10 +161,11 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
           setScanErrorType('GENERIC');
       }
 
-      // Determine if items should default to stock based on category
-      // If it's Diets, Fuel, or generic Expenses, default addToStock to FALSE
-      const nonStockCategories = ['Dietas', 'Combustible', 'Transporte', 'Varios', 'Servicios'];
-      const shouldDefaultToStock = !nonStockCategories.includes(data.categoria || 'Material');
+      // AUTOMATIC STOCK LOGIC
+      // If Category is 'Material' or 'Herramienta' => Default to Stock = TRUE
+      // If Category is 'Dietas', 'Combustible', 'Transporte', 'Varios' => Default to Stock = FALSE
+      const stockCategories = ['Material', 'Herramienta'];
+      const shouldAddToStock = stockCategories.includes(data.categoria || '');
 
       setFormData(prev => ({
         ...prev,
@@ -173,7 +174,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
         amount: data.total || 0,
         tax: data.iva || 0,
         description: data.comercio ? `Gasto en ${data.comercio}` : 'Gasto detectado',
-        category: data.categoria || 'Material',
+        category: data.categoria || 'Varios', // Default fallback
         date: data.fecha || prev.date
       }));
 
@@ -181,12 +182,12 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
           const newMats: DetectedItem[] = data.items.map((item: any) => ({
               id: crypto.randomUUID(),
               projectId: '', 
-              name: item.name || 'Material',
+              name: item.name || 'Concepto',
               quantity: item.quantity ? Number(item.quantity) : 1, 
               unit: item.unit || 'ud',
               pricePerUnit: item.price ? Number(item.price) : 0,
               minStock: 5,
-              addToStock: shouldDefaultToStock // Smart default
+              addToStock: shouldAddToStock // Controlled solely by AI category
           }));
           setDetectedMaterials(newMats);
       } else {
@@ -222,7 +223,10 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
   };
 
   const addEmptyMaterial = () => {
-      // Manual adds default to stock=true usually, unless user unchecks
+      // Manual adds default check stock based on current category
+      const stockCategories = ['Material', 'Herramienta'];
+      const shouldAddToStock = stockCategories.includes(formData.category);
+
       setDetectedMaterials([...detectedMaterials, {
           id: crypto.randomUUID(),
           projectId: '',
@@ -231,7 +235,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
           unit: 'ud',
           pricePerUnit: 0,
           minStock: 5,
-          addToStock: true
+          addToStock: shouldAddToStock
       }]);
   };
 
@@ -282,7 +286,6 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
         };
 
         // Filter: Only add items to stock if 'addToStock' is true
-        // This prevents coffee/train tickets from appearing in "Inventory"
         const stockItemsToAdd = detectedMaterials
             .filter(m => m.addToStock)
             .map(m => ({ 
@@ -447,7 +450,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
                     <Loader2 className="w-6 h-6 animate-spin" />
                     Analizando documento con IA...
                  </div>
-                 <span className="text-xs text-slate-400 dark:text-slate-500 font-medium">Extrayendo fechas, importes y materiales</span>
+                 <span className="text-xs text-slate-400 dark:text-slate-500 font-medium">Categorizando gastos y stock automáticamente...</span>
                </div>
             </div>
           )}
@@ -483,6 +486,17 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
                         </select>
                     </div>
 
+                    {/* Auto-detected Category Display */}
+                    <div className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800 p-3 rounded-xl flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <Tag className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                            <span className="text-xs font-bold text-indigo-800 dark:text-indigo-300 uppercase">Categoría Detectada</span>
+                        </div>
+                        <span className="text-sm font-extrabold text-indigo-700 dark:text-indigo-300 uppercase bg-white dark:bg-indigo-900/50 px-3 py-1 rounded-lg border border-indigo-100 dark:border-indigo-700">
+                            {formData.category}
+                        </span>
+                    </div>
+
                     <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">Fecha</label>
@@ -513,22 +527,6 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
                             onChange={(e) => setFormData({...formData, description: e.target.value})}
                             className="w-full mt-1 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none font-bold text-slate-900 dark:text-white"
                         />
-                    </div>
-
-                    <div>
-                        <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">Categoría</label>
-                        <select 
-                            value={formData.category}
-                            onChange={(e) => setFormData({...formData, category: e.target.value})}
-                            className="w-full mt-1 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none font-bold text-slate-900 dark:text-white"
-                        >
-                            <option value="Material">Material</option>
-                            <option value="Combustible">Combustible</option>
-                            <option value="Dietas">Dietas</option>
-                            <option value="Herramienta">Herramienta</option>
-                            <option value="Transporte">Transporte</option>
-                            <option value="Varios">Varios</option>
-                        </select>
                     </div>
                 </div>
 
