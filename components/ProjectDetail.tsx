@@ -3,7 +3,7 @@ import { Project, Transaction, Material, Incident, ProjectStatus, Priority, Pric
 import { 
   ArrowLeft, Plus, Trash2, AlertTriangle, CheckCircle, 
   TrendingUp, TrendingDown, Package, FileText, Settings, BrainCircuit, X, Receipt, Paperclip, ChevronDown, Building2, Calendar, RotateCcw, Edit3,
-  Hammer, Coffee, User, Wallet, BarChart3, Save, Loader2
+  Hammer, Coffee, User, Wallet, BarChart3, Save, Loader2, Fuel, Car, HelpCircle
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { analyzeProjectStatus } from '../services/geminiService';
@@ -49,21 +49,27 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
   const profit = totalIncome - totalExpense;
   const profitMargin = totalIncome > 0 ? ((profit / totalIncome) * 100).toFixed(1) : '0';
 
-  // Filter expenses by specific categories
-  const materialExpenses = project.transactions.filter(t => t.type === 'expense' && t.category === 'Material');
-  const consumableExpenses = project.transactions.filter(t => t.type === 'expense' && t.category === 'Consumibles');
-  const personalExpenses = project.transactions.filter(t => t.type === 'expense' && t.category === 'Personal');
-  // Catch-all for other expenses (legacy or different categories)
-  const otherExpenses = project.transactions.filter(t => t.type === 'expense' && !['Material', 'Consumibles', 'Personal'].includes(t.category));
+  // --- FILTERING LOGIC UPDATED ---
+  // Material: Includes 'Material' and 'Herramienta'
+  const materialExpenses = project.transactions.filter(t => t.type === 'expense' && (t.category === 'Material' || t.category === 'Herramienta'));
+  
+  // Personal: Includes 'Personal' and 'Dietas' (Coffee, Food, etc.)
+  const personalExpenses = project.transactions.filter(t => t.type === 'expense' && (t.category === 'Personal' || t.category === 'Dietas'));
+  
+  // Others: Everything else (Transporte, Combustible, Varios, Consumibles legacy)
+  const otherExpenses = project.transactions.filter(t => 
+      t.type === 'expense' && 
+      !['Material', 'Herramienta', 'Personal', 'Dietas'].includes(t.category)
+  );
 
   const totalMaterial = materialExpenses.reduce((sum, t) => sum + t.amount, 0);
-  const totalConsumable = consumableExpenses.reduce((sum, t) => sum + t.amount, 0);
   const totalPersonal = personalExpenses.reduce((sum, t) => sum + t.amount, 0);
+  const totalOther = otherExpenses.reduce((sum, t) => sum + t.amount, 0);
 
   const financialData = [
     { name: 'Material', value: totalMaterial, color: '#3b82f6' }, // Blue
-    { name: 'Consumibles', value: totalConsumable, color: '#f59e0b' }, // Amber
     { name: 'Personal', value: totalPersonal, color: '#ef4444' }, // Red
+    { name: 'Otros', value: totalOther, color: '#94a3b8' }, // Slate
   ].filter(d => d.value > 0);
 
   const handleRunAnalysis = async () => {
@@ -265,8 +271,9 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                                       <p className="font-semibold text-slate-700 dark:text-slate-200">{t.description}</p>
                                       <div className="flex items-center gap-2 mt-0.5">
                                         <p className="text-[10px] text-slate-400">{t.date}</p>
+                                        <span className="text-[10px] text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded">{t.category}</span>
                                         {t.userName && (
-                                            <span className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1 bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded-full">
+                                            <span className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1">
                                                 <User className="w-2.5 h-2.5" /> {t.userName}
                                             </span>
                                         )}
@@ -526,8 +533,11 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                       {transactionType === 'expense' ? (
                           <select name="category" required className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white font-medium transition-colors">
                              <option value="Material">Material</option>
-                             <option value="Consumibles">Consumibles</option>
                              <option value="Personal">Personal</option>
+                             <option value="Dietas">Dietas (Café, Menú...)</option>
+                             <option value="Transporte">Transporte</option>
+                             <option value="Combustible">Combustible</option>
+                             <option value="Varios">Varios</option>
                           </select>
                       ) : (
                           <input name="category" placeholder="Categoría (ej. Anticipo, Certificación)" required className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white transition-colors" />
@@ -542,15 +552,12 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
              </div>
 
              {/* Detailed Lists Grid */}
-             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                  {/* Material Expenses */}
                  {renderExpenseSection('Materiales', materialExpenses, totalMaterial, <Hammer className="w-4 h-4" />, 'bg-blue-50 text-blue-700')}
                  
-                 {/* Consumable Expenses */}
-                 {renderExpenseSection('Consumibles', consumableExpenses, totalConsumable, <Coffee className="w-4 h-4" />, 'bg-amber-50 text-amber-700')}
-                 
-                 {/* Personal Expenses */}
-                 {renderExpenseSection('Personal', personalExpenses, totalPersonal, <User className="w-4 h-4" />, 'bg-red-50 text-red-700')}
+                 {/* Personal Expenses (Merged with Dietas) */}
+                 {renderExpenseSection('Personal y Dietas', personalExpenses, totalPersonal, <User className="w-4 h-4" />, 'bg-red-50 text-red-700')}
              </div>
 
              {/* Income Section & Others */}
