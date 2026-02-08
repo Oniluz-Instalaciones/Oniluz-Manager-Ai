@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Project, Transaction, Material } from '../types';
-import { Camera, X, Loader2, Save, Image as ImageIcon, Package, Trash2, Plus, RefreshCw, Upload, FileText, AlertTriangle, CreditCard, ExternalLink } from 'lucide-react';
+import { Camera, X, Loader2, Save, Image as ImageIcon, Package, Trash2, Plus, RefreshCw, Upload, FileText, AlertTriangle, CreditCard, ExternalLink, ArchiveRestore, Ban } from 'lucide-react';
 import { analyzeDocument } from '../services/geminiService';
 import { supabase } from '../lib/supabase';
 
@@ -9,6 +9,11 @@ interface ScannerModalProps {
   onClose: () => void;
   onSave: (projectId: string, transaction: Transaction, newMaterials: Material[]) => void;
   currentUserName: string;
+}
+
+// Extend Material type locally to handle the UI state for "Add to Stock"
+interface DetectedItem extends Material {
+    addToStock: boolean;
 }
 
 const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, currentUserName }) => {
@@ -41,7 +46,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
     projectId: projects[0]?.id || ''
   });
 
-  const [detectedMaterials, setDetectedMaterials] = useState<Material[]>([]);
+  const [detectedMaterials, setDetectedMaterials] = useState<DetectedItem[]>([]);
 
   useEffect(() => {
     return () => {
@@ -156,6 +161,11 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
           setScanErrorType('GENERIC');
       }
 
+      // Determine if items should default to stock based on category
+      // If it's Diets, Fuel, or generic Expenses, default addToStock to FALSE
+      const nonStockCategories = ['Dietas', 'Combustible', 'Transporte', 'Varios', 'Servicios'];
+      const shouldDefaultToStock = !nonStockCategories.includes(data.categoria || 'Material');
+
       setFormData(prev => ({
         ...prev,
         docType: data.total > 0 ? 'RECEIPT' : 'DELIVERY_NOTE',
@@ -168,14 +178,15 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
       }));
 
       if (data.items && Array.isArray(data.items)) {
-          const newMats: Material[] = data.items.map((item: any) => ({
+          const newMats: DetectedItem[] = data.items.map((item: any) => ({
               id: crypto.randomUUID(),
               projectId: '', 
               name: item.name || 'Material',
               quantity: item.quantity ? Number(item.quantity) : 1, 
               unit: item.unit || 'ud',
               pricePerUnit: item.price ? Number(item.price) : 0,
-              minStock: 5 
+              minStock: 5,
+              addToStock: shouldDefaultToStock // Smart default
           }));
           setDetectedMaterials(newMats);
       } else {
@@ -192,11 +203,17 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
     }
   };
 
-  const updateMaterial = (index: number, field: keyof Material, value: any) => {
+  const updateMaterial = (index: number, field: keyof DetectedItem, value: any) => {
       const updated = [...detectedMaterials];
       updated[index] = { ...updated[index], [field]: value };
       setDetectedMaterials(updated);
   };
+
+  const toggleAddToStock = (index: number) => {
+      const updated = [...detectedMaterials];
+      updated[index].addToStock = !updated[index].addToStock;
+      setDetectedMaterials(updated);
+  }
 
   const removeMaterial = (index: number) => {
       const updated = [...detectedMaterials];
@@ -205,6 +222,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
   };
 
   const addEmptyMaterial = () => {
+      // Manual adds default to stock=true usually, unless user unchecks
       setDetectedMaterials([...detectedMaterials, {
           id: crypto.randomUUID(),
           projectId: '',
@@ -212,7 +230,8 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
           quantity: 1,
           unit: 'ud',
           pricePerUnit: 0,
-          minStock: 5
+          minStock: 5,
+          addToStock: true
       }]);
   };
 
@@ -262,12 +281,17 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
           userName: currentUserName
         };
 
-        const finalMaterials = detectedMaterials.map(m => ({ 
-          ...m, 
-          id: crypto.randomUUID(), // Ensure ID is generated
-          projectId: formData.projectId 
-        }));
+        // Filter: Only add items to stock if 'addToStock' is true
+        // This prevents coffee/train tickets from appearing in "Inventory"
+        const stockItemsToAdd = detectedMaterials
+            .filter(m => m.addToStock)
+            .map(m => ({ 
+                ...m, 
+                id: crypto.randomUUID(), // Ensure ID is generated
+                projectId: formData.projectId 
+            }));
 
+        // 1. Insert Transaction (Always)
         await supabase.from('transactions').insert({
             id: newTransaction.id,
             project_id: newTransaction.projectId,
@@ -279,8 +303,9 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
             // user_name removed to fix schema error
         });
 
-        if (finalMaterials.length > 0) {
-            const matsForDb = finalMaterials.map(m => ({
+        // 2. Insert Materials (Only if marked as stock)
+        if (stockItemsToAdd.length > 0) {
+            const matsForDb = stockItemsToAdd.map(m => ({
                 id: m.id,
                 project_id: m.projectId,
                 name: m.name,
@@ -292,6 +317,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
             await supabase.from('materials').insert(matsForDb);
         }
 
+        // 3. Insert Document (Linked to Project)
         if (fileUrl) {
             await supabase.from('documents').insert({
                 project_id: formData.projectId,
@@ -302,7 +328,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
             });
         }
 
-        onSave(formData.projectId, newTransaction, finalMaterials);
+        onSave(formData.projectId, newTransaction, stockItemsToAdd);
     
     } catch (error) {
         console.error("Error saving to DB:", error);
@@ -500,6 +526,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
                             <option value="Combustible">Combustible</option>
                             <option value="Dietas">Dietas</option>
                             <option value="Herramienta">Herramienta</option>
+                            <option value="Transporte">Transporte</option>
                             <option value="Varios">Varios</option>
                         </select>
                     </div>
@@ -508,7 +535,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
                 <div className="border-t border-slate-100 dark:border-slate-700 pt-6">
                     <div className="flex justify-between items-center mb-4">
                         <h3 className="font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                            <Package className="w-5 h-5 text-[#0047AB] dark:text-blue-400" /> Materiales Detectados
+                            <Package className="w-5 h-5 text-[#0047AB] dark:text-blue-400" /> Líneas Detectadas
                         </h3>
                         <button onClick={addEmptyMaterial} className="text-xs font-bold text-[#0047AB] dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-3 py-1.5 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors">
                             + Añadir
@@ -517,13 +544,13 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
                     
                     <div className="space-y-3">
                         {detectedMaterials.map((mat, idx) => (
-                            <div key={mat.id} className="bg-slate-50 dark:bg-slate-700/50 p-3 rounded-xl border border-slate-100 dark:border-slate-600 flex gap-3 items-center">
+                            <div key={mat.id} className={`p-3 rounded-xl border flex gap-3 items-center transition-all ${mat.addToStock ? 'bg-slate-50 dark:bg-slate-700/50 border-slate-100 dark:border-slate-600' : 'bg-slate-100/50 dark:bg-slate-800/50 border-transparent opacity-80'}`}>
                                 <div className="flex-1 space-y-2">
                                     <input 
                                         value={mat.name}
                                         onChange={(e) => updateMaterial(idx, 'name', e.target.value)}
                                         className="w-full bg-transparent border-b border-slate-200 dark:border-slate-600 focus:border-[#0047AB] outline-none text-sm font-bold text-slate-800 dark:text-white pb-1"
-                                        placeholder="Nombre del material"
+                                        placeholder="Descripción"
                                     />
                                     <div className="flex gap-2">
                                         <input 
@@ -549,14 +576,27 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
                                         />
                                     </div>
                                 </div>
-                                <button onClick={() => removeMaterial(idx)} className="text-slate-400 hover:text-red-500 p-1">
-                                    <Trash2 className="w-4 h-4" />
-                                </button>
+                                
+                                <div className="flex flex-col gap-1 items-center">
+                                    <button 
+                                        onClick={() => toggleAddToStock(idx)}
+                                        className={`p-2 rounded-lg transition-colors ${mat.addToStock ? 'text-[#0047AB] dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'}`}
+                                        title={mat.addToStock ? "Se añadirá al Inventario" : "Solo gasto (No inventariable)"}
+                                    >
+                                        {mat.addToStock ? <ArchiveRestore className="w-4 h-4" /> : <Ban className="w-4 h-4" />}
+                                    </button>
+                                    <button onClick={() => removeMaterial(idx)} className="text-slate-400 hover:text-red-500 p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/30">
+                                        <Trash2 className="w-4 h-4" />
+                                    </button>
+                                </div>
                             </div>
                         ))}
                         {detectedMaterials.length === 0 && (
-                            <p className="text-center text-xs text-slate-400 italic py-2">No se detectaron materiales automáticamente.</p>
+                            <p className="text-center text-xs text-slate-400 italic py-2">No se detectaron líneas automáticamente.</p>
                         )}
+                        <p className="text-[10px] text-slate-400 text-center mt-2 flex items-center justify-center gap-1">
+                            <ArchiveRestore className="w-3 h-3" /> Marcado: Se añade a Stock | <Ban className="w-3 h-3" /> Desmarcado: Solo Gasto
+                        </p>
                     </div>
                 </div>
             </div>
