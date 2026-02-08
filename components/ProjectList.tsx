@@ -157,6 +157,8 @@ const ProjectList: React.FC<ProjectListProps> = ({
       elevatorData: elevatorData,
       name: formData.get('name') as string,
       client: formData.get('client') as string,
+      clientPhone: formData.get('clientPhone') as string,
+      clientEmail: formData.get('clientEmail') as string,
       location: formData.get('location') as string,
       status: ProjectStatus.PLANNING,
       progress: 0,
@@ -319,6 +321,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
           </div>
         </div>
 
+        {/* ... (rest of filtering UI remains the same) ... */}
         {/* Business Unit Tabs (New Feature) */}
         <div className="flex p-1 space-x-1 bg-slate-200/50 dark:bg-slate-800/50 rounded-xl mb-8 overflow-x-auto border border-slate-200 dark:border-slate-700">
            {/* All */}
@@ -367,6 +370,8 @@ const ProjectList: React.FC<ProjectListProps> = ({
            </button>
         </div>
 
+        {/* ... (rest of search and filters) ... */}
+        
         {/* Interactive Filters (Cards with Depth) - Context Aware based on Type Filter */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-5 mb-8">
           <button 
@@ -619,6 +624,19 @@ const ProjectList: React.FC<ProjectListProps> = ({
                   <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Cliente</label>
                   <input name="client" required className="w-full mt-2 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] focus:border-[#0047AB] text-slate-900 dark:text-white transition-all" />
                 </div>
+                
+                {/* NEW: Contact Info */}
+                <div className="flex gap-4">
+                    <div className="w-1/2">
+                        <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Teléfono</label>
+                        <input name="clientPhone" type="tel" placeholder="Opcional" className="w-full mt-2 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] focus:border-[#0047AB] text-slate-900 dark:text-white transition-all" />
+                    </div>
+                    <div className="w-1/2">
+                        <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Email</label>
+                        <input name="clientEmail" type="email" placeholder="Opcional" className="w-full mt-2 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] focus:border-[#0047AB] text-slate-900 dark:text-white transition-all" />
+                    </div>
+                </div>
+
                 <div className="flex gap-5">
                   <div className="w-1/2">
                     <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Fecha de Inicio</label>

@@ -103,6 +103,8 @@ const App: React.FC = () => {
           type: p.type as any,
           name: p.name,
           client: p.client,
+          clientPhone: p.client_phone, // Map DB snake_case
+          clientEmail: p.client_email, // Map DB snake_case
           location: p.location,
           status: p.status,
           progress: Number(p.progress),
@@ -182,6 +184,8 @@ const App: React.FC = () => {
            type: newProject.type,
            name: newProject.name,
            client: newProject.client,
+           client_phone: newProject.clientPhone, // DB mapping
+           client_email: newProject.clientEmail, // DB mapping
            location: newProject.location,
            status: newProject.status,
            progress: newProject.progress,
@@ -230,7 +234,9 @@ const App: React.FC = () => {
          progress: updatedProject.progress,
          end_date: updatedProject.endDate || null,
          description: updatedProject.description,
-         budget: updatedProject.budget 
+         budget: updatedProject.budget,
+         client_phone: updatedProject.clientPhone, // Save phone on update if user changes it
+         client_email: updatedProject.clientEmail  // Save email on update if user changes it
      }).eq('id', updatedProject.id).then(({ error }) => {
          if (error) console.error("Error updating project root:", error);
      });

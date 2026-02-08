@@ -109,6 +109,8 @@ export interface Project {
   elevatorData?: ElevatorData;
   name: string;
   client: string;
+  clientPhone?: string; // Nuevo campo
+  clientEmail?: string; // Nuevo campo
   location: string;
   status: ProjectStatus;
   progress: number; // 0 - 100

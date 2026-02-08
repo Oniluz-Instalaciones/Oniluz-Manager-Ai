@@ -3,7 +3,7 @@ import { Project, Transaction, Material, Incident, ProjectStatus, Priority, Pric
 import { 
   ArrowLeft, Plus, Trash2, AlertTriangle, CheckCircle, 
   TrendingUp, TrendingDown, Package, FileText, Settings, BrainCircuit, X, Receipt, Paperclip, ChevronDown, Building2, Calendar, RotateCcw, Edit3,
-  Hammer, Coffee, User, Wallet, BarChart3, Save, Loader2, Fuel, Car, HelpCircle
+  Hammer, Coffee, User, Wallet, BarChart3, Save, Loader2, Fuel, Car, HelpCircle, Phone, Mail
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { analyzeProjectStatus } from '../services/geminiService';
@@ -344,8 +344,23 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
           </button>
           <div className="flex-1">
             <h1 className="text-3xl font-extrabold text-slate-900 dark:text-white leading-tight break-all">{project.name}</h1>
-            <div className="flex items-center mt-2 gap-3">
+            <div className="flex flex-wrap items-center mt-2 gap-3">
                 <span className="text-sm font-medium text-slate-500 dark:text-slate-400 flex items-center"><Building2 className="w-3.5 h-3.5 mr-1" /> {project.client}</span>
+                
+                {(project.clientPhone || project.clientEmail) && <span className="text-slate-300 dark:text-slate-600">•</span>}
+                
+                {project.clientPhone && (
+                    <a href={`tel:${project.clientPhone}`} className="text-sm font-medium text-[#0047AB] dark:text-blue-400 flex items-center hover:underline">
+                        <Phone className="w-3.5 h-3.5 mr-1" /> {project.clientPhone}
+                    </a>
+                )}
+                
+                {project.clientEmail && (
+                    <a href={`mailto:${project.clientEmail}`} className="text-sm font-medium text-[#0047AB] dark:text-blue-400 flex items-center hover:underline">
+                        <Mail className="w-3.5 h-3.5 mr-1" /> {project.clientEmail}
+                    </a>
+                )}
+
                 <span className="text-slate-300 dark:text-slate-600">•</span>
                 <div className="relative group">
                     <select
@@ -852,15 +867,39 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                  <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6 flex items-center gap-2">
                     <Settings className="w-5 h-5 text-[#0047AB] dark:text-blue-400" /> Datos Generales
                  </h3>
-                 <div>
-                     <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-2">Nombre del Proyecto</label>
-                     <input 
-                         type="text" 
-                         value={project.name}
-                         onChange={(e) => updateProjectWithHistory({ ...project, name: e.target.value })}
-                         className="w-full p-4 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white font-bold text-lg transition-all"
-                     />
-                     <p className="text-xs text-slate-400 mt-2">El nombre se actualizará automáticamente en toda la aplicación.</p>
+                 <div className="space-y-4">
+                     <div>
+                         <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-2">Nombre del Proyecto</label>
+                         <input 
+                             type="text" 
+                             value={project.name}
+                             onChange={(e) => updateProjectWithHistory({ ...project, name: e.target.value })}
+                             className="w-full p-4 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white font-bold text-lg transition-all"
+                         />
+                         <p className="text-xs text-slate-400 mt-2">El nombre se actualizará automáticamente en toda la aplicación.</p>
+                     </div>
+                     <div className="grid grid-cols-2 gap-4">
+                         <div>
+                             <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-2">Teléfono Cliente</label>
+                             <input 
+                                 type="tel" 
+                                 value={project.clientPhone || ''}
+                                 onChange={(e) => updateProjectWithHistory({ ...project, clientPhone: e.target.value })}
+                                 className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white font-medium transition-all"
+                                 placeholder="Sin teléfono"
+                             />
+                         </div>
+                         <div>
+                             <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-2">Email Cliente</label>
+                             <input 
+                                 type="email" 
+                                 value={project.clientEmail || ''}
+                                 onChange={(e) => updateProjectWithHistory({ ...project, clientEmail: e.target.value })}
+                                 className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white font-medium transition-all"
+                                 placeholder="Sin email"
+                             />
+                         </div>
+                     </div>
                  </div>
               </div>
 
