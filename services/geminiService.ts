@@ -463,35 +463,46 @@ export const parseMaterialsFromImage = async (base64Image: string): Promise<Pric
     });
 };
 
-// NEW: Calculate driving distance using Gemini Reasoning
+// NEW: Calculate driving distance using Gemini Reasoning + Google Search Grounding
 export const calculateDrivingDistance = async (destination: string): Promise<number> => {
     return apiQueue.add(async () => {
         const origin = "Calle Don Eduardo Martín 27, 45560 Oropesa, Toledo";
-        const prompt = `Calcula la distancia de conducción en kilómetros desde '${origin}' hasta '${destination}'.
         
-        INSTRUCCIONES:
-        1. Estima la distancia real por carretera (ruta más rápida).
-        2. Responde SOLO con un objeto JSON válido con la propiedad 'distance' (número).
-        3. Ejemplo respuesta: { "distance": 120.5 }
-        4. Si no puedes encontrar el destino o la ruta, devuelve { "distance": 0 }`;
-
-        const schema = {
-            type: Type.OBJECT,
-            properties: {
-                distance: { type: Type.NUMBER, description: "Distancia en km" }
-            },
-            required: ["distance"]
-        };
+        // Updated Prompt to use Search Grounding for accurate real-world data
+        const prompt = `Calcula la distancia de conducción REAL por carretera (ruta más rápida en coche) desde '${origin}' hasta '${destination}'.
+        
+        IMPORTANTE: Usa Google Search para encontrar la distancia exacta actual (ejemplo: Google Maps). No estimes.
+        
+        Responde ÚNICAMENTE con un objeto JSON con la propiedad 'distance' (número en km).
+        Ejemplo: { "distance": 145 }`;
 
         try {
             const operation = () => genAI.models.generateContent({
-                model: MODEL_NAME,
+                model: MODEL_NAME, // gemini-2.5-flash
                 contents: prompt,
-                config: { responseMimeType: 'application/json', responseSchema: schema }
+                config: { 
+                    temperature: 0,
+                    // Enable Google Search to get real-time/real-world map data
+                    tools: [{ googleSearch: {} }] 
+                }
             });
 
             const response = await retryOperation(operation) as GenerateContentResponse;
-            const result = JSON.parse(response.text || '{"distance": 0}');
+            const text = response.text || "";
+            
+            // Extract JSON or Number from the grounded response
+            // Grounding responses often include sources or markdown, so we clean it.
+            let result = cleanAndParseJSON(text);
+            
+            if (!result || typeof result.distance !== 'number') {
+                // Fallback: Try to regex the km if JSON parsing failed due to extra text
+                const match = text.match(/(\d+[,.]?\d*)\s*(?:km|kilómetros)/i);
+                if (match) {
+                    return sanitizeNumber(match[1]);
+                }
+                return 0;
+            }
+
             return result.distance || 0;
         } catch (error) {
             console.error("Error calculating distance:", error);
