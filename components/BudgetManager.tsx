@@ -100,11 +100,23 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                 if (transError) throw transError;
             }
 
-            // 4. Update Local State
-            // Update Budget list
+            // 4. Update Local State and RECALCULATE TOTAL PROJECT BUDGET
             const updatedBudgets = (project.budgets || []).map(b => 
                 b.id === budgetToAccept.id ? { ...b, status: 'Accepted' as const } : b
             );
+
+            // Logic: Sum of ALL accepted budgets (including the one just accepted)
+            const newTotalProjectBudget = updatedBudgets
+                .filter(b => b.status === 'Accepted')
+                .reduce((sum, b) => sum + b.total, 0);
+
+            // Update Project Budget in DB explicitly
+            const { error: projectError } = await supabase
+                .from('projects')
+                .update({ budget: newTotalProjectBudget })
+                .eq('id', project.id);
+                
+            if (projectError) console.error("Error updating project total budget:", projectError);
             
             // Create transaction object for local state update
             let updatedTransactions = project.transactions;
@@ -122,7 +134,6 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
             }
 
             // Update End Date estimation logic (from previous code) if budget has labor
-            // Logic moved to a helper or kept simple here:
             let newEndDate = project.endDate;
             const laborHours = budgetToAccept.items
                 .filter(i => (i.unit.toLowerCase() === 'h' || i.name.toLowerCase().includes('hora') || i.category.toLowerCase().includes('mano')))
@@ -141,7 +152,8 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                 ...project, 
                 budgets: updatedBudgets,
                 transactions: updatedTransactions,
-                endDate: newEndDate || project.endDate
+                endDate: newEndDate || project.endDate,
+                budget: newTotalProjectBudget // Important: Update local budget state
             });
 
             setIsAcceptModalOpen(false);

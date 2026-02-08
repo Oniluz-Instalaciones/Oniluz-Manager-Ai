@@ -72,6 +72,12 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
     { name: 'Otros', value: totalOther, color: '#94a3b8' }, // Slate
   ].filter(d => d.value > 0);
 
+  // Dynamic Budget Calculation
+  // Priority: project.budget if > 0 (manual override or synced value)
+  // Fallback: Sum of all Accepted budgets
+  const activeBudgetsTotal = project.budgets?.filter(b => b.status === 'Accepted').reduce((sum, b) => sum + b.total, 0) || 0;
+  const displayBudget = project.budget > 0 ? project.budget : activeBudgetsTotal;
+
   const handleRunAnalysis = async () => {
     setIsAnalyzing(true);
     const result = await analyzeProjectStatus(project);
@@ -388,7 +394,10 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 transition-colors">
                 <h3 className="text-slate-400 dark:text-slate-500 text-xs font-bold uppercase tracking-wider">Presupuesto</h3>
-                <p className="text-3xl font-bold text-slate-900 dark:text-white mt-2">{project.budget.toLocaleString()}€</p>
+                <p className="text-3xl font-bold text-slate-900 dark:text-white mt-2">{displayBudget.toLocaleString()}€</p>
+                {activeBudgetsTotal > 0 && activeBudgetsTotal !== project.budget && (
+                    <span className="text-[10px] text-slate-400 italic">Basado en presupuestos aceptados</span>
+                )}
               </div>
               <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 transition-colors">
                 <h3 className="text-slate-400 dark:text-slate-500 text-xs font-bold uppercase tracking-wider">Margen Actual</h3>

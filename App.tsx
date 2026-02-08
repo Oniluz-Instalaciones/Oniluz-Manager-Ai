@@ -223,12 +223,14 @@ const App: React.FC = () => {
   const handleUpdateProject = (updatedProject: Project) => {
      setProjects(projects.map(p => p.id === updatedProject.id ? updatedProject : p));
 
+     // CRITICAL FIX: Added 'budget' to the update payload
      supabase.from('projects').update({
          name: updatedProject.name,
          status: updatedProject.status,
          progress: updatedProject.progress,
          end_date: updatedProject.endDate || null,
          description: updatedProject.description,
+         budget: updatedProject.budget 
      }).eq('id', updatedProject.id).then(({ error }) => {
          if (error) console.error("Error updating project root:", error);
      });

@@ -428,6 +428,11 @@ const ProjectList: React.FC<ProjectListProps> = ({
              const displayDescription = latestBudgetWithPrompt?.aiPrompt || project.description;
              const isAiDescription = !!latestBudgetWithPrompt?.aiPrompt;
 
+             // Calculate Total Collected (Adelanto) based on all Income transactions
+             const totalCollected = project.transactions
+                .filter(t => t.type === 'income')
+                .reduce((sum, t) => sum + t.amount, 0);
+
              return (
             <div 
               key={project.id} 
@@ -545,13 +550,21 @@ const ProjectList: React.FC<ProjectListProps> = ({
                   </div>
                 </div>
               </div>
-              <div className="bg-slate-50/50 dark:bg-slate-700/30 px-7 py-4 border-t border-slate-100 dark:border-slate-700 flex justify-between items-center backdrop-blur-sm">
-                <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-                  {project.materials.length} materiales
-                </span>
-                <span className="text-base font-bold text-slate-900 dark:text-white">
-                  {project.budget.toLocaleString()}€
-                </span>
+              
+              {/* Footer with Budget & Collected (Advance) */}
+              <div className="bg-slate-50/50 dark:bg-slate-700/30 px-6 py-4 border-t border-slate-100 dark:border-slate-700 flex justify-between items-center backdrop-blur-sm">
+                <div className="flex flex-col">
+                    <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Cobrado (Adelanto)</span>
+                    <span className="text-sm font-extrabold text-green-600 dark:text-green-400">
+                        {totalCollected.toLocaleString()}€
+                    </span>
+                </div>
+                <div className="flex flex-col items-end">
+                    <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Total Presupuesto</span>
+                    <span className="text-lg font-extrabold text-slate-900 dark:text-white">
+                        {project.budget.toLocaleString()}€
+                    </span>
+                </div>
               </div>
             </div>
              );
