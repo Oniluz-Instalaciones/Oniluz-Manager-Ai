@@ -25,7 +25,7 @@ export interface PvData {
 }
 
 export interface ElevatorData {
-  solutionType: 'Nexus' | 'Silla Recta' | 'Silla Curva' | 'Plataforma' | 'Elevador Vertical';
+  solutionType: 'Nexus' | 'Vectio' | 'Supes' | 'Nexus 2:1' | 'Silla Recta' | 'Silla Curva' | 'Plataforma' | 'Elevador Vertical';
   location: 'Interior' | 'Intemperie';
   floors: number;
   stairWidth?: number; // cm

@@ -216,6 +216,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
   return (
     <>
       <div className="p-6 max-w-7xl mx-auto pb-24 bg-slate-100 dark:bg-slate-900 min-h-screen transition-colors duration-300">
+        {/* ... (Header and Filters remain exactly as they were) ... */}
         <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-6">
           <div>
             <h1 className="text-4xl font-extrabold text-slate-900 dark:text-white flex items-center gap-4 tracking-tight">
@@ -275,6 +276,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
 
                   {isMenuOpen && (
                       <div className="absolute right-0 top-full mt-3 w-72 bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-100 dark:border-slate-700 z-50 overflow-hidden transform origin-top-right transition-all animate-in fade-in zoom-in-95 duration-200">
+                          {/* ... (Menu content) ... */}
                           <div className="p-4 border-b border-slate-100 dark:border-slate-700">
                               <div className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">Herramientas</div>
                               <div className="space-y-1">
@@ -342,8 +344,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
           </div>
         </div>
 
-        {/* ... (Business Unit Tabs and Filters remain unchanged) ... */}
-        
+        {/* ... (Rest of dashboard code) ... */}
         {/* Business Unit Tabs (New Feature) */}
         <div className="flex p-1 space-x-1 bg-slate-200/50 dark:bg-slate-800/50 rounded-xl mb-8 overflow-x-auto border border-slate-200 dark:border-slate-700">
            {/* All */}
@@ -392,8 +393,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
            </button>
         </div>
 
-        {/* ... (rest of search and filters) ... */}
-        
+        {/* ... (Rest of search, filters and grid) ... */}
         {/* Interactive Filters (Cards with Depth) - Context Aware based on Type Filter */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-5 mb-8">
           <button 
@@ -468,12 +468,9 @@ const ProjectList: React.FC<ProjectListProps> = ({
                 .reduce((sum, t) => sum + t.amount, 0);
 
              // --- CRITICAL FIX: DYNAMIC BUDGET DISPLAY ---
-             // Fallback to sum of accepted budgets if project.budget is 0. 
-             // Ensures older projects or those not yet synced display the correct total.
              const activeBudgetsTotal = project.budgets?.filter(b => b.status === 'Accepted').reduce((sum, b) => sum + b.total, 0) || 0;
              const displayBudget = project.budget > 0 ? project.budget : activeBudgetsTotal;
 
-             // Budget Execution percentage
              const expenses = project.transactions.filter(t => t.type === 'expense').reduce((a, b) => a + b.amount, 0);
              const budgetProgress = displayBudget > 0 ? (expenses / displayBudget) * 100 : 0;
 
@@ -516,20 +513,6 @@ const ProjectList: React.FC<ProjectListProps> = ({
                   <Building2 className="w-4 h-4 mr-1.5" /> {project.client}
                 </div>
 
-                {/* Specific PV Info Card */}
-                {project.type === 'Photovoltaic' && project.pvData && (
-                    <div className="mb-4 grid grid-cols-2 gap-2">
-                          <div className="bg-amber-50 dark:bg-amber-900/20 p-2 rounded-lg text-center">
-                              <span className="block text-[10px] text-amber-700 dark:text-amber-400 font-bold uppercase">Potencia</span>
-                              <span className="block font-bold text-slate-800 dark:text-slate-200">{project.pvData.peakPower} kWp</span>
-                          </div>
-                          <div className="bg-amber-50 dark:bg-amber-900/20 p-2 rounded-lg text-center">
-                              <span className="block text-[10px] text-amber-700 dark:text-amber-400 font-bold uppercase">Módulos</span>
-                              <span className="block font-bold text-slate-800 dark:text-slate-200">{project.pvData.modulesCount}</span>
-                          </div>
-                    </div>
-                )}
-
                 {/* Specific Elevator Info Card */}
                 {project.type === 'Elevator' && project.elevatorData && (
                     <div className="mb-4 grid grid-cols-2 gap-2">
@@ -548,6 +531,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
                     </div>
                 )}
 
+                {/* ... (rest of card) ... */}
                 {/* PROJECT DESCRIPTION (AI Prompt or Manual) */}
                 <div className="mb-4 min-h-[2.5rem]">
                     <p className={`text-xs leading-relaxed line-clamp-3 ${isAiDescription ? 'text-indigo-600 dark:text-indigo-400 font-medium italic' : 'text-slate-600 dark:text-slate-400'}`}>
@@ -629,6 +613,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
         {isModalOpen && (
           <div className="fixed inset-0 bg-slate-900/60 dark:bg-black/80 flex items-center justify-center p-4 z-50 backdrop-blur-md transition-all">
             <div className="bg-white dark:bg-slate-800 rounded-3xl w-full max-w-lg shadow-2xl p-8 transform transition-all max-h-[90vh] overflow-y-auto border border-slate-100 dark:border-slate-700">
+              {/* ... (Header) ... */}
               <div className="flex justify-between items-center mb-8">
                   <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
                       {modalType === 'Photovoltaic' && <SunIcon className="w-6 h-6 text-amber-500" />}
@@ -638,6 +623,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
                   <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><X className="w-5 h-5"/></button>
               </div>
               <form onSubmit={handleCreateProject} className="space-y-6">
+                {/* ... (Common Fields) ... */}
                 <div>
                   <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Nombre del Proyecto</label>
                   <input name="name" required className="w-full mt-2 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] focus:border-[#0047AB] text-slate-900 dark:text-white transition-all" />
@@ -647,7 +633,6 @@ const ProjectList: React.FC<ProjectListProps> = ({
                   <input name="client" required className="w-full mt-2 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] focus:border-[#0047AB] text-slate-900 dark:text-white transition-all" />
                 </div>
                 
-                {/* Contact Info */}
                 <div className="flex gap-4">
                     <div className="w-1/2">
                         <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Teléfono</label>
@@ -702,6 +687,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
                 {/* Specific PV Fields */}
                 {modalType === 'Photovoltaic' && (
                     <div className="bg-amber-50 dark:bg-amber-900/20 p-5 rounded-2xl border border-amber-100 dark:border-amber-800 space-y-4">
+                        {/* ... (PV Content) ... */}
                         <h3 className="text-sm font-bold text-amber-700 dark:text-amber-500 uppercase tracking-wide flex items-center gap-2">
                             <SunIcon className="w-4 h-4" /> Datos Técnicos FV
                         </h3>
@@ -748,6 +734,9 @@ const ProjectList: React.FC<ProjectListProps> = ({
                              <label className="text-[10px] font-bold text-rose-700/70 dark:text-rose-400 uppercase">Tipo de Solución</label>
                              <select name="solutionType" className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-700 rounded-lg text-sm text-slate-900 dark:text-white">
                                  <option value="Nexus">Nexus</option>
+                                 <option value="Vectio">Vectio</option>
+                                 <option value="Supes">Supes</option>
+                                 <option value="Nexus 2:1">Nexus 2:1</option>
                              </select>
                         </div>
                         <div className="flex gap-4">
@@ -856,7 +845,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
           </div>
         )}
 
-        {/* Scanner Modal */}
+        {/* ... (Modals) ... */}
         {isScannerOpen && (
             <ScannerModal 
               projects={projects}

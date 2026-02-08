@@ -1,8 +1,42 @@
 import React, { useState } from 'react';
 import { Budget, BudgetItem, Project, PriceItem } from '../types';
 import { generateSmartBudget } from '../services/geminiService';
-import { Plus, Trash2, Wand2, FileText, Save, ChevronLeft, ArrowRight, Loader2, Database, Paperclip, Check, X, Percent, Euro, MessageSquareQuote } from 'lucide-react';
+import { Plus, Trash2, Wand2, FileText, Save, ChevronLeft, ArrowRight, Loader2, Database, Paperclip, Check, X, Percent, Euro, MessageSquareQuote, Calculator, MapPin } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+
+// TARIFA DE MONTAJES VÁLIDA (01/01/2025)
+const VALIDA_TARIFFS = {
+    // GRUPO 1: VECTIO / NEXUS / SUPES (2 dias montaje)
+    GROUP_1: {
+        name: "Vectio/Nexus/Supes",
+        ranges: [
+            { maxKm: 50, price: 680 },
+            { maxKm: 150, price: 750 },
+            { maxKm: 200, price: 904 },
+            { maxKm: 250, price: 1044 },
+            { maxKm: 300, price: 1111 },
+            { maxKm: 350, price: 1183 },
+            { maxKm: 400, price: 1280 }
+        ],
+        supplement: 72
+    },
+    // GRUPO 2: NEXUS 2:1 (3 dias montaje)
+    GROUP_2: {
+        name: "Nexus 2:1",
+        ranges: [
+            { maxKm: 50, price: 781 },
+            { maxKm: 150, price: 875 },
+            { maxKm: 200, price: 1176 },
+            { maxKm: 250, price: 1358 },
+            { maxKm: 300, price: 1444 },
+            { maxKm: 350, price: 1538 },
+            { maxKm: 400, price: 1664 }
+        ],
+        // Nota: Existen dos suplementos (72€ media puerta / 133€ semiautomatica). 
+        // Usamos 72€ como base estándar.
+        supplement: 72 
+    }
+};
 
 interface BudgetManagerProps {
     project: Project;
@@ -165,6 +199,54 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
         } finally {
             setIsSaving(false);
         }
+    };
+
+    // VALIDA SPECIFIC LOGIC
+    const handleApplyValidaTariff = () => {
+        if (!currentBudget || !project.elevatorData) return;
+
+        const { solutionType, distanceFromBase, floors } = project.elevatorData;
+        const dist = distanceFromBase || 0;
+
+        // 1. Determine Tariff Group
+        let activeTariff = VALIDA_TARIFFS.GROUP_1; // Default to Group 1
+        
+        if (solutionType === 'Nexus 2:1') {
+            activeTariff = VALIDA_TARIFFS.GROUP_2;
+        }
+
+        // 2. Find Price Bracket
+        // Find first bracket where maxKm >= dist
+        const bracket = activeTariff.ranges.find(t => t.maxKm >= dist);
+        
+        // If distance is greater than max bracket (400), take the last one.
+        const finalPrice = bracket ? bracket.price : activeTariff.ranges[activeTariff.ranges.length - 1].price;
+
+        const newItems: BudgetItem[] = [];
+
+        // 3. Add Assembly Item
+        newItems.push({
+            id: crypto.randomUUID(),
+            name: `Montaje ${activeTariff.name} (${dist} km)`,
+            unit: 'ud',
+            quantity: 1,
+            pricePerUnit: finalPrice,
+            category: 'Mano de Obra'
+        });
+
+        // 4. Add Door Supplement (Standard logic: 1 supplement per floor/stop)
+        if (floors > 0) {
+            newItems.push({
+                id: crypto.randomUUID(),
+                name: 'Suplemento Puerta Rellano',
+                unit: 'ud',
+                quantity: floors,
+                pricePerUnit: activeTariff.supplement,
+                category: 'Material'
+            });
+        }
+
+        updateBudgetTotals({ ...currentBudget, items: [...currentBudget.items, ...newItems] });
     };
 
     const handleGenerateAI = async () => {
@@ -576,11 +658,11 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                         />
                     </div>
 
-                    {/* AI Generator */}
+                    {/* Generator Actions */}
                     <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-slate-800 dark:to-slate-800/50 p-6 rounded-2xl border border-blue-100 dark:border-slate-700 shadow-sm relative overflow-hidden transition-colors">
                         <div className="absolute top-0 right-0 w-32 h-32 bg-blue-200/20 dark:bg-blue-500/10 rounded-full blur-3xl -mr-16 -mt-16"></div>
                         <h3 className="text-sm font-bold text-[#0047AB] dark:text-blue-400 mb-4 flex items-center relative z-10">
-                            <Wand2 className="w-4 h-4 mr-2" /> Generador Inteligente (Experto REBT)
+                            <Wand2 className="w-4 h-4 mr-2" /> Herramientas de Cálculo
                         </h3>
                         <div className="flex flex-col gap-4 relative z-10">
                             <textarea 
@@ -600,14 +682,27 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                                     <Paperclip className="w-4 h-4 text-slate-400" />
                                     <span>Incluir documentos de la obra</span>
                                 </label>
-                                <button 
-                                    onClick={handleGenerateAI}
-                                    disabled={isGenerating || (!aiPrompt && !includeDocs)}
-                                    className="bg-[#0047AB] text-white px-6 py-2.5 rounded-xl hover:bg-[#003380] disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 font-semibold shadow-md shadow-blue-900/10 w-full sm:w-auto justify-center"
-                                >
-                                    {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
-                                    {isGenerating ? 'Calculando s/ Reglamento...' : 'Generar Partidas'}
-                                </button>
+                                
+                                <div className="flex gap-2 w-full sm:w-auto">
+                                    {project.type === 'Elevator' && project.elevatorData && (
+                                        <button
+                                            onClick={handleApplyValidaTariff}
+                                            className="bg-rose-600 text-white px-4 py-2.5 rounded-xl hover:bg-rose-700 transition-all flex items-center gap-2 font-semibold shadow-md shadow-rose-900/10 text-sm whitespace-nowrap"
+                                            title={`Aplicar tarifa para ${project.elevatorData.solutionType} a ${project.elevatorData.distanceFromBase}km`}
+                                        >
+                                            <Calculator className="w-4 h-4" /> Tarifa Válida
+                                        </button>
+                                    )}
+                                    
+                                    <button 
+                                        onClick={handleGenerateAI}
+                                        disabled={isGenerating || (!aiPrompt && !includeDocs)}
+                                        className="bg-[#0047AB] text-white px-6 py-2.5 rounded-xl hover:bg-[#003380] disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 font-semibold shadow-md shadow-blue-900/10 w-full sm:w-auto justify-center"
+                                    >
+                                        {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+                                        {isGenerating ? 'Calculando...' : 'Generar con IA'}
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
