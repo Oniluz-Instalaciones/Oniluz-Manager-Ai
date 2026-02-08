@@ -168,17 +168,18 @@ const ProjectList: React.FC<ProjectListProps> = ({
     setInitialFiles([]);
   };
 
-  const handleScanSave = (projectId: string, transaction: Transaction, newMaterials: Material[]) => {
+  const handleScanSave = (projectId: string, transaction: Transaction, newMaterials: Material[], newDocument?: ProjectDocument) => {
     const project = projects.find(p => p.id === projectId);
     if (project) {
         const updatedProject = {
             ...project,
             transactions: [transaction, ...project.transactions],
-            materials: [...project.materials, ...newMaterials]
+            materials: [...project.materials, ...newMaterials],
+            documents: newDocument ? [...project.documents, newDocument] : project.documents
         };
         onUpdateProject(updatedProject);
         setIsScannerOpen(false);
-        alert(`Guardado: 1 Gasto y ${newMaterials.length} nuevos materiales en stock.`);
+        alert(`Guardado correctamente: Gasto registrado${newMaterials.length > 0 ? `, ${newMaterials.length} nuevos materiales` : ''}${newDocument ? ' y documento adjuntado' : ''}.`);
     }
   };
 

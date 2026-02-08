@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Project, Transaction, Material } from '../types';
+import { Project, Transaction, Material, ProjectDocument } from '../types';
 import { Camera, X, Loader2, Save, Image as ImageIcon, Package, Trash2, Plus, RefreshCw, Upload, FileText, AlertTriangle, CreditCard, ExternalLink, ArchiveRestore, Ban, Tag } from 'lucide-react';
 import { analyzeDocument } from '../services/geminiService';
 import { supabase } from '../lib/supabase';
@@ -7,7 +7,7 @@ import { supabase } from '../lib/supabase';
 interface ScannerModalProps {
   projects: Project[];
   onClose: () => void;
-  onSave: (projectId: string, transaction: Transaction, newMaterials: Material[]) => void;
+  onSave: (projectId: string, transaction: Transaction, newMaterials: Material[], newDocument?: ProjectDocument) => void;
   currentUserName: string;
 }
 
@@ -294,17 +294,19 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
                 projectId: formData.projectId 
             }));
 
-        // 1. Insert Transaction (Always)
-        await supabase.from('transactions').insert({
+        // 1. Insert Transaction (Always) - Check for error
+        const { error: txError } = await supabase.from('transactions').insert({
             id: newTransaction.id,
             project_id: newTransaction.projectId,
             type: newTransaction.type,
             category: newTransaction.category,
             amount: newTransaction.amount,
             date: newTransaction.date || null,
-            description: newTransaction.description
-            // user_name removed to fix schema error
+            description: newTransaction.description,
+            user_name: newTransaction.userName
         });
+
+        if (txError) throw new Error("Error al guardar la transacción: " + txError.message);
 
         // 2. Insert Materials (Only if marked as stock)
         if (stockItemsToAdd.length > 0) {
@@ -317,25 +319,39 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
                 min_stock: m.minStock,
                 price_per_unit: m.pricePerUnit
             }));
-            await supabase.from('materials').insert(matsForDb);
+            const { error: matError } = await supabase.from('materials').insert(matsForDb);
+            if (matError) throw new Error("Error al guardar materiales: " + matError.message);
         }
 
         // 3. Insert Document (Linked to Project)
+        let newDocument: ProjectDocument | undefined;
         if (fileUrl) {
-            await supabase.from('documents').insert({
-                project_id: formData.projectId,
+            newDocument = {
+                id: crypto.randomUUID(),
+                projectId: formData.projectId,
                 name: `${formData.docType === 'DELIVERY_NOTE' ? 'Albarán' : 'Factura'} ${formData.date}`,
                 type: mimeType === 'application/pdf' ? 'pdf' : 'image',
-                date: formData.date || null,
-                data: fileUrl 
+                date: formData.date || new Date().toISOString().split('T')[0],
+                data: fileUrl // Stores URL
+            };
+
+            const { error: docError } = await supabase.from('documents').insert({
+                id: newDocument.id,
+                project_id: newDocument.projectId,
+                name: newDocument.name,
+                type: newDocument.type,
+                date: newDocument.date,
+                data: newDocument.data 
             });
+            
+            if (docError) console.error("Warning: Document save failed", docError);
         }
 
-        onSave(formData.projectId, newTransaction, stockItemsToAdd);
+        onSave(formData.projectId, newTransaction, stockItemsToAdd, newDocument);
     
-    } catch (error) {
+    } catch (error: any) {
         console.error("Error saving to DB:", error);
-        alert("Error guardando datos en la nube.");
+        alert(`Error guardando datos en la nube: ${error.message || error}`);
     } finally {
         setIsUploading(false);
     }
