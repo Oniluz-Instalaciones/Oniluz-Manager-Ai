@@ -77,9 +77,16 @@ const ProjectList: React.FC<ProjectListProps> = ({
   });
 
   // Calculate stats based on FILTERED view
+  // NOTE: We update totalBudget calculation here to also be robust (sum accepted budgets if project budget is 0)
   const totalProjects = filteredProjects.length;
   const inProgressCount = filteredProjects.filter(p => p.status === ProjectStatus.IN_PROGRESS).length;
-  const totalBudget = filteredProjects.reduce((sum, p) => sum + p.budget, 0);
+  
+  const totalBudget = filteredProjects.reduce((sum, p) => {
+      const activeBudgets = p.budgets?.filter(b => b.status === 'Accepted').reduce((s, b) => s + b.total, 0) || 0;
+      const effectiveBudget = p.budget > 0 ? p.budget : activeBudgets;
+      return sum + effectiveBudget;
+  }, 0);
+
   const activeIncidents = filteredProjects.reduce((sum, p) => sum + p.incidents.filter(i => i.status === 'Open').length, 0);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -433,6 +440,16 @@ const ProjectList: React.FC<ProjectListProps> = ({
                 .filter(t => t.type === 'income')
                 .reduce((sum, t) => sum + t.amount, 0);
 
+             // --- CRITICAL FIX: DYNAMIC BUDGET DISPLAY ---
+             // Fallback to sum of accepted budgets if project.budget is 0. 
+             // Ensures older projects or those not yet synced display the correct total.
+             const activeBudgetsTotal = project.budgets?.filter(b => b.status === 'Accepted').reduce((sum, b) => sum + b.total, 0) || 0;
+             const displayBudget = project.budget > 0 ? project.budget : activeBudgetsTotal;
+
+             // Budget Execution percentage
+             const expenses = project.transactions.filter(t => t.type === 'expense').reduce((a, b) => a + b.amount, 0);
+             const budgetProgress = displayBudget > 0 ? (expenses / displayBudget) * 100 : 0;
+
              return (
             <div 
               key={project.id} 
@@ -538,13 +555,13 @@ const ProjectList: React.FC<ProjectListProps> = ({
                       <div className="flex justify-between items-center text-xs mb-1.5">
                           <span className="text-slate-500 dark:text-slate-400 font-medium">Ejecución Presupuestaria</span>
                           <span className="font-bold text-slate-700 dark:text-slate-300">
-                          {project.budget > 0 ? ((project.transactions.filter(t=>t.type==='expense').reduce((a,b)=>a+b.amount,0) / project.budget) * 100).toFixed(0) : 0}%
+                          {budgetProgress.toFixed(0)}%
                           </span>
                       </div>
                       <div className="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
                           <div 
                           className={`h-2 rounded-full transition-all duration-500 ${project.type === 'Photovoltaic' ? 'bg-amber-500' : project.type === 'Elevator' ? 'bg-rose-500' : 'bg-[#0047AB]'}`}
-                          style={{ width: `${project.budget > 0 ? Math.min(((project.transactions.filter(t=>t.type==='expense').reduce((a,b)=>a+b.amount,0) / project.budget) * 100), 100) : 0}%` }}
+                          style={{ width: `${Math.min(budgetProgress, 100)}%` }}
                           ></div>
                       </div>
                   </div>
@@ -562,7 +579,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
                 <div className="flex flex-col items-end">
                     <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Total Presupuesto</span>
                     <span className="text-lg font-extrabold text-slate-900 dark:text-white">
-                        {project.budget.toLocaleString()}€
+                        {displayBudget.toLocaleString()}€
                     </span>
                 </div>
               </div>
