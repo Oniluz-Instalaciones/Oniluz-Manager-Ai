@@ -188,9 +188,11 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
           setScanErrorType('GENERIC');
       }
 
-      // AUTOMATIC STOCK LOGIC
-      const stockCategories = ['Material', 'Herramienta'];
-      const shouldAddToStock = stockCategories.includes(data.categoria || '');
+      // AUTOMATIC STOCK LOGIC: Now controlled by the AI's boolean 'isStockable'
+      // Fallback to legacy string check if AI doesn't return the boolean for some reason
+      const shouldAddToStock = typeof data.isStockable === 'boolean' 
+          ? data.isStockable 
+          : ['Material', 'Herramienta'].includes(data.categoria || '');
 
       // Normalize date here before setting state
       const safeDate = normalizeDate(data.fecha);

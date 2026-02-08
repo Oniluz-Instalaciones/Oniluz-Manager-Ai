@@ -149,7 +149,7 @@ const retryOperation = async <T>(operation: () => Promise<T>, retries = 3, delay
 // --- FUNCIONES PÚBLICAS ---
 
 export const analyzeDocument = async (base64String: string, mimeType: string = 'image/jpeg'): Promise<any> => {
-  const fallbackData = { comercio: "", fecha: new Date().toISOString().split('T')[0], total: 0, iva: 0, categoria: "Material", description: "Introducir datos manualmente", items: [] };
+  const fallbackData = { comercio: "", fecha: new Date().toISOString().split('T')[0], total: 0, iva: 0, categoria: "Material", isStockable: false, description: "Introducir datos manualmente", items: [] };
   return apiQueue.add(async () => {
       try {
         let cleanBase64;
@@ -160,17 +160,28 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
             cleanBase64 = base64String.includes(',') ? base64String.split(',')[1] : base64String;
         }
 
-        const prompt = `Actúa como el CONTABLE de una empresa eléctrica. Analiza esta imagen (ticket/factura) y extrae los datos en JSON.
+        const prompt = `Actúa como el CONTABLE experto de una empresa de instalaciones eléctricas. Analiza esta imagen.
         
-        REGLAS CRÍTICAS DE CATEGORIZACIÓN (Debes elegir UNA):
-        1. 'Dietas': Si contiene café, comida, almuerzo, restaurante, bar, agua, supermercado.
-        2. 'Transporte': Si contiene tren, ave, taxi, uber, parking, peaje, billete.
-        3. 'Combustible': Si contiene gasolina, diesel, gasolinera.
-        4. 'Material': Si contiene cables, mecanismos, material eléctrico, ferretería, tornillos.
-        5. 'Herramienta': Si son herramientas de trabajo (taladro, destornillador).
-        6. 'Varios': Solo si no encaja en ninguna anterior.
+        OBJETIVO: Extraer datos y DECIDIR SI LOS ITEMS VAN AL ALMACÉN (Stock).
 
-        Extrae 'items' línea por línea con su nombre y precio.`;
+        CRITERIOS ROBUSTOS PARA 'isStockable' (Inventariable):
+        - TRUE (SÍ STOCK): Solo materiales físicos que se instalan y se quedan en la obra. Ejemplos: Cables, tuberías, cajas, enchufes, interruptores, diferenciales, tornillos, tacos, paneles solares, inversores.
+        - FALSE (NO STOCK): 
+            1. Servicios (Mano de obra, transporte, parking).
+            2. Consumibles personales (Comida, café, agua, dietas).
+            3. Combustible (Gasolina, Diesel).
+            4. Herramientas (Taladros, destornilladores, escaleras) -> Son activos fijos, NO stock consumible de obra.
+            5. Ropa de trabajo o EPIs.
+
+        CRITERIOS PARA 'categoria':
+        1. 'Dietas': Restaurantes, supermercados, comida.
+        2. 'Transporte': Tren, taxi, parking, peaje.
+        3. 'Combustible': Gasolineras.
+        4. 'Material': Material eléctrico, ferretería, construcción (Si isStockable es true, suele ser Material).
+        5. 'Herramienta': Maquinaria y herramienta de mano.
+        6. 'Varios': Resto.
+
+        Extrae 'items' línea por línea.`;
         
         const documentSchema = {
             type: Type.OBJECT,
@@ -182,7 +193,11 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
                 categoria: { 
                     type: Type.STRING, 
                     enum: ['Material', 'Dietas', 'Transporte', 'Combustible', 'Herramienta', 'Varios'],
-                    description: "Categoría estricta del gasto" 
+                    description: "Categoría contable del gasto" 
+                },
+                isStockable: {
+                    type: Type.BOOLEAN,
+                    description: "TRUE si son materiales instalables (cables, mecanismos). FALSE si es comida, gasolina, servicios o herramientas."
                 },
                 items: {
                     type: Type.ARRAY,
@@ -197,7 +212,7 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
                     }
                 }
             },
-            required: ["comercio", "total", "items", "categoria"]
+            required: ["comercio", "total", "items", "categoria", "isStockable"]
         };
 
         const operation = () => genAI.models.generateContent({
