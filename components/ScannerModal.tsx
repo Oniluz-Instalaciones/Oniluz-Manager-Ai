@@ -303,7 +303,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
             amount: newTransaction.amount,
             date: newTransaction.date || null,
             description: newTransaction.description,
-            user_name: newTransaction.userName
+            user_name: newTransaction.userName // Column 'user_name' exists now
         });
 
         if (txError) throw new Error("Error al guardar la transacción: " + txError.message);
