@@ -11,6 +11,34 @@ import { supabase } from './lib/supabase'; // Kept for direct DB calls, auth mov
 import { getCurrentSession, onAuthStateChange, signOut } from './services/authService';
 import { Loader2 } from 'lucide-react';
 
+// --- Helpers for Schema Compatibility ---
+// Since the DB might be missing 'client_phone' and 'client_email' columns,
+// we store this data embedded in the description field as a fallback.
+const EMBED_TAG = '[Contacto:';
+
+const embedContactInfo = (desc: string, phone?: string, email?: string) => {
+    const cleanDesc = desc ? desc.split(EMBED_TAG)[0].trim() : '';
+    if (!phone && !email) return cleanDesc;
+    return `${cleanDesc}\n\n${EMBED_TAG} ${phone || ''} | ${email || ''}]`;
+};
+
+const extractContactInfo = (rawDesc: string) => {
+    if (!rawDesc) return { description: '', phone: '', email: '' };
+    
+    // Check if our tag exists
+    const parts = rawDesc.split(EMBED_TAG);
+    const cleanDesc = parts[0].trim();
+    
+    if (parts.length > 1) {
+        // Parse the tag content: " 666777888 | email@test.com]"
+        const tagContent = parts[1].replace(']', '').trim();
+        const [phone, email] = tagContent.split('|').map(s => s.trim());
+        return { description: cleanDesc, phone, email };
+    }
+    
+    return { description: cleanDesc, phone: '', email: '' };
+};
+
 const App: React.FC = () => {
   // Auth State
   const [session, setSession] = useState<any | null>(null);
@@ -98,39 +126,44 @@ const App: React.FC = () => {
       if (error) throw error;
 
       if (data) {
-        const formattedProjects: Project[] = data.map((p: any) => ({
-          id: p.id,
-          type: p.type as any,
-          name: p.name,
-          client: p.client,
-          clientPhone: p.client_phone, // Map DB snake_case
-          clientEmail: p.client_email, // Map DB snake_case
-          location: p.location,
-          status: p.status,
-          progress: Number(p.progress),
-          startDate: p.start_date,
-          endDate: p.end_date,
-          budget: Number(p.budget),
-          description: p.description,
-          pvData: p.pv_data, // JSONB column
-          elevatorData: p.elevator_data, // JSONB column
-          transactions: p.transactions?.map((t: any) => ({
-              ...t,
-              userName: t.user_name // Map database snake_case to app camelCase
-          })) || [],
-          materials: p.materials || [],
-          incidents: p.incidents || [],
-          documents: p.documents || [],
-          budgets: p.budgets?.map((b: any) => ({
-             ...b,
-             // CRITICAL FIX: Map snake_case DB columns to camelCase TS properties
-             items: b.items?.map((i: any) => ({
-                 ...i,
-                 pricePerUnit: i.price_per_unit // Map DB price_per_unit to frontend pricePerUnit
-             })) || [],
-             aiPrompt: b.ai_prompt
-          })) || []
-        }));
+        const formattedProjects: Project[] = data.map((p: any) => {
+          // Extract contact info from description fallback if columns are missing/empty
+          const { description, phone, email } = extractContactInfo(p.description);
+          
+          return {
+            id: p.id,
+            type: p.type as any,
+            name: p.name,
+            client: p.client,
+            // Prefer DB column if exists, otherwise use extracted fallback
+            clientPhone: p.client_phone || phone, 
+            clientEmail: p.client_email || email,
+            location: p.location,
+            status: p.status,
+            progress: Number(p.progress),
+            startDate: p.start_date,
+            endDate: p.end_date,
+            budget: Number(p.budget),
+            description: description, // Use cleaned description
+            pvData: p.pv_data, // JSONB column
+            elevatorData: p.elevator_data, // JSONB column
+            transactions: p.transactions?.map((t: any) => ({
+                ...t,
+                userName: t.user_name // Map database snake_case to app camelCase
+            })) || [],
+            materials: p.materials || [],
+            incidents: p.incidents || [],
+            documents: p.documents || [],
+            budgets: p.budgets?.map((b: any) => ({
+               ...b,
+               items: b.items?.map((i: any) => ({
+                   ...i,
+                   pricePerUnit: i.price_per_unit
+               })) || [],
+               aiPrompt: b.ai_prompt
+            })) || []
+          };
+        });
         setProjects(formattedProjects);
       }
     } catch (err) {
@@ -178,19 +211,24 @@ const App: React.FC = () => {
 
   const handleAddProject = async (newProject: Project) => {
     try {
-      // Sanitize Payload: ensure undefineds become nulls and dates are valid
+      // Compatibility Mode: Embed contact info into description to avoid "column not found" errors
+      const combinedDescription = embedContactInfo(
+          newProject.description || '', 
+          newProject.clientPhone, 
+          newProject.clientEmail
+      );
+
       const payload = {
            type: newProject.type,
            name: newProject.name,
            client: newProject.client,
-           client_phone: newProject.clientPhone || null, // Handle empty string/undefined
-           client_email: newProject.clientEmail || null, // Handle empty string/undefined
+           // Removed client_phone & client_email to fix schema error
            location: newProject.location,
            status: newProject.status,
            progress: newProject.progress || 0,
            start_date: newProject.startDate || null, 
            end_date: newProject.endDate || null,   
-           description: newProject.description || '',
+           description: combinedDescription,
            budget: newProject.budget || 0,
            pv_data: newProject.pvData || null,
            elevator_data: newProject.elevatorData || null
@@ -235,25 +273,33 @@ const App: React.FC = () => {
     }
   };
 
-  const handleUpdateProject = (updatedProject: Project) => {
+  const handleUpdateProject = async (updatedProject: Project) => {
+     // Optimistic UI update
      setProjects(projects.map(p => p.id === updatedProject.id ? updatedProject : p));
 
+     // Compatibility Mode: Embed contact info
+     const combinedDescription = embedContactInfo(
+        updatedProject.description || '', 
+        updatedProject.clientPhone, 
+        updatedProject.clientEmail
+     );
+
      // Update logic with sanitization
-     supabase.from('projects').update({
+     const { error } = await supabase.from('projects').update({
          name: updatedProject.name,
          status: updatedProject.status,
          progress: updatedProject.progress,
          end_date: updatedProject.endDate || null,
-         description: updatedProject.description || '',
+         description: combinedDescription,
          budget: updatedProject.budget || 0,
-         client_phone: updatedProject.clientPhone || null, 
-         client_email: updatedProject.clientEmail || null
-     }).eq('id', updatedProject.id).then(({ error }) => {
-         if (error) {
-             console.error("Error updating project root:", error);
-             alert("Error al actualizar proyecto: " + error.message);
-         }
-     });
+         // Removed client_phone & client_email to fix schema error
+     }).eq('id', updatedProject.id);
+
+     if (error) {
+         console.error("Error updating project root:", error);
+         alert("Error al actualizar proyecto: " + error.message);
+         fetchProjects(); // Revert
+     }
   };
 
   const handleDeleteProject = async (id: string) => {
