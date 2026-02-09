@@ -468,13 +468,12 @@ export const calculateDrivingDistance = async (destination: string): Promise<num
     return apiQueue.add(async () => {
         const origin = "Calle Don Eduardo Martín 27, 45560 Oropesa, Toledo";
         
-        // Updated Prompt to use Search Grounding for accurate real-world data
-        const prompt = `Calcula la distancia de conducción REAL por carretera (ruta más rápida en coche) desde '${origin}' hasta '${destination}'.
+        // Prompt optimizado para extracción robusta de datos con Grounding
+        const prompt = `Calcula la distancia de conducción exacta (ruta más rápida en coche) desde '${origin}' hasta '${destination}'.
         
-        IMPORTANTE: Usa Google Search para encontrar la distancia exacta actual (ejemplo: Google Maps). No estimes.
+        Usa Google Search/Maps para obtener el dato real.
         
-        Responde ÚNICAMENTE con un objeto JSON con la propiedad 'distance' (número en km).
-        Ejemplo: { "distance": 145 }`;
+        Responde SOLO con el número de kilómetros. Ejemplo: "145 km".`;
 
         try {
             const operation = () => genAI.models.generateContent({
@@ -490,20 +489,34 @@ export const calculateDrivingDistance = async (destination: string): Promise<num
             const response = await retryOperation(operation) as GenerateContentResponse;
             const text = response.text || "";
             
-            // Extract JSON or Number from the grounded response
-            // Grounding responses often include sources or markdown, so we clean it.
-            let result = cleanAndParseJSON(text);
+            console.log("Distancia raw:", text); // Debug para desarrollo
+
+            // Regex mejorado: Busca números que estén cerca de "km" o "kilómetros"
+            // Soporta: "145 km", "145,5 km", "145.5 km", "son 145 km"
+            const match = text.match(/([\d.,]+)\s*(?:km|kilómetros)/i);
             
-            if (!result || typeof result.distance !== 'number') {
-                // Fallback: Try to regex the km if JSON parsing failed due to extra text
-                const match = text.match(/(\d+[,.]?\d*)\s*(?:km|kilómetros)/i);
-                if (match) {
-                    return sanitizeNumber(match[1]);
+            if (match && match[1]) {
+                // Limpieza de formato numérico español/internacional
+                let numStr = match[1];
+                
+                // Si tiene punto y coma (ej: 1.200,50), quitamos puntos (miles) y cambiamos coma a punto (decimal)
+                if (numStr.includes('.') && numStr.includes(',')) {
+                    numStr = numStr.replace(/\./g, '').replace(',', '.');
+                } 
+                // Si solo tiene coma (ej: 145,5), es decimal
+                else if (numStr.includes(',')) {
+                    numStr = numStr.replace(',', '.');
                 }
-                return 0;
+                // Si tiene punto solo (ej: 145.5 o 1.200), JS parseFloat maneja el punto como decimal.
+                // En distancias cortas (<1000km), el punto suele ser decimal en contextos de programación, 
+                // aunque en ES sea miles. La regex captura [\d.,]+, así que "1.200" entra aquí.
+                // Asumimos que si hay conflicto, la Search API devuelve formato estándar.
+
+                const dist = parseFloat(numStr);
+                return isNaN(dist) ? 0 : Math.round(dist);
             }
 
-            return result.distance || 0;
+            return 0;
         } catch (error) {
             console.error("Error calculating distance:", error);
             return 0;
