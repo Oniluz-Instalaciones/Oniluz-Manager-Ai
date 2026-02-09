@@ -178,24 +178,27 @@ const App: React.FC = () => {
 
   const handleAddProject = async (newProject: Project) => {
     try {
-      const { data, error } = await supabase
-        .from('projects')
-        .insert({
+      // Sanitize Payload: ensure undefineds become nulls and dates are valid
+      const payload = {
            type: newProject.type,
            name: newProject.name,
            client: newProject.client,
-           client_phone: newProject.clientPhone, // DB mapping
-           client_email: newProject.clientEmail, // DB mapping
+           client_phone: newProject.clientPhone || null, // Handle empty string/undefined
+           client_email: newProject.clientEmail || null, // Handle empty string/undefined
            location: newProject.location,
            status: newProject.status,
-           progress: newProject.progress,
+           progress: newProject.progress || 0,
            start_date: newProject.startDate || null, 
            end_date: newProject.endDate || null,   
-           description: newProject.description,
-           budget: newProject.budget,
-           pv_data: newProject.pvData,
-           elevator_data: newProject.elevatorData
-        })
+           description: newProject.description || '',
+           budget: newProject.budget || 0,
+           pv_data: newProject.pvData || null,
+           elevator_data: newProject.elevatorData || null
+      };
+
+      const { data, error } = await supabase
+        .from('projects')
+        .insert(payload)
         .select()
         .single();
 
@@ -206,20 +209,28 @@ const App: React.FC = () => {
       
       setProjects([finalProject, ...projects]);
 
+      // Handle Documents separately to avoid blocking project creation if they fail
       if (newProject.documents.length > 0) {
-          const docsToInsert = newProject.documents.map(d => ({
-              project_id: realId, 
-              name: d.name,
-              type: d.type,
-              date: d.date,
-              data: d.data
-          }));
-          await supabase.from('documents').insert(docsToInsert);
+          try {
+              const docsToInsert = newProject.documents.map(d => ({
+                  project_id: realId, 
+                  name: d.name,
+                  type: d.type,
+                  date: d.date,
+                  data: d.data
+              }));
+              const { error: docError } = await supabase.from('documents').insert(docsToInsert);
+              if (docError) console.error("Error saving initial documents:", docError);
+          } catch (docErr) {
+              console.error("Critical error saving documents:", docErr);
+              // Don't alert user here, just log it, as project is created.
+          }
       }
 
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error creating project in DB:", err);
-      alert("Error al guardar en la nube. Inténtelo de nuevo.");
+      // Show descriptive error to user
+      alert(`Error al guardar en la nube: ${err.message || 'Error desconocido'}`);
       fetchProjects(); 
     }
   };
@@ -227,18 +238,21 @@ const App: React.FC = () => {
   const handleUpdateProject = (updatedProject: Project) => {
      setProjects(projects.map(p => p.id === updatedProject.id ? updatedProject : p));
 
-     // CRITICAL FIX: Added 'budget' to the update payload
+     // Update logic with sanitization
      supabase.from('projects').update({
          name: updatedProject.name,
          status: updatedProject.status,
          progress: updatedProject.progress,
          end_date: updatedProject.endDate || null,
-         description: updatedProject.description,
-         budget: updatedProject.budget,
-         client_phone: updatedProject.clientPhone, // Save phone on update if user changes it
-         client_email: updatedProject.clientEmail  // Save email on update if user changes it
+         description: updatedProject.description || '',
+         budget: updatedProject.budget || 0,
+         client_phone: updatedProject.clientPhone || null, 
+         client_email: updatedProject.clientEmail || null
      }).eq('id', updatedProject.id).then(({ error }) => {
-         if (error) console.error("Error updating project root:", error);
+         if (error) {
+             console.error("Error updating project root:", error);
+             alert("Error al actualizar proyecto: " + error.message);
+         }
      });
   };
 
@@ -250,7 +264,7 @@ const App: React.FC = () => {
         const { error } = await supabase.from('projects').delete().eq('id', id);
         if (error) {
             console.error("Error deleting project:", error);
-            alert("Error al eliminar el proyecto.");
+            alert("Error al eliminar el proyecto: " + error.message);
             fetchProjects();
         }
     }

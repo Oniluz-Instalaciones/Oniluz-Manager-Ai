@@ -167,7 +167,8 @@ const ProjectList: React.FC<ProjectListProps> = ({
             stairWidth: Number(formData.get('stairWidth')),
             stairMaterial: formData.get('stairMaterial') as any,
             parkingSide: formData.get('parkingSide') as any,
-            distanceFromBase: calculatedDistance || undefined
+            // Ensure calculatedDistance is explicitly set to undefined if null/0 to avoid 0km being valid if not calculated
+            distanceFromBase: calculatedDistance !== null ? calculatedDistance : undefined
         };
     }
 
