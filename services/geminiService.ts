@@ -468,18 +468,11 @@ export const calculateDrivingDistance = async (destination: string): Promise<num
     return apiQueue.add(async () => {
         const origin = "Calle Don Eduardo Martín 27, 45560 Oropesa, Toledo";
         
-        // SYSTEM INSTRUCTION FOR ROBUSTNESS:
-        // We act as a GPS API to force structured output from the model.
-        // We explicitly command it to use the tool and return ONLY the numeric result.
-        const prompt = `Actúa como un sistema de navegación GPS experto.
-        
-        TAREA: Calcular la distancia de conducción por carretera (ruta más rápida) desde '${origin}' hasta '${destination}'.
-        
-        HERRAMIENTA: Debes usar Google Search para buscar la ruta real en Google Maps.
-        
-        FORMATO DE RESPUESTA:
-        Solo devuelve el número de kilómetros y la unidad "km". No añadas texto explicativo.
-        Ejemplos válidos: "145 km", "145.5 km".`;
+        // REVISED PROMPT: Natural Language to avoid model refusals
+        // Instead of role-playing, we directly ask for the data.
+        const prompt = `Calcula la distancia de conducción (km) entre '${origin}' y '${destination}'.
+        Usa Google Search para el dato.
+        Respuesta corta: solo la distancia.`;
 
         try {
             const operation = () => genAI.models.generateContent({
