@@ -468,57 +468,75 @@ export const calculateDrivingDistance = async (destination: string): Promise<num
     return apiQueue.add(async () => {
         const origin = "Calle Don Eduardo Martín 27, 45560 Oropesa, Toledo";
         
-        // Prompt optimizado para extracción robusta de datos con Grounding
-        const prompt = `Calcula la distancia de conducción exacta (ruta más rápida en coche) desde '${origin}' hasta '${destination}'.
+        // SYSTEM INSTRUCTION FOR ROBUSTNESS:
+        // We act as a GPS API to force structured output from the model.
+        // We explicitly command it to use the tool and return ONLY the numeric result.
+        const prompt = `Actúa como un sistema de navegación GPS experto.
         
-        Usa Google Search/Maps para obtener el dato real.
+        TAREA: Calcular la distancia de conducción por carretera (ruta más rápida) desde '${origin}' hasta '${destination}'.
         
-        Responde SOLO con el número de kilómetros. Ejemplo: "145 km".`;
+        HERRAMIENTA: Debes usar Google Search para buscar la ruta real en Google Maps.
+        
+        FORMATO DE RESPUESTA:
+        Solo devuelve el número de kilómetros y la unidad "km". No añadas texto explicativo.
+        Ejemplos válidos: "145 km", "145.5 km".`;
 
         try {
             const operation = () => genAI.models.generateContent({
                 model: MODEL_NAME, // gemini-2.5-flash
                 contents: prompt,
                 config: { 
-                    temperature: 0,
+                    temperature: 0, // Deterministic output
                     // Enable Google Search to get real-time/real-world map data
                     tools: [{ googleSearch: {} }] 
                 }
             });
 
             const response = await retryOperation(operation) as GenerateContentResponse;
-            const text = response.text || "";
             
-            console.log("Distancia raw:", text); // Debug para desarrollo
+            // ROBUST EXTRACTION STRATEGY:
+            // When using tools, response.text might be empty if the answer is in a 'part' mixed with metadata.
+            // We reconstruct the full text from all parts manually to be safe.
+            let fullText = response.text || "";
+            if (!fullText && response.candidates?.[0]?.content?.parts) {
+                fullText = response.candidates[0].content.parts
+                    .map(p => p.text) // Extract text from parts
+                    .filter(t => t) // Remove undefined/null
+                    .join(" "); // Join
+            }
+            
+            console.log(`[Oniluz AI] Distancia Raw: "${fullText}"`);
 
-            // Regex mejorado: Busca números que estén cerca de "km" o "kilómetros"
-            // Soporta: "145 km", "145,5 km", "145.5 km", "son 145 km"
-            const match = text.match(/([\d.,]+)\s*(?:km|kilómetros)/i);
+            // Regex mejorado y más permisivo:
+            // Captura: "145", "145.5", "145,5", "1.200"
+            // Ignora citas como [1], texto alrededor, etc.
+            const regex = /([\d]+[.,\d]*)\s*(?:km|kilómetros|kilometers|kilometro|kilometros)/i;
+            const match = fullText.match(regex);
             
             if (match && match[1]) {
-                // Limpieza de formato numérico español/internacional
                 let numStr = match[1];
                 
-                // Si tiene punto y coma (ej: 1.200,50), quitamos puntos (miles) y cambiamos coma a punto (decimal)
+                // Normalization Logic for Spanish/European vs US Formats
+                // Case A: 1.200,50 (European) -> remove dots, swap comma to dot
                 if (numStr.includes('.') && numStr.includes(',')) {
                     numStr = numStr.replace(/\./g, '').replace(',', '.');
                 } 
-                // Si solo tiene coma (ej: 145,5), es decimal
+                // Case B: 145,5 (Decimal comma) -> swap comma to dot
                 else if (numStr.includes(',')) {
                     numStr = numStr.replace(',', '.');
                 }
-                // Si tiene punto solo (ej: 145.5 o 1.200), JS parseFloat maneja el punto como decimal.
-                // En distancias cortas (<1000km), el punto suele ser decimal en contextos de programación, 
-                // aunque en ES sea miles. La regex captura [\d.,]+, así que "1.200" entra aquí.
-                // Asumimos que si hay conflicto, la Search API devuelve formato estándar.
-
-                const dist = parseFloat(numStr);
-                return isNaN(dist) ? 0 : Math.round(dist);
+                // Case C: 145.5 (Decimal dot) -> keep as is
+                
+                const distance = parseFloat(numStr);
+                
+                if (!isNaN(distance)) {
+                    return Math.round(distance);
+                }
             }
 
             return 0;
         } catch (error) {
-            console.error("Error calculating distance:", error);
+            console.error("[Oniluz AI] Error calculating distance:", error);
             return 0;
         }
     });
