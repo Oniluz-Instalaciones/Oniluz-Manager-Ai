@@ -2,21 +2,24 @@ import { GoogleGenAI, GenerateContentResponse, Type } from "@google/genai";
 import { Project, PriceItem } from "../types";
 
 // --- CONFIGURACIÓN DE API ---
-// Se utiliza la librería moderna @google/genai.
-const apiKey = process.env.API_KEY || 'AIzaSyAPt-4D6bA9qLK-BrijbJBcmnBU1ojXOA8'; // Fallback for dev if env missing
+const apiKey = process.env.API_KEY || 'AIzaSyAPt-4D6bA9qLK-BrijbJBcmnBU1ojXOA8'; 
 const genAI = new GoogleGenAI({ apiKey });
 
-// MODELO: Actualizado a Gemini 2.5 Flash.
-const MODEL_NAME = 'gemini-2.5-flash';
+// --- ESTRATEGIA DE MODELOS (FALLBACK) ---
+// Actualización: Usamos Gemini 3.0 Flash como motor principal por su mayor inteligencia.
+// Gemini 2.5 Flash queda como respaldo robusto.
+const MODEL_PRIMARY = 'gemini-3-flash-preview';
+const MODEL_FALLBACK = 'gemini-2.5-flash'; 
 
 // --- SISTEMA DE CACHÉ ---
 const responseCache = new Map<string, { timestamp: number, data: any }>();
 const CACHE_TTL = 1000 * 60 * 5; // 5 minutos de validez
 
-// --- SISTEMA DE COLA (Request Queue) ---
+// --- SISTEMA DE COLA INTELIGENTE (Circuit Breaker) ---
 class RequestQueue {
     private queue: (() => Promise<void>)[] = [];
     private processing = false;
+    private pausedUntil = 0; // Timestamp hasta cuando detener la cola
 
     async add<T>(operation: () => Promise<T>): Promise<T> {
         return new Promise<T>((resolve, reject) => {
@@ -32,15 +35,33 @@ class RequestQueue {
         });
     }
 
+    public pause(ms: number) {
+        const resumeTime = Date.now() + ms;
+        console.warn(`[Oniluz AI] 🛑 Cola pausada por ${Math.ceil(ms/1000)}s debido a límites de API.`);
+        // Solo extendemos la pausa si el nuevo tiempo es mayor al actual
+        if (resumeTime > this.pausedUntil) {
+            this.pausedUntil = resumeTime;
+        }
+    }
+
     private async process() {
-        if (this.processing || this.queue.length === 0) return;
+        if (this.processing) return;
         this.processing = true;
         
         while (this.queue.length > 0) {
+            // 1. Verificar Circuit Breaker
+            const timeLeft = this.pausedUntil - Date.now();
+            if (timeLeft > 0) {
+                // Esperar el tiempo restante antes de procesar el siguiente
+                await new Promise(r => setTimeout(r, timeLeft + 100));
+                this.pausedUntil = 0; // Resetear tras espera
+            }
+
             const op = this.queue.shift();
             if (op) {
                 await op();
-                await new Promise(r => setTimeout(r, 1000)); 
+                // Ritmo base para no saturar (1.5s entre llamadas exitosas)
+                await new Promise(r => setTimeout(r, 1500)); 
             }
         }
         
@@ -77,16 +98,10 @@ const cleanAndParseJSON = (text: string): any => {
     }
 };
 
-// Helper function to safely convert any potential number string to a valid float
 const sanitizeNumber = (value: any): number => {
     if (typeof value === 'number' && !isNaN(value)) return value;
     if (!value) return 0;
-    
-    // Convert to string, replace commas with dots (European format), remove currency symbols and non-numeric chars except dot/minus
-    const cleanStr = String(value)
-        .replace(',', '.')
-        .replace(/[^0-9.-]/g, '');
-        
+    const cleanStr = String(value).replace(',', '.').replace(/[^0-9.-]/g, '');
     const parsed = parseFloat(cleanStr);
     return isNaN(parsed) ? 0 : parsed;
 };
@@ -96,7 +111,6 @@ const optimizeImage = (base64Str: string): Promise<string> => {
         if (!base64Str.startsWith('data:image')) {
              return resolve(base64Str.includes(',') ? base64Str.split(',')[1] : base64Str);
         }
-
         const img = new Image();
         img.src = base64Str;
         img.onload = () => {
@@ -104,7 +118,6 @@ const optimizeImage = (base64Str: string): Promise<string> => {
             let width = img.width;
             let height = img.height;
             const MAX_SIZE = 1024; 
-
             if (width > height) {
                 if (width > MAX_SIZE) {
                     height *= MAX_SIZE / width;
@@ -116,72 +129,100 @@ const optimizeImage = (base64Str: string): Promise<string> => {
                     height = MAX_SIZE;
                 }
             }
-
             canvas.width = width;
             canvas.height = height;
             const ctx = canvas.getContext('2d');
             ctx?.drawImage(img, 0, 0, width, height);
             const optimizedBase64 = canvas.toDataURL('image/jpeg', 0.6);
-            console.log(`[Oniluz AI] Imagen optimizada para cuota: ${Math.round(width)}x${Math.round(height)}px`);
             resolve(optimizedBase64.split(',')[1]); 
         };
-        img.onerror = () => {
-            console.warn("[Oniluz AI] No se pudo optimizar la imagen, enviando original.");
-            resolve(base64Str.includes(',') ? base64Str.split(',')[1] : base64Str);
-        };
+        img.onerror = () => resolve(base64Str.includes(',') ? base64Str.split(',')[1] : base64Str);
     });
 };
 
-const retryOperation = async <T>(operation: () => Promise<T>, retries = 3, delay = 2000): Promise<T> => {
-    try {
-        return await operation();
-    } catch (error: any) {
-        const errorStr = error.toString();
-        const isTransient = errorStr.includes('429') || errorStr.includes('503') || (error.status === 429) || (error.status === 503);
-        if (retries > 0 && isTransient) {
-            await new Promise(r => setTimeout(r, delay));
-            return retryOperation(operation, retries - 1, delay * 2);
+// --- GESTOR DE REINTENTOS ROBUSTO ---
+// Ejecuta la operación pasando el modelo a usar. Gestiona Fallback y 429.
+const robustGenerate = async <T>(
+    operationBuilder: (model: string) => Promise<T>, 
+    allowFallback: boolean = true
+): Promise<T> => {
+    let currentModel = MODEL_PRIMARY;
+    let attempt = 0;
+    const maxRetries = 3;
+
+    while (attempt < maxRetries) {
+        try {
+            return await operationBuilder(currentModel);
+        } catch (error: any) {
+            attempt++;
+            const errStr = error.toString();
+            
+            // Detección precisa de error de cuota (429)
+            const isQuotaError = errStr.includes('429') || error.status === 429 || error.code === 429 || errStr.includes('RESOURCE_EXHAUSTED');
+
+            if (!isQuotaError) {
+                if (attempt >= maxRetries) throw error;
+                // Error genérico, espera exponencial breve
+                await new Promise(r => setTimeout(r, 1000 * attempt));
+                continue;
+            }
+
+            console.warn(`[Oniluz AI] ⚠️ Cuota excedida en ${currentModel}.`);
+
+            // 1. ESTRATEGIA FALLBACK: Cambiar de modelo si es posible
+            if (allowFallback && currentModel === MODEL_PRIMARY) {
+                console.log(`[Oniluz AI] 🔄 Cambiando a modelo de respaldo: ${MODEL_FALLBACK}`);
+                currentModel = MODEL_FALLBACK;
+                // Reiniciamos intentos para el nuevo modelo
+                attempt = 0; 
+                continue;
+            }
+
+            // 2. ESTRATEGIA DE ESPERA INTELIGENTE
+            // Si ya estamos en fallback o no se permite cambio, analizamos el tiempo de espera real
+            let waitMs = 5000; // Default 5s
+            
+            // Extraer "retry in X s" del mensaje de error
+            const match = errStr.match(/retry in ([\d\.]+)s/);
+            if (match && match[1]) {
+                const seconds = parseFloat(match[1]);
+                waitMs = Math.ceil(seconds * 1000) + 1500; // Buffer de 1.5s
+                console.log(`[Oniluz AI] ⏳ Google solicita espera de: ${seconds}s`);
+            }
+
+            // Si la espera es muy larga (> 10s), pausamos toda la cola para no quemar intentos
+            if (waitMs > 10000) {
+                apiQueue.pause(waitMs);
+            }
+
+            // Si es el último intento, lanzamos error, si no, esperamos
+            if (attempt >= maxRetries) throw error;
+            
+            await new Promise(r => setTimeout(r, waitMs));
         }
-        throw error;
     }
+    throw new Error("Servicio IA no disponible tras reintentos.");
 };
 
 // --- FUNCIONES PÚBLICAS ---
 
 export const analyzeDocument = async (base64String: string, mimeType: string = 'image/jpeg'): Promise<any> => {
   const fallbackData = { comercio: "", fecha: new Date().toISOString().split('T')[0], total: 0, iva: 0, categoria: "Material", isStockable: false, description: "Introducir datos manualmente", items: [] };
+  
   return apiQueue.add(async () => {
       try {
         let cleanBase64;
-        // Solo optimizamos si es imagen, si es PDF pasamos el base64 limpio directamente
         if (mimeType.startsWith('image/')) {
             cleanBase64 = await optimizeImage(base64String);
         } else {
             cleanBase64 = base64String.includes(',') ? base64String.split(',')[1] : base64String;
         }
 
-        const prompt = `Actúa como el CONTABLE experto de una empresa de instalaciones eléctricas. Analiza esta imagen.
-        
+        const prompt = `Actúa como el CONTABLE experto. Analiza documento.
         OBJETIVO: Extraer datos y DECIDIR SI LOS ITEMS VAN AL ALMACÉN (Stock).
-
-        CRITERIOS ROBUSTOS PARA 'isStockable' (Inventariable):
-        - TRUE (SÍ STOCK): Solo materiales físicos que se instalan y se quedan en la obra. Ejemplos: Cables, tuberías, cajas, enchufes, interruptores, diferenciales, tornillos, tacos, paneles solares, inversores.
-        - FALSE (NO STOCK): 
-            1. Servicios (Mano de obra, transporte, parking).
-            2. Consumibles personales (Comida, café, agua, dietas).
-            3. Combustible (Gasolina, Diesel).
-            4. Herramientas (Taladros, destornilladores, escaleras) -> Son activos fijos, NO stock consumible de obra.
-            5. Ropa de trabajo o EPIs.
-
-        CRITERIOS PARA 'categoria':
-        1. 'Dietas': Restaurantes, supermercados, comida.
-        2. 'Transporte': Tren, taxi, parking, peaje.
-        3. 'Combustible': Gasolineras.
-        4. 'Material': Material eléctrico, ferretería, construcción (Si isStockable es true, suele ser Material).
-        5. 'Herramienta': Maquinaria y herramienta de mano.
-        6. 'Varios': Resto.
-
-        Extrae 'items' línea por línea.`;
+        CRITERIOS 'isStockable': TRUE para materiales físicos (cables, mecanismos). FALSE para servicios, comida, gasolina, herramientas.
+        CATEGORIAS: Material, Dietas, Transporte, Combustible, Herramienta, Varios.
+        Extrae items línea por línea.`;
         
         const documentSchema = {
             type: Type.OBJECT,
@@ -190,15 +231,8 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
                 fecha: { type: Type.STRING },
                 total: { type: Type.NUMBER },
                 iva: { type: Type.NUMBER },
-                categoria: { 
-                    type: Type.STRING, 
-                    enum: ['Material', 'Dietas', 'Transporte', 'Combustible', 'Herramienta', 'Varios'],
-                    description: "Categoría contable del gasto" 
-                },
-                isStockable: {
-                    type: Type.BOOLEAN,
-                    description: "TRUE si son materiales instalables (cables, mecanismos). FALSE si es comida, gasolina, servicios o herramientas."
-                },
+                categoria: { type: Type.STRING, enum: ['Material', 'Dietas', 'Transporte', 'Combustible', 'Herramienta', 'Varios'] },
+                isStockable: { type: Type.BOOLEAN },
                 items: {
                     type: Type.ARRAY,
                     items: {
@@ -215,23 +249,19 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
             required: ["comercio", "total", "items", "categoria", "isStockable"]
         };
 
-        const operation = () => genAI.models.generateContent({
-          model: MODEL_NAME,
-          contents: { 
-              parts: [
-                  { 
-                      inlineData: { 
-                          mimeType: mimeType, 
-                          data: cleanBase64 
-                      } 
-                  }, 
-                  { text: prompt }
-              ] 
-          },
-          config: { temperature: 0.0, responseMimeType: 'application/json', responseSchema: documentSchema }
-        });
+        const response = await robustGenerate(async (model) => {
+            return genAI.models.generateContent({
+                model: model,
+                contents: { 
+                    parts: [
+                        { inlineData: { mimeType: mimeType, data: cleanBase64 } }, 
+                        { text: prompt }
+                    ] 
+                },
+                config: { temperature: 0.0, responseMimeType: 'application/json', responseSchema: documentSchema }
+            });
+        }, true); // Allow fallback
 
-        const response = await retryOperation(operation) as GenerateContentResponse;
         let result;
         try { result = JSON.parse(response.text || "{}"); } catch { result = cleanAndParseJSON(response.text || "{}"); }
         
@@ -248,15 +278,16 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
 export const chatWithAssistant = async (message: string, context?: string): Promise<string> => {
   return apiQueue.add(async () => {
       try {
-        const operation = () => genAI.models.generateContent({
-            model: MODEL_NAME,
-            contents: message,
-            config: { systemInstruction: context || 'Eres un asistente útil.' }
-        });
-        const response = await retryOperation(operation) as GenerateContentResponse;
+        const response = await robustGenerate(async (model) => {
+            return genAI.models.generateContent({
+                model: model,
+                contents: message,
+                config: { systemInstruction: context || 'Eres un asistente útil.' }
+            });
+        }, true); // Allow fallback for chat
         return response.text || "Sin respuesta.";
       } catch (error: any) {
-        if (error.toString().includes('429')) return "⚠️ El asistente está ocupado (429).";
+        if (error.toString().includes('429')) return "⚠️ El asistente está durmiendo (429). Inténtalo en 1 minuto.";
         return "El asistente no está disponible.";
       }
   });
@@ -269,35 +300,29 @@ export const analyzeProjectStatus = async (project: Project): Promise<string> =>
 
   return apiQueue.add(async () => {
       try {
-        const prompt = `Analiza: ${project.name}, Estado: ${project.status}, Presupuesto: ${project.budget}, Progreso: ${project.progress}%. Dame 3 consejos.`;
-        const operation = () => genAI.models.generateContent({
-            model: MODEL_NAME,
-            contents: prompt,
-            config: { systemInstruction: "Consultor senior de obras." }
-        });
-        const response = await retryOperation(operation) as GenerateContentResponse;
+        const prompt = `Analiza: ${project.name}, Estado: ${project.status}, Presupuesto: ${project.budget}, Progreso: ${project.progress}%. Dame 3 consejos breves.`;
+        const response = await robustGenerate(async (model) => {
+            return genAI.models.generateContent({
+                model: model,
+                contents: prompt,
+                config: { systemInstruction: "Consultor senior." }
+            });
+        }, true);
+        
         const text = response.text || "";
         responseCache.set(cacheKey, { timestamp: Date.now(), data: text });
         return text;
-      } catch (error: any) { return "Análisis no disponible."; }
+      } catch (error: any) { return "Análisis no disponible por el momento."; }
   });
 };
 
 export const generateSmartBudget = async (description: string, currentPrices: PriceItem[], images: string[] = []): Promise<any[]> => {
     return apiQueue.add(async () => {
-        // Prepare context properly
         const priceContext = currentPrices.slice(0, 150).map(p => `- ${p.name}: ${p.price}€/${p.unit}`).join('\n');
         
-        const systemInstruction = `Eres un INGENIERO DE PRESUPUESTOS Y EXPERTO EN MERCADO ELÉCTRICO. 
-        Tu objetivo es generar partidas presupuestarias precisas.
-        
-        REGLA DE ORO DE PRECIOS:
-        1. PRIMERO: Busca en la lista 'PRECIOS_REFERENCIA' que te proporcionaré. Si el material existe o es muy similar, DEBES USAR ESE PRECIO EXACTO y UNIDAD.
-        2. SEGUNDO: Si el material NO está en la lista de referencia, estima un PRECIO DE MERCADO MEDIO REALISTA en España. NO pongas precios a 0€ ni inventes precios absurdos.
-        3. Clasifica correctamente: Material, Mano de Obra, Maquinaria.
-        4. IMPORTANTE: Devuelve números puros para precios y cantidades (ej: 10.50), NO uses comas ni símbolos de moneda en el JSON.
-        
-        Genera un array JSON con las partidas necesarias para cumplir con la descripción solicitada.`;
+        const systemInstruction = `Eres un INGENIERO DE PRESUPUESTOS. Genera partidas JSON.
+        REGLA: Usa PRECIOS_REFERENCIA si coinciden. Si no, estima precio mercado España.
+        Devuelve array JSON.`;
         
         const budgetSchema = {
             type: Type.ARRAY,
@@ -315,39 +340,36 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
         };
 
         const parts: any[] = [
-            { text: `PRECIOS_REFERENCIA (Úsalos si hay coincidencia):\n${priceContext}` },
-            { text: `SOLICITUD DE PRESUPUESTO:\n${description}` }
+            { text: `PRECIOS_REFERENCIA:\n${priceContext}` },
+            { text: `SOLICITUD:\n${description}` }
         ];
         
         if (images.length > 0) {
-            // Include only the first image to save tokens/bandwidth if multiple
             const optimizedImg = await optimizeImage(images[0]);
             parts.push({ inlineData: { mimeType: 'image/jpeg', data: optimizedImg } });
         }
 
-        const operation = () => genAI.models.generateContent({
-            model: MODEL_NAME,
-            contents: { parts },
-            config: { 
-                temperature: 0.3, 
-                systemInstruction, 
-                responseMimeType: 'application/json', 
-                responseSchema: budgetSchema
-            }
-        });
+        const response = await robustGenerate(async (model) => {
+            return genAI.models.generateContent({
+                model: model,
+                contents: { parts },
+                config: { 
+                    temperature: 0.3, 
+                    systemInstruction, 
+                    responseMimeType: 'application/json', 
+                    responseSchema: budgetSchema
+                }
+            });
+        }, true);
 
-        const response = await retryOperation(operation) as GenerateContentResponse;
         let result;
         try {
             result = JSON.parse(response.text || "[]");
         } catch (e) {
-            console.warn("JSON parse failed, attempting cleanup", e);
             result = cleanAndParseJSON(response.text || "[]");
         }
         
         const rawItems = Array.isArray(result) ? result : [];
-        
-        // Critical Step: Sanitize and validate numbers to prevent NaN
         return rawItems.map((item: any) => ({
             ...item,
             quantity: sanitizeNumber(item.quantity),
@@ -359,16 +381,7 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
 export const parseMaterialsFromInput = async (textInput: string): Promise<PriceItem[]> => {
     return apiQueue.add(async () => {
         try {
-            // Prompt mejorado para forzar la extracción de descuentos explícitos
-            const prompt = `Analiza el siguiente texto de una tarifa de precios: "${textInput}".
-            
-            REGLAS CRÍTICAS DE EXTRACCIÓN:
-            1. 'price': Debe ser el PRECIO DE LISTA (P.V.P) o Precio Base, SIN APLICAR EL DESCUENTO.
-            2. 'discount': Si aparece un porcentaje (ej: -20%, Dto 15%, Bonif 30%), extrae SOLO el número (ej: 20, 15, 30).
-            3. Si el precio ya parece neto, pon descuento 0.
-            
-            Devuelve un Array JSON.`;
-            
+            const prompt = `Analiza texto tarifa: "${textInput}". Extrae JSON array. 'price' es PVP lista. 'discount' es % (numérico).`;
             const materialsSchema = {
                 type: Type.ARRAY,
                 items: {
@@ -376,31 +389,30 @@ export const parseMaterialsFromInput = async (textInput: string): Promise<PriceI
                     properties: {
                         name: { type: Type.STRING },
                         unit: { type: Type.STRING },
-                        price: { type: Type.NUMBER, description: "Precio de lista (PVP) antes de descuentos" },
+                        price: { type: Type.NUMBER },
                         category: { type: Type.STRING },
-                        discount: { type: Type.NUMBER, description: "Porcentaje de descuento (0-100)" }
+                        discount: { type: Type.NUMBER }
                     },
                     required: ["name", "unit", "price", "category"]
                 }
             };
 
-            const operation = () => genAI.models.generateContent({ 
-                model: MODEL_NAME, 
-                contents: prompt,
-                config: { responseMimeType: 'application/json', responseSchema: materialsSchema }
-            });
+            const response = await robustGenerate(async (model) => {
+                return genAI.models.generateContent({ 
+                    model: model, 
+                    contents: prompt,
+                    config: { responseMimeType: 'application/json', responseSchema: materialsSchema }
+                });
+            }, true);
 
-            const response = await retryOperation(operation) as GenerateContentResponse;
             const result = JSON.parse(response.text || "[]");
-            const rawItems = Array.isArray(result) ? result : [];
-            
-            return rawItems.map((item: any) => ({
+            return (Array.isArray(result) ? result : []).map((item: any) => ({
                 ...item,
                 price: sanitizeNumber(item.price),
                 discount: sanitizeNumber(item.discount)
             }));
         } catch (e) {
-            console.error("Error parsing materials text:", e);
+            console.error("Error parsing materials:", e);
             return [];
         }
     });
@@ -410,17 +422,7 @@ export const parseMaterialsFromImage = async (base64Image: string): Promise<Pric
     return apiQueue.add(async () => {
         try {
             const cleanData = await optimizeImage(base64Image);
-            
-            // Prompt específico para visión computarizada de tablas de precios
-            const prompt = `Analiza esta imagen de una TARIFA DE PRECIOS O CATÁLOGO.
-            
-            INSTRUCCIONES PRECISAS:
-            1. Identifica cada fila como un material.
-            2. Extrae el NOMBRE completo.
-            3. Extrae el PRECIO DE TARIFA (PVP) en la columna 'price'. NO extraigas el precio neto si existe columna de PVP.
-            4. Busca columnas como "%", "Dto", "Bonif", "Desc". Si existe, extrae ese número en 'discount'.
-            5. Si no hay descuento explícito, 'discount' es 0.`;
-
+            const prompt = `Analiza imagen tarifa. Extrae JSON. price=PVP. discount=%.`;
             const materialsSchema = {
                 type: Type.ARRAY,
                 items: {
@@ -428,105 +430,73 @@ export const parseMaterialsFromImage = async (base64Image: string): Promise<Pric
                     properties: {
                         name: { type: Type.STRING },
                         unit: { type: Type.STRING },
-                        price: { type: Type.NUMBER, description: "Precio de lista (PVP)" },
+                        price: { type: Type.NUMBER },
                         category: { type: Type.STRING },
-                        discount: { type: Type.NUMBER, description: "Porcentaje descuento detectado" }
+                        discount: { type: Type.NUMBER }
                     },
                     required: ["name", "unit", "price", "category"]
                 }
             };
 
-            const operation = () => genAI.models.generateContent({
-                model: MODEL_NAME,
-                contents: {
-                    parts: [
-                        { inlineData: { mimeType: 'image/jpeg', data: cleanData } },
-                        { text: prompt }
-                    ]
-                },
-                config: { responseMimeType: 'application/json', responseSchema: materialsSchema }
-            });
+            const response = await robustGenerate(async (model) => {
+                return genAI.models.generateContent({
+                    model: model,
+                    contents: {
+                        parts: [
+                            { inlineData: { mimeType: 'image/jpeg', data: cleanData } },
+                            { text: prompt }
+                        ]
+                    },
+                    config: { responseMimeType: 'application/json', responseSchema: materialsSchema }
+                });
+            }, true);
 
-            const response = await retryOperation(operation) as GenerateContentResponse;
             const result = JSON.parse(response.text || "[]");
-            const rawItems = Array.isArray(result) ? result : [];
-            
-            return rawItems.map((item: any) => ({
+            return (Array.isArray(result) ? result : []).map((item: any) => ({
                 ...item,
                 price: sanitizeNumber(item.price),
                 discount: sanitizeNumber(item.discount)
             }));
-        } catch (e) {
-            console.error("Error parsing materials image:", e);
-            return [];
-        }
+        } catch (e) { return []; }
     });
 };
 
-// NEW: Calculate driving distance using Gemini Reasoning + Google Search Grounding
 export const calculateDrivingDistance = async (destination: string): Promise<number> => {
     return apiQueue.add(async () => {
         const origin = "Calle Don Eduardo Martín 27, 45560 Oropesa, Toledo";
-        
-        // REVISED PROMPT: Natural Language to avoid model refusals
-        // Instead of role-playing, we directly ask for the data.
-        const prompt = `Calcula la distancia de conducción (km) entre '${origin}' y '${destination}'.
-        Usa Google Search para el dato.
-        Respuesta corta: solo la distancia.`;
+        const prompt = `Calcula distancia conducción (km) entre '${origin}' y '${destination}'. Usa Google Search. Respuesta: solo distancia (ej: "145 km").`;
 
         try {
-            const operation = () => genAI.models.generateContent({
-                model: MODEL_NAME, // gemini-2.5-flash
-                contents: prompt,
-                config: { 
-                    temperature: 0, // Deterministic output
-                    // Enable Google Search to get real-time/real-world map data
-                    tools: [{ googleSearch: {} }] 
-                }
-            });
+            // Nota: Tanto Gemini 3.0 como 2.5 Flash soportan herramientas.
+            // Habilitamos el fallback dinámico (true) para que si el modelo principal (3.0) 
+            // falla por cuota, se intente con el respaldo (2.5) automáticamente.
+            const response = await robustGenerate(async (model) => {
+                return genAI.models.generateContent({
+                    model: model, 
+                    contents: prompt,
+                    config: { 
+                        temperature: 0, 
+                        tools: [{ googleSearch: {} }] 
+                    }
+                });
+            }, true); // TRUE: Usar fallback si el principal falla
 
-            const response = await retryOperation(operation) as GenerateContentResponse;
-            
-            // ROBUST EXTRACTION STRATEGY:
-            // When using tools, response.text might be empty if the answer is in a 'part' mixed with metadata.
-            // We reconstruct the full text from all parts manually to be safe.
             let fullText = response.text || "";
             if (!fullText && response.candidates?.[0]?.content?.parts) {
-                fullText = response.candidates[0].content.parts
-                    .map(p => p.text) // Extract text from parts
-                    .filter(t => t) // Remove undefined/null
-                    .join(" "); // Join
+                fullText = response.candidates[0].content.parts.map(p => p.text).filter(t => t).join(" ");
             }
             
             console.log(`[Oniluz AI] Distancia Raw: "${fullText}"`);
-
-            // Regex mejorado y más permisivo:
-            // Captura: "145", "145.5", "145,5", "1.200"
-            // Ignora citas como [1], texto alrededor, etc.
-            const regex = /([\d]+[.,\d]*)\s*(?:km|kilómetros|kilometers|kilometro|kilometros)/i;
+            const regex = /([\d]+[.,\d]*)\s*(?:km|kilómetros)/i;
             const match = fullText.match(regex);
             
             if (match && match[1]) {
                 let numStr = match[1];
-                
-                // Normalization Logic for Spanish/European vs US Formats
-                // Case A: 1.200,50 (European) -> remove dots, swap comma to dot
-                if (numStr.includes('.') && numStr.includes(',')) {
-                    numStr = numStr.replace(/\./g, '').replace(',', '.');
-                } 
-                // Case B: 145,5 (Decimal comma) -> swap comma to dot
-                else if (numStr.includes(',')) {
-                    numStr = numStr.replace(',', '.');
-                }
-                // Case C: 145.5 (Decimal dot) -> keep as is
-                
+                if (numStr.includes('.') && numStr.includes(',')) numStr = numStr.replace(/\./g, '').replace(',', '.');
+                else if (numStr.includes(',')) numStr = numStr.replace(',', '.');
                 const distance = parseFloat(numStr);
-                
-                if (!isNaN(distance)) {
-                    return Math.round(distance);
-                }
+                return !isNaN(distance) ? Math.round(distance) : 0;
             }
-
             return 0;
         } catch (error) {
             console.error("[Oniluz AI] Error calculating distance:", error);
