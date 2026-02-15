@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Project } from '../types';
 import { ArrowLeft, ChevronLeft, ChevronRight, Calendar as CalendarIcon, CheckSquare, Square, Filter, X } from 'lucide-react';
 
@@ -25,6 +25,14 @@ const ProjectCalendar: React.FC<ProjectCalendarProps> = ({ projects, onBack }) =
     const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
     const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]); // Empty = Show All
     
+    // Scroll ref
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+    // Reset scroll on filter/year change
+    useEffect(() => {
+        scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+    }, [currentYear, selectedProjectIds]);
+
     const months = [
         "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
         "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
@@ -213,7 +221,7 @@ const ProjectCalendar: React.FC<ProjectCalendarProps> = ({ projects, onBack }) =
                 </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 sm:p-8 max-w-[1600px] mx-auto w-full">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-8 max-w-[1600px] mx-auto w-full" ref={scrollContainerRef}>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 auto-rows-fr">
                     {months.map((_, index) => renderMonth(index))}
                 </div>

@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
-import { Project, Transaction, Material, Incident, ProjectStatus, Priority, PriceItem } from '../types';
+import React, { useState, useRef, useEffect } from 'react';
+import { Project, Transaction, Material, Incident, ProjectStatus, Priority, PriceItem, PvData, ElevatorData } from '../types';
 import { 
   ArrowLeft, Plus, Trash2, AlertTriangle, CheckCircle, 
   TrendingUp, TrendingDown, Package, FileText, Settings, BrainCircuit, X, Receipt, Paperclip, ChevronDown, Building2, Calendar, RotateCcw, Edit3,
-  Hammer, Coffee, User, Wallet, BarChart3, Save, Loader2, Fuel, Car, HelpCircle, Phone, Mail
+  Hammer, Coffee, User, Wallet, BarChart3, Save, Loader2, Fuel, Car, HelpCircle, Phone, Mail, Sun as SunIcon, Zap, MapPin, Ruler
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { analyzeProjectStatus } from '../services/geminiService';
@@ -20,11 +20,41 @@ interface ProjectDetailProps {
   currentUserName: string;
 }
 
+const HangGlider = ({ className }: { className?: string }) => (
+  <svg 
+    xmlns="http://www.w3.org/2000/svg" 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    stroke="currentColor" 
+    strokeWidth="2" 
+    strokeLinecap="round" 
+    strokeLinejoin="round" 
+    className={className}
+  >
+    <path d="M22 10L12 2L2 10" />
+    <path d="M12 2v12" />
+    <path d="M12 14l-5 4" />
+    <path d="M12 14l5 4" />
+    <path d="M2 10l5 8" />
+    <path d="M22 10l-5 8" />
+  </svg>
+);
+
 const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate, onDelete, priceDatabase, currentUserName }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'financials' | 'stock' | 'incidents' | 'budgets' | 'documents' | 'settings'>('overview');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isSaving, setIsSaving] = useState(false); // Global saving state for manual actions
+  
+  // Scroll container ref
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // Reset scroll on tab change
+  useEffect(() => {
+      if (scrollContainerRef.current) {
+          scrollContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+  }, [activeTab]);
   
   // State for transaction form type to toggle category input
   const [transactionType, setTransactionType] = useState<'income' | 'expense'>('expense');
@@ -34,6 +64,29 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
   const updateProjectWithHistory = (newProjectState: Project) => {
       setHistory(prev => [...prev, project]);
       onUpdate(newProjectState);
+  };
+
+  // --- Specialized Update Helpers ---
+  const updatePvField = (field: keyof PvData, value: any) => {
+      const currentPv = project.pvData || { 
+          peakPower: 0, modulesCount: 0, inverterModel: '', hasBattery: false, batteryCapacity: 0, installationType: 'Residential' 
+      };
+      const updatedProject = {
+          ...project,
+          pvData: { ...currentPv, [field]: value }
+      };
+      updateProjectWithHistory(updatedProject);
+  };
+
+  const updateElevatorField = (field: keyof ElevatorData, value: any) => {
+      const currentElevator = project.elevatorData || {
+          solutionType: 'Nexus', location: 'Interior', floors: 1, stairWidth: 0, stairMaterial: 'Hormigón', parkingSide: 'Derecha', distanceFromBase: 0
+      };
+      const updatedProject = {
+          ...project,
+          elevatorData: { ...currentElevator, [field]: value }
+      };
+      updateProjectWithHistory(updatedProject);
   };
 
   const handleUndo = () => {
@@ -402,7 +455,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
 
       {renderTabs()}
 
-      <div className="flex-1 overflow-y-auto p-6 sm:p-8 max-w-7xl mx-auto w-full">
+      <div className="flex-1 overflow-y-auto p-6 sm:p-8 max-w-7xl mx-auto w-full" ref={scrollContainerRef}>
         {/* OVERVIEW TAB */}
         {activeTab === 'overview' && (
           <div className="space-y-8">
@@ -492,6 +545,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
           </div>
         )}
 
+        {/* ... (Other Tabs remain the same until Settings) ... */}
         {/* FINANCIALS TAB (Refactored) */}
         {activeTab === 'financials' && (
           <div className="space-y-8">
@@ -860,25 +914,36 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
 
          {/* SETTINGS TAB */}
          {activeTab === 'settings' && (
-           <div className="max-w-xl mx-auto space-y-8">
+           <div className="max-w-3xl mx-auto space-y-8">
               
               {/* General Settings */}
               <div className="bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 transition-colors">
                  <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6 flex items-center gap-2">
                     <Settings className="w-5 h-5 text-[#0047AB] dark:text-blue-400" /> Datos Generales
                  </h3>
-                 <div className="space-y-4">
-                     <div>
-                         <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-2">Nombre del Proyecto</label>
-                         <input 
-                             type="text" 
-                             value={project.name}
-                             onChange={(e) => updateProjectWithHistory({ ...project, name: e.target.value })}
-                             className="w-full p-4 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white font-bold text-lg transition-all"
-                         />
-                         <p className="text-xs text-slate-400 mt-2">El nombre se actualizará automáticamente en toda la aplicación.</p>
+                 <div className="space-y-6">
+                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                         <div>
+                             <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-2">Nombre del Proyecto</label>
+                             <input 
+                                 type="text" 
+                                 value={project.name}
+                                 onChange={(e) => updateProjectWithHistory({ ...project, name: e.target.value })}
+                                 className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white font-bold transition-all"
+                             />
+                         </div>
+                         <div>
+                             <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-2">Cliente</label>
+                             <input 
+                                 type="text" 
+                                 value={project.client}
+                                 onChange={(e) => updateProjectWithHistory({ ...project, client: e.target.value })}
+                                 className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white font-medium transition-all"
+                             />
+                         </div>
                      </div>
-                     <div className="grid grid-cols-2 gap-4">
+
+                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                          <div>
                              <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-2">Teléfono Cliente</label>
                              <input 
@@ -900,8 +965,215 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                              />
                          </div>
                      </div>
+
+                     <div>
+                         <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-2">Ubicación</label>
+                         <input 
+                             type="text" 
+                             value={project.location}
+                             onChange={(e) => updateProjectWithHistory({ ...project, location: e.target.value })}
+                             className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white font-medium transition-all"
+                         />
+                     </div>
+
+                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                         <div>
+                             <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-2">Fecha Inicio</label>
+                             <input 
+                                 type="date" 
+                                 value={project.startDate}
+                                 onChange={(e) => updateProjectWithHistory({ ...project, startDate: e.target.value })}
+                                 className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white font-medium transition-all"
+                             />
+                         </div>
+                         <div>
+                             <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-2">Fecha Fin (Estimada)</label>
+                             <input 
+                                 type="date" 
+                                 value={project.endDate || ''}
+                                 onChange={(e) => updateProjectWithHistory({ ...project, endDate: e.target.value })}
+                                 className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white font-medium transition-all"
+                             />
+                         </div>
+                     </div>
                  </div>
               </div>
+
+              {/* Photovoltaic Specific Settings */}
+              {project.type === 'Photovoltaic' && (
+                  <div className="bg-amber-50 dark:bg-amber-900/10 p-8 rounded-2xl shadow-[0_4px_20px_-4px_rgba(245,158,11,0.1)] border border-amber-100 dark:border-amber-800/50 transition-colors">
+                      <h3 className="text-lg font-bold text-amber-700 dark:text-amber-500 mb-6 flex items-center gap-2">
+                          <SunIcon className="w-5 h-5" /> Datos Técnicos FV
+                      </h3>
+                      <div className="space-y-6">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                              <div>
+                                  <label className="text-xs font-bold text-amber-700/70 dark:text-amber-400 uppercase tracking-wide block mb-2">Potencia Pico (kWp)</label>
+                                  <input 
+                                      type="number" 
+                                      step="0.1"
+                                      value={project.pvData?.peakPower || 0}
+                                      onChange={(e) => updatePvField('peakPower', Number(e.target.value))}
+                                      className="w-full p-3 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-800 rounded-xl outline-none focus:ring-2 focus:ring-amber-500 text-slate-900 dark:text-white font-medium"
+                                  />
+                              </div>
+                              <div>
+                                  <label className="text-xs font-bold text-amber-700/70 dark:text-amber-400 uppercase tracking-wide block mb-2">Nº Módulos</label>
+                                  <input 
+                                      type="number" 
+                                      value={project.pvData?.modulesCount || 0}
+                                      onChange={(e) => updatePvField('modulesCount', Number(e.target.value))}
+                                      className="w-full p-3 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-800 rounded-xl outline-none focus:ring-2 focus:ring-amber-500 text-slate-900 dark:text-white font-medium"
+                                  />
+                              </div>
+                          </div>
+                          <div>
+                              <label className="text-xs font-bold text-amber-700/70 dark:text-amber-400 uppercase tracking-wide block mb-2">Modelo Inversor</label>
+                              <input 
+                                  type="text" 
+                                  value={project.pvData?.inverterModel || ''}
+                                  onChange={(e) => updatePvField('inverterModel', e.target.value)}
+                                  className="w-full p-3 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-800 rounded-xl outline-none focus:ring-2 focus:ring-amber-500 text-slate-900 dark:text-white font-medium"
+                              />
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                              <div>
+                                  <label className="text-xs font-bold text-amber-700/70 dark:text-amber-400 uppercase tracking-wide block mb-2">Tipo Instalación</label>
+                                  <select 
+                                      value={project.pvData?.installationType || 'Residential'}
+                                      onChange={(e) => updatePvField('installationType', e.target.value)}
+                                      className="w-full p-3 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-800 rounded-xl outline-none focus:ring-2 focus:ring-amber-500 text-slate-900 dark:text-white font-medium cursor-pointer"
+                                  >
+                                      <option value="Residential">Residencial</option>
+                                      <option value="Industrial">Industrial</option>
+                                      <option value="Solar Farm">Huerto Solar</option>
+                                  </select>
+                              </div>
+                              <div className="flex items-center gap-4 pt-6">
+                                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                                      <input 
+                                          type="checkbox" 
+                                          checked={project.pvData?.hasBattery || false}
+                                          onChange={(e) => updatePvField('hasBattery', e.target.checked)}
+                                          className="w-5 h-5 text-amber-500 rounded focus:ring-amber-500 border-amber-300" 
+                                      />
+                                      <span className="text-sm font-bold text-slate-700 dark:text-slate-300">Incluye Batería</span>
+                                  </label>
+                                  {project.pvData?.hasBattery && (
+                                      <input 
+                                          type="number" 
+                                          placeholder="Capacidad (kWh)"
+                                          value={project.pvData?.batteryCapacity || ''}
+                                          onChange={(e) => updatePvField('batteryCapacity', Number(e.target.value))}
+                                          className="flex-1 p-2 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-800 rounded-lg outline-none focus:ring-2 focus:ring-amber-500 text-sm"
+                                      />
+                                  )}
+                              </div>
+                          </div>
+                      </div>
+                  </div>
+              )}
+
+              {/* Elevator Specific Settings */}
+              {project.type === 'Elevator' && (
+                  <div className="bg-rose-50 dark:bg-rose-900/10 p-8 rounded-2xl shadow-[0_4px_20px_-4px_rgba(225,29,72,0.1)] border border-rose-100 dark:border-rose-800/50 transition-colors">
+                      <h3 className="text-lg font-bold text-rose-700 dark:text-rose-500 mb-6 flex items-center gap-2">
+                          <HangGlider className="w-5 h-5" /> Configuración Elevador
+                      </h3>
+                      <div className="space-y-6">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                              <div>
+                                  <label className="text-xs font-bold text-rose-700/70 dark:text-rose-400 uppercase tracking-wide block mb-2">Tipo de Solución</label>
+                                  <select 
+                                      value={project.elevatorData?.solutionType || 'Nexus'}
+                                      onChange={(e) => updateElevatorField('solutionType', e.target.value)}
+                                      className="w-full p-3 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-800 rounded-xl outline-none focus:ring-2 focus:ring-rose-500 text-slate-900 dark:text-white font-medium cursor-pointer"
+                                  >
+                                      <option value="Nexus">Nexus</option>
+                                      <option value="Vectio">Vectio</option>
+                                      <option value="Supes">Supes</option>
+                                      <option value="Nexus 2:1">Nexus 2:1</option>
+                                  </select>
+                              </div>
+                              <div>
+                                  <label className="text-xs font-bold text-rose-700/70 dark:text-rose-400 uppercase tracking-wide block mb-2">Ubicación</label>
+                                  <select 
+                                      value={project.elevatorData?.location || 'Interior'}
+                                      onChange={(e) => updateElevatorField('location', e.target.value)}
+                                      className="w-full p-3 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-800 rounded-xl outline-none focus:ring-2 focus:ring-rose-500 text-slate-900 dark:text-white font-medium cursor-pointer"
+                                  >
+                                      <option value="Interior">Interior</option>
+                                      <option value="Intemperie">Intemperie (Exterior)</option>
+                                  </select>
+                              </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                              <div>
+                                  <label className="text-xs font-bold text-rose-700/70 dark:text-rose-400 uppercase tracking-wide block mb-2">Nº Plantas</label>
+                                  <input 
+                                      type="number" 
+                                      min="1"
+                                      value={project.elevatorData?.floors || 1}
+                                      onChange={(e) => updateElevatorField('floors', Number(e.target.value))}
+                                      className="w-full p-3 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-800 rounded-xl outline-none focus:ring-2 focus:ring-rose-500 text-slate-900 dark:text-white font-medium"
+                                  />
+                              </div>
+                              <div>
+                                  <label className="text-xs font-bold text-rose-700/70 dark:text-rose-400 uppercase tracking-wide block mb-2">Ancho Escalera (cm)</label>
+                                  <div className="relative">
+                                      <Ruler className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                                      <input 
+                                          type="number" 
+                                          value={project.elevatorData?.stairWidth || ''}
+                                          onChange={(e) => updateElevatorField('stairWidth', Number(e.target.value))}
+                                          className="w-full p-3 pl-10 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-800 rounded-xl outline-none focus:ring-2 focus:ring-rose-500 text-slate-900 dark:text-white font-medium"
+                                      />
+                                  </div>
+                              </div>
+                              <div>
+                                  <label className="text-xs font-bold text-rose-700/70 dark:text-rose-400 uppercase tracking-wide block mb-2">Distancia Base (km)</label>
+                                  <div className="relative">
+                                      <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                                      <input 
+                                          type="number" 
+                                          value={project.elevatorData?.distanceFromBase || 0}
+                                          onChange={(e) => updateElevatorField('distanceFromBase', Number(e.target.value))}
+                                          className="w-full p-3 pl-10 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-800 rounded-xl outline-none focus:ring-2 focus:ring-rose-500 text-slate-900 dark:text-white font-medium"
+                                      />
+                                  </div>
+                              </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                              <div>
+                                  <label className="text-xs font-bold text-rose-700/70 dark:text-rose-400 uppercase tracking-wide block mb-2">Material Escalera</label>
+                                  <select 
+                                      value={project.elevatorData?.stairMaterial || 'Hormigón'}
+                                      onChange={(e) => updateElevatorField('stairMaterial', e.target.value)}
+                                      className="w-full p-3 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-800 rounded-xl outline-none focus:ring-2 focus:ring-rose-500 text-slate-900 dark:text-white font-medium cursor-pointer"
+                                  >
+                                      <option value="Hormigón">Hormigón / Obra</option>
+                                      <option value="Madera">Madera</option>
+                                      <option value="Metal">Metálica</option>
+                                      <option value="Mármol">Mármol / Granito</option>
+                                  </select>
+                              </div>
+                              <div>
+                                  <label className="text-xs font-bold text-rose-700/70 dark:text-rose-400 uppercase tracking-wide block mb-2">Lado Aparcamiento</label>
+                                  <select 
+                                      value={project.elevatorData?.parkingSide || 'Derecha'}
+                                      onChange={(e) => updateElevatorField('parkingSide', e.target.value)}
+                                      className="w-full p-3 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-800 rounded-xl outline-none focus:ring-2 focus:ring-rose-500 text-slate-900 dark:text-white font-medium cursor-pointer"
+                                  >
+                                      <option value="Derecha">Derecha</option>
+                                      <option value="Izquierda">Izquierda</option>
+                                  </select>
+                              </div>
+                          </div>
+                      </div>
+                  </div>
+              )}
 
               {/* Danger Zone */}
               <div className="bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 transition-colors">

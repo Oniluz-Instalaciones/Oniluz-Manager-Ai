@@ -72,6 +72,11 @@ const ProjectList: React.FC<ProjectListProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Scroll to top when filters change
+  useEffect(() => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [statusFilter, typeFilter, showIncidentsOnly, searchTerm]);
+
   // Filter Logic: Filter by Search, Status AND Type
   const filteredProjects = projects.filter(p => {
     const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) || p.client.toLowerCase().includes(searchTerm.toLowerCase());

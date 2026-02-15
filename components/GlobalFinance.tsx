@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Project, Transaction } from '../types';
 import { ArrowLeft, TrendingUp, TrendingDown, DollarSign, Calendar, Filter, Download, PieChart as PieIcon, BarChart3, Search, X, User } from 'lucide-react';
 import { 
@@ -19,6 +19,14 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
   });
   const [selectedProject, setSelectedProject] = useState<string>('ALL');
   const [filterType, setFilterType] = useState<'ALL' | 'income' | 'expense'>('ALL');
+
+  // Scroll ref
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // Reset scroll on filter change
+  useEffect(() => {
+      scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [filterType, dateRange, selectedProject]);
 
   // --- Data Processing ---
 
@@ -218,7 +226,7 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
          </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-8 max-w-[1600px] mx-auto w-full space-y-8">
+      <div className="flex-1 overflow-y-auto p-8 max-w-[1600px] mx-auto w-full space-y-8" ref={scrollContainerRef}>
         
         {/* KPI Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
