@@ -144,31 +144,36 @@ const ProjectList: React.FC<ProjectListProps> = ({
     // Assign project ID to uploaded docs
     const documents = initialFiles.map(doc => ({ ...doc, projectId }));
 
-    // PV Specific Data extraction
+    // PV Specific Data extraction with Sanitization
     let pvData: PvData | undefined;
     if (modalType === 'Photovoltaic') {
         pvData = {
-            peakPower: Number(formData.get('peakPower')),
-            modulesCount: Number(formData.get('modulesCount')),
-            inverterModel: formData.get('inverterModel') as string,
+            peakPower: Number(formData.get('peakPower')) || 0,
+            modulesCount: Number(formData.get('modulesCount')) || 0,
+            inverterModel: (formData.get('inverterModel') as string) || '',
             hasBattery: formData.get('hasBattery') === 'on',
             batteryCapacity: Number(formData.get('batteryCapacity')) || 0,
-            installationType: formData.get('installationType') as any
+            installationType: (formData.get('installationType') as any) || 'Residential'
         };
     }
 
-    // Elevator Specific Data extraction
+    // Elevator Specific Data extraction with Sanitization
     let elevatorData: ElevatorData | undefined;
     if (modalType === 'Elevator') {
+        // ROBUSTNESS FIX: Ensure numerical values are never NaN/undefined
+        const floors = Number(formData.get('floors'));
+        const stairWidth = Number(formData.get('stairWidth'));
+        // If distance wasn't calculated, default to 0 to preserve structure
+        const distance = calculatedDistance !== null ? calculatedDistance : 0;
+
         elevatorData = {
-            solutionType: formData.get('solutionType') as any,
-            location: formData.get('elevatorLocation') as any,
-            floors: Number(formData.get('floors')),
-            stairWidth: Number(formData.get('stairWidth')),
-            stairMaterial: formData.get('stairMaterial') as any,
-            parkingSide: formData.get('parkingSide') as any,
-            // Ensure calculatedDistance is explicitly set to undefined if null/0 to avoid 0km being valid if not calculated
-            distanceFromBase: calculatedDistance !== null ? calculatedDistance : undefined
+            solutionType: (formData.get('solutionType') as any) || 'Nexus',
+            location: (formData.get('elevatorLocation') as any) || 'Interior',
+            floors: !isNaN(floors) ? floors : 0,
+            stairWidth: !isNaN(stairWidth) ? stairWidth : 0,
+            stairMaterial: (formData.get('stairMaterial') as any) || 'Hormigón',
+            parkingSide: (formData.get('parkingSide') as any) || 'Derecha',
+            distanceFromBase: distance
         };
     }
 
@@ -177,23 +182,24 @@ const ProjectList: React.FC<ProjectListProps> = ({
       type: modalType,
       pvData: pvData,
       elevatorData: elevatorData,
-      name: formData.get('name') as string,
-      client: formData.get('client') as string,
-      clientPhone: formData.get('clientPhone') as string,
-      clientEmail: formData.get('clientEmail') as string,
-      location: formData.get('location') as string,
+      name: (formData.get('name') as string) || 'Nuevo Proyecto',
+      client: (formData.get('client') as string) || 'Cliente Sin Nombre',
+      clientPhone: (formData.get('clientPhone') as string) || '',
+      clientEmail: (formData.get('clientEmail') as string) || '',
+      location: (formData.get('location') as string) || '',
       status: ProjectStatus.PLANNING,
       progress: 0,
-      startDate: formData.get('startDate') as string,
-      endDate: formData.get('endDate') as string || '',
+      startDate: (formData.get('startDate') as string) || new Date().toISOString().split('T')[0],
+      endDate: (formData.get('endDate') as string) || '',
       budget: 0, // Initial budget is 0, to be defined in details
-      description: formData.get('description') as string,
+      description: (formData.get('description') as string) || '',
       transactions: [],
       materials: [],
       incidents: [],
       budgets: [],
       documents: documents
     };
+    
     onAddProject(newProject);
     setIsModalOpen(false);
     setInitialFiles([]);
