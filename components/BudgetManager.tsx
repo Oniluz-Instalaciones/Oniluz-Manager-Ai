@@ -5,6 +5,7 @@ import { Plus, Trash2, Wand2, FileText, Save, ChevronLeft, ArrowRight, Loader2, 
 import { supabase } from '../lib/supabase';
 
 // TARIFA DE MONTAJES VÁLIDA (01/01/2025)
+// Definición estricta de precios por rango kilométrico
 const VALIDA_TARIFFS = {
     // GRUPO 1: VECTIO / NEXUS / SUPES (2 dias montaje)
     GROUP_1: {
@@ -18,7 +19,7 @@ const VALIDA_TARIFFS = {
             { maxKm: 350, price: 1183 },
             { maxKm: 400, price: 1280 }
         ],
-        supplement: 72
+        supplement: 72 // Precio por puerta/parada
     },
     // GRUPO 2: NEXUS 2:1 (3 dias montaje)
     GROUP_2: {
@@ -32,9 +33,7 @@ const VALIDA_TARIFFS = {
             { maxKm: 350, price: 1538 },
             { maxKm: 400, price: 1664 }
         ],
-        // Nota: Existen dos suplementos (72€ media puerta / 133€ semiautomatica). 
-        // Usamos 72€ como base estándar.
-        supplement: 72 
+        supplement: 72 // Precio base por puerta
     }
 };
 
@@ -79,8 +78,6 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
     const handleEdit = (budget: Budget) => {
         setCurrentBudget({ ...budget });
         setView('edit');
-        // If the budget has a saved prompt, we can optionally pre-fill the AI box, 
-        // but it's better to leave the generator clean and show the saved prompt in the header.
         setAiPrompt(''); 
     };
 
@@ -122,7 +119,7 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                 const { error: transError } = await supabase
                     .from('transactions')
                     .insert({
-                        id: transactionId, // Optional if DB generates it, but good for local sync
+                        id: transactionId, 
                         project_id: project.id,
                         type: 'income',
                         category: 'Anticipo',
@@ -134,17 +131,17 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                 if (transError) throw transError;
             }
 
-            // 4. Update Local State and RECALCULATE TOTAL PROJECT BUDGET
+            // 4. Update Local State
             const updatedBudgets = (project.budgets || []).map(b => 
                 b.id === budgetToAccept.id ? { ...b, status: 'Accepted' as const } : b
             );
 
-            // Logic: Sum of ALL accepted budgets (including the one just accepted)
+            // Recalculate total project budget (Sum of accepted budgets)
             const newTotalProjectBudget = updatedBudgets
                 .filter(b => b.status === 'Accepted')
                 .reduce((sum, b) => sum + b.total, 0);
 
-            // Update Project Budget in DB explicitly
+            // Update Project Budget in DB
             const { error: projectError } = await supabase
                 .from('projects')
                 .update({ budget: newTotalProjectBudget })
@@ -152,7 +149,6 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                 
             if (projectError) console.error("Error updating project total budget:", projectError);
             
-            // Create transaction object for local state update
             let updatedTransactions = project.transactions;
             if (finalAdvanceAmount > 0) {
                  const newTransaction = {
@@ -167,27 +163,11 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                  updatedTransactions = [newTransaction, ...project.transactions];
             }
 
-            // Update End Date estimation logic (from previous code) if budget has labor
-            let newEndDate = project.endDate;
-            const laborHours = budgetToAccept.items
-                .filter(i => (i.unit.toLowerCase() === 'h' || i.name.toLowerCase().includes('hora') || i.category.toLowerCase().includes('mano')))
-                .reduce((sum, item) => sum + item.quantity, 0);
-            
-            if (laborHours > 0) {
-                const estimatedDays = Math.ceil(laborHours / 8);
-                const startDate = new Date(project.startDate);
-                const endDateObj = new Date(startDate);
-                endDateObj.setDate(startDate.getDate() + estimatedDays + 2); // Buffer
-                newEndDate = endDateObj.toISOString().split('T')[0];
-            }
-
-            // Final Update
             onUpdate({ 
                 ...project, 
                 budgets: updatedBudgets,
                 transactions: updatedTransactions,
-                endDate: newEndDate || project.endDate,
-                budget: newTotalProjectBudget // Important: Update local budget state
+                budget: newTotalProjectBudget
             });
 
             setIsAcceptModalOpen(false);
@@ -201,70 +181,77 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
         }
     };
 
-    // VALIDA SPECIFIC LOGIC
+    // --- LÓGICA TARIFICACIÓN VÁLIDA ---
     const handleApplyValidaTariff = () => {
         if (!currentBudget || !project.elevatorData) return;
 
         const { solutionType, distanceFromBase, floors } = project.elevatorData;
-        const dist = distanceFromBase || 0;
+        const dist = distanceFromBase || 0; // Distancia calculada en creación
 
-        // 1. Determine Tariff Group
-        let activeTariff = VALIDA_TARIFFS.GROUP_1; // Default to Group 1
+        // 1. Determinar Grupo de Tarifa
+        let activeTariff = VALIDA_TARIFFS.GROUP_1; // Por defecto Grupo 1 (Nexus, Vectio, Supes)
         
         if (solutionType === 'Nexus 2:1') {
             activeTariff = VALIDA_TARIFFS.GROUP_2;
         }
 
-        // 2. Find Price Bracket
-        // Find first bracket where maxKm >= dist
-        const bracket = activeTariff.ranges.find(t => t.maxKm >= dist);
+        // 2. Buscar Precio exacto por Rango de KM
+        let finalInstallationPrice = 0;
+        let foundRange = false;
+
+        for (const range of activeTariff.ranges) {
+            if (dist <= range.maxKm) {
+                finalInstallationPrice = range.price;
+                foundRange = true;
+                break;
+            }
+        }
         
-        // If distance is greater than max bracket (400), take the last one.
-        const finalPrice = bracket ? bracket.price : activeTariff.ranges[activeTariff.ranges.length - 1].price;
+        // Si supera el máximo (400km), cogemos el último precio (o se podría añadir lógica extra)
+        if (!foundRange) {
+            finalInstallationPrice = activeTariff.ranges[activeTariff.ranges.length - 1].price;
+        }
 
         const newItems: BudgetItem[] = [];
 
-        // 3. Add Assembly Item
+        // 3. Partida Principal: Instalación Completa (Incluye mano de obra y desplazamiento)
         newItems.push({
             id: crypto.randomUUID(),
-            name: `Montaje ${activeTariff.name} (${dist} km)`,
-            unit: 'ud',
+            name: `Montaje ${solutionType} (${dist} km)`,
+            unit: 'pa', // Partida Alzada
             quantity: 1,
-            pricePerUnit: finalPrice,
-            category: 'Mano de Obra'
+            pricePerUnit: finalInstallationPrice,
+            category: 'Instalación'
         });
 
-        // 4. Add Door Supplement (Standard logic: 1 supplement per floor/stop)
+        // 4. Partida Suplemento: Puertas (Basado en nº de plantas/paradas)
         if (floors > 0) {
             newItems.push({
                 id: crypto.randomUUID(),
-                name: 'Suplemento Puerta Rellano',
+                name: 'Montaje Puertas / Paradas',
                 unit: 'ud',
                 quantity: floors,
                 pricePerUnit: activeTariff.supplement,
-                category: 'Material'
+                category: 'Instalación'
             });
         }
 
+        // Agregamos al presupuesto actual (sin borrar lo existente, por si el usuario quiere combinar)
         updateBudgetTotals({ ...currentBudget, items: [...currentBudget.items, ...newItems] });
+        alert(`Tarifa aplicada para ${dist}km: ${finalInstallationPrice}€ base + ${floors * activeTariff.supplement}€ en puertas.`);
     };
 
     const handleGenerateAI = async () => {
         if (!aiPrompt.trim()) return;
         setIsGenerating(true);
         try {
-            // Filter only images for analysis as Gemini Flash handles images best via base64
             const docImages = includeDocs ? (project.documents || []).filter(d => d.type === 'image').map(d => d.data) : [];
+            const contextPrompt = `Contexto del Proyecto: Nombre "${project.name}", Tipo "${project.type}", Ubicación "${project.location}". Solicitud del usuario: ${aiPrompt}`;
 
-            // Combine project context with user prompt
-            const contextPrompt = `Contexto del Proyecto: Nombre "${project.name}", Tipo "${project.type}", Ubicación "${project.location}".
-            Solicitud del usuario: ${aiPrompt}`;
-
-            // Pass the dynamic database and images to the AI service
             const items = await generateSmartBudget(contextPrompt, priceDatabase, docImages);
             
             if (items.length === 0) {
-                alert("La IA no generó partidas. Intenta ser más específico en tu descripción.");
+                alert("La IA no generó partidas. Intenta ser más específico.");
                 return;
             }
 
@@ -272,25 +259,21 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                 id: crypto.randomUUID(),
                 name: item.name,
                 unit: item.unit,
-                // Robust Fallbacks to prevent NaN
                 quantity: Number(item.quantity) || 1,
                 pricePerUnit: Number(item.pricePerUnit) || 0,
                 category: item.category
             }));
             
             if (currentBudget) {
-                const updatedItems = [...currentBudget.items, ...enrichedItems];
-                // IMPORTANT: Save the AI Prompt into the budget object
-                const updatedBudget = { 
+                updateBudgetTotals({ 
                     ...currentBudget, 
-                    items: updatedItems,
+                    items: [...currentBudget.items, ...enrichedItems],
                     aiPrompt: aiPrompt 
-                };
-                updateBudgetTotals(updatedBudget);
+                });
             }
         } catch (error: any) {
-            console.error("Critical Error generating AI budget:", error);
-            alert("Error al generar presupuesto con IA. Consulta la consola para más detalles.");
+            console.error("Error generating AI budget:", error);
+            alert("Error al generar presupuesto con IA.");
         } finally {
             setIsGenerating(false);
         }
@@ -312,7 +295,6 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
     const handleUpdateItem = (id: string, field: keyof BudgetItem, value: any) => {
         if (!currentBudget) return;
         
-        // Auto-complete logic if user types a name that exists in DB
         let extraUpdates = {};
         if (field === 'name') {
             const match = priceDatabase.find(p => p.name.toLowerCase() === (value as string).toLowerCase());
@@ -347,7 +329,6 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
         setIsSaving(true);
 
         try {
-            // 1. Prepare Budget Header Payload
             const budgetPayload: any = {
                 id: currentBudget.id,
                 project_id: project.id,
@@ -358,13 +339,9 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                 ai_prompt: currentBudget.aiPrompt
             };
 
-            // 1. Upsert Budget (Header) - With Graceful Degradation
-            // Try to save with ai_prompt first
             let { error: budgetError } = await supabase.from('budgets').upsert(budgetPayload);
 
-            // If error relates to missing column 'ai_prompt', retry without it
             if (budgetError && (budgetError.message.includes('ai_prompt') || budgetError.code === 'PGRST204')) {
-                console.warn("Columna 'ai_prompt' no detectada en Supabase. Guardando en modo compatibilidad (sin prompt).");
                 delete budgetPayload.ai_prompt;
                 const retry = await supabase.from('budgets').upsert(budgetPayload);
                 budgetError = retry.error;
@@ -372,12 +349,7 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
 
             if (budgetError) throw budgetError;
 
-            // 2. Sync Items (Delete all + Insert new) - Cleanest strategy for full sync
-            const { error: deleteError } = await supabase
-                .from('budget_items')
-                .delete()
-                .eq('budget_id', currentBudget.id);
-            
+            const { error: deleteError } = await supabase.from('budget_items').delete().eq('budget_id', currentBudget.id);
             if (deleteError) throw deleteError;
 
             if (currentBudget.items.length > 0) {
@@ -390,14 +362,10 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                     category: item.category
                 }));
 
-                const { error: insertError } = await supabase
-                    .from('budget_items')
-                    .insert(itemsToInsert);
-                
+                const { error: insertError } = await supabase.from('budget_items').insert(itemsToInsert);
                 if (insertError) throw insertError;
             }
 
-            // 3. Update Local State (Parent Project)
             const budgets = project.budgets || [];
             const existingIndex = budgets.findIndex(b => b.id === currentBudget.id);
             
@@ -421,11 +389,9 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
 
     const handleDeleteBudget = async (id: string) => {
         if(!window.confirm("¿Eliminar este presupuesto permanentemente?")) return;
-        
         try {
             const { error } = await supabase.from('budgets').delete().eq('id', id);
             if (error) throw error;
-
             const updatedBudgets = (project.budgets || []).filter(b => b.id !== id);
             onUpdate({ ...project, budgets: updatedBudgets });
         } catch (error) {
@@ -433,8 +399,6 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
             alert("No se pudo eliminar de la base de datos.");
         }
     }
-
-    // --- Views ---
 
     if (view === 'list') {
         const budgets = project.budgets || [];
@@ -495,7 +459,6 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                     )}
                 </div>
 
-                {/* Acceptance Modal */}
                 {isAcceptModalOpen && budgetToAccept && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm">
                         <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200 dark:border-slate-700">
@@ -593,11 +556,8 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
         );
     }
 
-    // --- Edit View ---
-
     return (
         <div className="space-y-6">
-            {/* Toolbar */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 sticky top-20 z-20 transition-colors">
                 <div className="flex items-center gap-5 w-full md:w-auto">
                     <button onClick={() => setView('list')} className="p-2.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full text-slate-500 dark:text-slate-400 transition-colors">
@@ -642,23 +602,7 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-                {/* Main Content */}
                 <div className="lg:col-span-4 space-y-6">
-                    
-                    {/* NEW SECTION: Saved AI Prompt Display */}
-                    <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm transition-colors">
-                        <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-3 flex items-center gap-2">
-                            <MessageSquareQuote className="w-4 h-4" /> Notas / Prompt Original
-                        </h3>
-                        <textarea
-                            value={currentBudget?.aiPrompt || ''}
-                            onChange={(e) => setCurrentBudget(currentBudget ? { ...currentBudget, aiPrompt: e.target.value } : null)}
-                            placeholder="Aquí se guardará la instrucción dada a la IA o puedes escribir notas manuales sobre este presupuesto..."
-                            className="w-full p-4 text-sm bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-slate-300 dark:focus:ring-slate-500 outline-none resize-none h-24 text-slate-700 dark:text-slate-300 transition-colors"
-                        />
-                    </div>
-
-                    {/* Generator Actions */}
                     <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-slate-800 dark:to-slate-800/50 p-6 rounded-2xl border border-blue-100 dark:border-slate-700 shadow-sm relative overflow-hidden transition-colors">
                         <div className="absolute top-0 right-0 w-32 h-32 bg-blue-200/20 dark:bg-blue-500/10 rounded-full blur-3xl -mr-16 -mt-16"></div>
                         <h3 className="text-sm font-bold text-[#0047AB] dark:text-blue-400 mb-4 flex items-center relative z-10">
@@ -668,7 +612,7 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                             <textarea 
                                 value={aiPrompt}
                                 onChange={(e) => setAiPrompt(e.target.value)}
-                                placeholder="Describe la instalación (ej: Reforma integral piso 90m2 con aire acondicionado y cocina eléctrica)..."
+                                placeholder="Describe la instalación..."
                                 className="w-full p-4 text-sm bg-white dark:bg-slate-900 border border-blue-100 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-[#0047AB] outline-none resize-none h-24 shadow-sm text-slate-700 dark:text-slate-200 transition-colors"
                             />
                             <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
@@ -690,7 +634,7 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                                             className="bg-rose-600 text-white px-4 py-2.5 rounded-xl hover:bg-rose-700 transition-all flex items-center gap-2 font-semibold shadow-md shadow-rose-900/10 text-sm whitespace-nowrap"
                                             title={`Aplicar tarifa para ${project.elevatorData.solutionType} a ${project.elevatorData.distanceFromBase}km`}
                                         >
-                                            <Calculator className="w-4 h-4" /> Tarifa Válida
+                                            <Calculator className="w-4 h-4" /> Calcular Válida
                                         </button>
                                     )}
                                     
@@ -707,7 +651,6 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                         </div>
                     </div>
 
-                    {/* Items Table */}
                     <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 overflow-hidden transition-colors">
                         <table className="w-full text-left text-sm">
                             <thead className="bg-slate-50 dark:bg-slate-700/50 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 uppercase text-xs tracking-wider">
@@ -788,7 +731,6 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                                 <button className="text-slate-600 dark:text-slate-400 text-sm font-medium flex items-center hover:text-slate-900 dark:hover:text-white transition-colors">
                                     <Database className="w-4 h-4 mr-2" /> Cargar de Base de Precios
                                 </button>
-                                {/* Simple dropdown for selecting from DB directly */}
                                 <div className="absolute left-0 bottom-full mb-2 w-72 bg-white dark:bg-slate-800 shadow-xl rounded-xl border border-slate-100 dark:border-slate-600 hidden group-hover:block max-h-64 overflow-y-auto z-10 p-2">
                                      {priceDatabase.map(p => (
                                          <div 
@@ -808,7 +750,6 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                         </div>
                     </div>
                     
-                    {/* Summary Footer */}
                     <div className="flex justify-end pt-6 border-t border-slate-200 dark:border-slate-700">
                         <div className="w-72 space-y-3">
                              <div className="flex justify-between text-sm text-slate-500 dark:text-slate-400 font-medium">
