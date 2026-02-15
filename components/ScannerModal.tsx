@@ -9,6 +9,7 @@ interface ScannerModalProps {
   onClose: () => void;
   onSave: (projectId: string, transaction: Transaction, newMaterials: Material[], newDocument?: ProjectDocument) => void;
   currentUserName: string;
+  defaultProjectId?: string; // New prop to lock project selection
 }
 
 // Extend Material type locally to handle the UI state for "Add to Stock"
@@ -51,7 +52,7 @@ const formatDate = (dateStr: string) => {
     return `${day}-${month}-${year}`;
 };
 
-const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, currentUserName }) => {
+const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, currentUserName, defaultProjectId }) => {
   const [fileData, setFileData] = useState<string | null>(null); // Base64
   const [fileBlob, setFileBlob] = useState<Blob | null>(null);
   const [mimeType, setMimeType] = useState<string>('image/jpeg');
@@ -79,7 +80,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
     description: '',
     category: 'Material',
     date: new Date().toISOString().split('T')[0],
-    projectId: projects[0]?.id || ''
+    projectId: defaultProjectId || projects[0]?.id || ''
   });
 
   const [detectedMaterials, setDetectedMaterials] = useState<DetectedItem[]>([]);
@@ -537,7 +538,8 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
                         <select 
                             value={formData.projectId}
                             onChange={(e) => setFormData({...formData, projectId: e.target.value})}
-                            className="w-full mt-1 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none font-bold text-slate-900 dark:text-white"
+                            disabled={!!defaultProjectId}
+                            className={`w-full mt-1 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none font-bold text-slate-900 dark:text-white ${defaultProjectId ? 'opacity-70 cursor-not-allowed' : ''}`}
                         >
                             <option value="">Seleccionar Proyecto...</option>
                             {projects.map(p => (

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Project, Transaction, Material, Incident, ProjectStatus, Priority, PriceItem, PvData, ElevatorData } from '../types';
+import { Project, Transaction, Material, Incident, ProjectStatus, Priority, PriceItem, PvData, ElevatorData, ProjectDocument } from '../types';
 import { 
   ArrowLeft, Plus, Trash2, AlertTriangle, CheckCircle, 
   TrendingUp, TrendingDown, Package, FileText, Settings, BrainCircuit, X, Receipt, Paperclip, ChevronDown, Building2, Calendar, RotateCcw, Edit3,
@@ -9,6 +9,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, B
 import { analyzeProjectStatus } from '../services/geminiService';
 import BudgetManager from './BudgetManager';
 import DocumentManager from './DocumentManager';
+import ScannerModal from './ScannerModal';
 import { supabase } from '../lib/supabase';
 
 interface ProjectDetailProps {
@@ -45,6 +46,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isSaving, setIsSaving] = useState(false); // Global saving state for manual actions
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
   
   // Scroll container ref
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -153,6 +155,22 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
   };
 
   // --- Actions ---
+
+  const handleScanSave = (projectId: string, transaction: Transaction, newMaterials: Material[], newDocument?: ProjectDocument) => {
+      // Since we are inside ProjectDetail, projectId should match project.id
+      // but ScannerModal works generically, so we just use the data returned
+      
+      const updatedProject = {
+          ...project,
+          transactions: [transaction, ...project.transactions],
+          materials: [...project.materials, ...newMaterials],
+          documents: newDocument ? [...project.documents, newDocument] : project.documents
+      };
+      
+      updateProjectWithHistory(updatedProject);
+      setIsScannerOpen(false);
+      alert(`Guardado correctamente: Gasto registrado${newMaterials.length > 0 ? `, ${newMaterials.length} nuevos materiales` : ''}${newDocument ? ' y documento archivado' : ''}.`);
+  };
 
   const handleAddTransaction = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -374,7 +392,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
         { id: 'overview', label: 'Resumen', icon: FileText },
         { id: 'financials', label: 'Finanzas', icon: TrendingUp },
         { id: 'budgets', label: 'Presupuestos', icon: Receipt },
-        { id: 'documents', label: 'Documentos', icon: Paperclip },
+        { id: 'documents', label: 'Archivos', icon: Paperclip }, // Renamed to Archivos
         { id: 'stock', label: 'Stock Material', icon: Package },
         { id: 'incidents', label: 'Incidencias', icon: AlertTriangle },
         { id: 'settings', label: 'Configuración', icon: Settings },
@@ -779,9 +797,13 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
            <BudgetManager project={project} onUpdate={updateProjectWithHistory} priceDatabase={priceDatabase} />
         )}
 
-        {/* DOCUMENTS TAB */}
+        {/* DOCUMENTS TAB (RENAMED TO ARCHIVOS) */}
         {activeTab === 'documents' && (
-            <DocumentManager project={project} onUpdate={updateProjectWithHistory} />
+            <DocumentManager 
+                project={project} 
+                onUpdate={updateProjectWithHistory} 
+                onOpenScanner={() => setIsScannerOpen(true)}
+            />
         )}
 
         {/* STOCK TAB */}
@@ -1201,6 +1223,16 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
            </div>
          )}
       </div>
+
+      {isScannerOpen && (
+          <ScannerModal 
+              projects={[project]} // Pass only current project to satisfy type but force context
+              onClose={() => setIsScannerOpen(false)}
+              onSave={handleScanSave}
+              currentUserName={currentUserName}
+              defaultProjectId={project.id} // Lock selection to this project
+          />
+      )}
     </div>
   );
 };

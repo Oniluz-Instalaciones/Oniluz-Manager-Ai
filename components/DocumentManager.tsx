@@ -1,14 +1,15 @@
 import React, { useRef, useState } from 'react';
 import { ProjectDocument, Project } from '../types';
-import { FileText, Image as ImageIcon, Trash2, Upload, X, File, Loader2 } from 'lucide-react';
+import { FileText, Image as ImageIcon, Trash2, Upload, X, File, Loader2, Camera } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 interface DocumentManagerProps {
     project: Project;
     onUpdate: (updatedProject: Project) => void;
+    onOpenScanner?: () => void; // New callback
 }
 
-const DocumentManager: React.FC<DocumentManagerProps> = ({ project, onUpdate }) => {
+const DocumentManager: React.FC<DocumentManagerProps> = ({ project, onUpdate, onOpenScanner }) => {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [isUploading, setIsUploading] = useState(false);
     const [isDeleting, setIsDeleting] = useState<string | null>(null);
@@ -135,9 +136,9 @@ const DocumentManager: React.FC<DocumentManagerProps> = ({ project, onUpdate }) 
 
     return (
         <div className="space-y-6">
-            <div className="flex justify-between items-center">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <h3 className="text-lg font-semibold text-gray-800 dark:text-white">Documentación de Obra</h3>
-                <div className="flex gap-2">
+                <div className="flex gap-2 w-full sm:w-auto">
                     <input 
                         type="file" 
                         ref={fileInputRef} 
@@ -146,10 +147,22 @@ const DocumentManager: React.FC<DocumentManagerProps> = ({ project, onUpdate }) 
                         accept="image/*,application/pdf"
                         className="hidden" 
                     />
+                    
+                    {onOpenScanner && (
+                        <button 
+                            onClick={onOpenScanner}
+                            className="flex-1 sm:flex-none bg-[#0047AB] text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-[#003380] transition-colors shadow-md font-bold text-sm"
+                        >
+                            <Camera className="w-4 h-4" />
+                            <span className="hidden sm:inline">Escanear / Cámara</span>
+                            <span className="sm:hidden">Escanear</span>
+                        </button>
+                    )}
+
                     <button 
                         onClick={() => fileInputRef.current?.click()}
                         disabled={isUploading}
-                        className="bg-gray-900 dark:bg-slate-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-black dark:hover:bg-slate-600 transition-colors shadow-lg disabled:opacity-70"
+                        className="flex-1 sm:flex-none bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-600 px-4 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-600 transition-colors shadow-sm text-sm font-bold disabled:opacity-70"
                     >
                         {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
                         {isUploading ? 'Subiendo...' : 'Subir Archivos'}
@@ -161,7 +174,7 @@ const DocumentManager: React.FC<DocumentManagerProps> = ({ project, onUpdate }) 
                 <div className="text-center py-16 bg-gray-50 dark:bg-slate-800 rounded-xl border-2 border-dashed border-gray-200 dark:border-slate-700 text-gray-400 dark:text-slate-500 flex flex-col items-center transition-colors">
                     <FileText className="w-12 h-12 mb-3 opacity-20" />
                     <p>No hay documentos adjuntos.</p>
-                    <p className="text-sm mt-1">Sube planos, fotos, facturas o manuales.</p>
+                    <p className="text-sm mt-1">Escanea documentos técnicos o sube planos.</p>
                 </div>
             ) : (
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
