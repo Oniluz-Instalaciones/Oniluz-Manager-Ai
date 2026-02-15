@@ -5,11 +5,13 @@ import { Project, PriceItem } from "../types";
 const apiKey = process.env.API_KEY || 'AIzaSyAPt-4D6bA9qLK-BrijbJBcmnBU1ojXOA8'; 
 const genAI = new GoogleGenAI({ apiKey });
 
-// --- ESTRATEGIA DE MODELOS (FALLBACK) ---
-// Actualización: Usamos Gemini 3.0 Flash como motor principal por su mayor inteligencia.
-// Gemini 2.5 Flash queda como respaldo robusto.
-const MODEL_PRIMARY = 'gemini-3-flash-preview';
-const MODEL_FALLBACK = 'gemini-2.5-flash'; 
+// --- ESTRATEGIA DE MODELOS (ROBUSTEZ) ---
+// CAMBIO IMPORTANTE: Volvemos a la arquitectura estable.
+// Primary: 2.5 Flash (Equilibrado y estable en producción).
+// Fallback: 2.0 Flash Lite (Extremadamente rápido y con cuotas muy generosas).
+// Abandonamos el 3.0 Preview para producción por sus bloqueos de cuota (429).
+const MODEL_PRIMARY = 'gemini-2.5-flash';
+const MODEL_FALLBACK = 'gemini-2.0-flash-lite-preview-02-05'; 
 
 // --- SISTEMA DE CACHÉ ---
 const responseCache = new Map<string, { timestamp: number, data: any }>();
@@ -461,46 +463,62 @@ export const parseMaterialsFromImage = async (base64Image: string): Promise<Pric
     });
 };
 
+/**
+ * REEMPLAZO TOTAL: CÁLCULO DE DISTANCIA ROBUSTO (NO IA)
+ * Usamos OpenStreetMap (Nominatim + OSRM) para evitar errores 429 de Gemini.
+ * Es gratis, no requiere API Key (para uso moderado) y es exacto.
+ */
 export const calculateDrivingDistance = async (destination: string): Promise<number> => {
-    return apiQueue.add(async () => {
-        const origin = "Calle Don Eduardo Martín 27, 45560 Oropesa, Toledo";
-        const prompt = `Calcula distancia conducción (km) entre '${origin}' y '${destination}'. Usa Google Search. Respuesta: solo distancia (ej: "145 km").`;
+    // No pasamos por la cola de API de Gemini porque esto es una petición fetch estándar.
+    try {
+        console.log(`[Oniluz Map] Calculando ruta a: ${destination}`);
+        
+        // 1. GEOCODIFICACIÓN (Obtener coordenadas de Oropesa y Destino)
+        // Coordenadas fijas de Oropesa, Toledo (aproximadas para el centro)
+        // Optimizamos ahorrando una llamada a la API.
+        const originLat = 39.9198;
+        const originLon = -5.1763;
 
-        try {
-            // Nota: Tanto Gemini 3.0 como 2.5 Flash soportan herramientas.
-            // Habilitamos el fallback dinámico (true) para que si el modelo principal (3.0) 
-            // falla por cuota, se intente con el respaldo (2.5) automáticamente.
-            const response = await robustGenerate(async (model) => {
-                return genAI.models.generateContent({
-                    model: model, 
-                    contents: prompt,
-                    config: { 
-                        temperature: 0, 
-                        tools: [{ googleSearch: {} }] 
-                    }
-                });
-            }, true); // TRUE: Usar fallback si el principal falla
+        // Buscar coordenadas del destino con Nominatim
+        const geoUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(destination)}&limit=1`;
+        const geoResponse = await fetch(geoUrl, {
+            headers: { 'User-Agent': 'OniluzApp/1.0' } // Buena práctica para OSM
+        });
+        
+        if (!geoResponse.ok) throw new Error("Error en servicio de geocodificación");
+        
+        const geoData = await geoResponse.json();
 
-            let fullText = response.text || "";
-            if (!fullText && response.candidates?.[0]?.content?.parts) {
-                fullText = response.candidates[0].content.parts.map(p => p.text).filter(t => t).join(" ");
-            }
-            
-            console.log(`[Oniluz AI] Distancia Raw: "${fullText}"`);
-            const regex = /([\d]+[.,\d]*)\s*(?:km|kilómetros)/i;
-            const match = fullText.match(regex);
-            
-            if (match && match[1]) {
-                let numStr = match[1];
-                if (numStr.includes('.') && numStr.includes(',')) numStr = numStr.replace(/\./g, '').replace(',', '.');
-                else if (numStr.includes(',')) numStr = numStr.replace(',', '.');
-                const distance = parseFloat(numStr);
-                return !isNaN(distance) ? Math.round(distance) : 0;
-            }
-            return 0;
-        } catch (error) {
-            console.error("[Oniluz AI] Error calculating distance:", error);
+        if (!geoData || geoData.length === 0) {
+            console.warn("[Oniluz Map] Destino no encontrado.");
             return 0;
         }
-    });
+
+        const destLat = geoData[0].lat;
+        const destLon = geoData[0].lon;
+
+        // 2. ENRUTAMIENTO (OSRM) para obtener distancia de conducción real
+        // OSRM usa formato: lon,lat;lon,lat
+        const routerUrl = `https://router.project-osrm.org/route/v1/driving/${originLon},${originLat};${destLon},${destLat}?overview=false`;
+        
+        const routerResponse = await fetch(routerUrl);
+        if (!routerResponse.ok) throw new Error("Error en servicio de rutas");
+
+        const routerData = await routerResponse.json();
+
+        if (routerData.code !== 'Ok' || !routerData.routes || routerData.routes.length === 0) {
+            console.warn("[Oniluz Map] No se pudo calcular la ruta.");
+            return 0;
+        }
+
+        const meters = routerData.routes[0].distance;
+        const km = Math.round(meters / 1000);
+        
+        console.log(`[Oniluz Map] Distancia calculada: ${km} km`);
+        return km;
+
+    } catch (error) {
+        console.error("[Oniluz Map] Error fatal calculando distancia:", error);
+        return 0;
+    }
 };
