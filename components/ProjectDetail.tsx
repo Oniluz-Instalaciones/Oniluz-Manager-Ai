@@ -80,7 +80,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
 
   const updateElevatorField = (field: keyof ElevatorData, value: any) => {
       const currentElevator = project.elevatorData || {
-          solutionType: 'Nexus', location: 'Interior', floors: 1, stairWidth: 0, stairMaterial: 'Hormigón', parkingSide: 'Derecha', distanceFromBase: 0
+          solutionType: 'Nexus', location: 'Interior', floors: 1, installationHeight: 0, stairMaterial: 'Hormigón', parkingSide: 'Derecha', distanceFromBase: 0
       };
       const updatedProject = {
           ...project,
@@ -1120,13 +1120,14 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                                   />
                               </div>
                               <div>
-                                  <label className="text-xs font-bold text-rose-700/70 dark:text-rose-400 uppercase tracking-wide block mb-2">Ancho Escalera (cm)</label>
+                                  <label className="text-xs font-bold text-rose-700/70 dark:text-rose-400 uppercase tracking-wide block mb-2">Altura Total (m)</label>
                                   <div className="relative">
                                       <Ruler className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                                       <input 
                                           type="number" 
-                                          value={project.elevatorData?.stairWidth || ''}
-                                          onChange={(e) => updateElevatorField('stairWidth', Number(e.target.value))}
+                                          step="0.01"
+                                          value={project.elevatorData?.installationHeight || ''}
+                                          onChange={(e) => updateElevatorField('installationHeight', Number(e.target.value))}
                                           className="w-full p-3 pl-10 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-800 rounded-xl outline-none focus:ring-2 focus:ring-rose-500 text-slate-900 dark:text-white font-medium"
                                       />
                                   </div>

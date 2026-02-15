@@ -28,7 +28,7 @@ export interface ElevatorData {
   solutionType: 'Nexus' | 'Vectio' | 'Supes' | 'Nexus 2:1' | 'Silla Recta' | 'Silla Curva' | 'Plataforma' | 'Elevador Vertical';
   location: 'Interior' | 'Intemperie';
   floors: number;
-  stairWidth?: number; // cm
+  installationHeight?: number; // Changed from stairWidth (cm) to Height (m)
   stairMaterial: 'Hormigón' | 'Madera' | 'Metal' | 'Mármol';
   parkingSide: 'Izquierda' | 'Derecha';
   distanceFromBase?: number; // km from Oropesa

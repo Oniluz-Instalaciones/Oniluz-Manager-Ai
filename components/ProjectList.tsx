@@ -167,7 +167,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
     if (modalType === 'Elevator') {
         // ROBUSTNESS FIX: Ensure numerical values are never NaN/undefined
         const floors = Number(formData.get('floors'));
-        const stairWidth = Number(formData.get('stairWidth'));
+        const installationHeight = Number(formData.get('installationHeight'));
         // If distance wasn't calculated, default to 0 to preserve structure
         const distance = calculatedDistance !== null ? calculatedDistance : 0;
 
@@ -175,7 +175,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
             solutionType: (formData.get('solutionType') as any) || 'Nexus',
             location: (formData.get('elevatorLocation') as any) || 'Interior',
             floors: !isNaN(floors) ? floors : 0,
-            stairWidth: !isNaN(stairWidth) ? stairWidth : 0,
+            installationHeight: !isNaN(installationHeight) ? installationHeight : 0,
             stairMaterial: (formData.get('stairMaterial') as any) || 'Hormigón',
             parkingSide: (formData.get('parkingSide') as any) || 'Derecha',
             distanceFromBase: distance
@@ -766,10 +766,10 @@ const ProjectList: React.FC<ProjectListProps> = ({
                         </div>
                         <div className="flex gap-4">
                             <div className="w-1/2">
-                                <label className="text-[10px] font-bold text-rose-700/70 dark:text-rose-400 uppercase">Ancho Escalera (cm)</label>
+                                <label className="text-[10px] font-bold text-rose-700/70 dark:text-rose-400 uppercase">Altura Total (m)</label>
                                 <div className="relative">
                                     <Ruler className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" />
-                                    <input name="stairWidth" type="number" placeholder="Ej: 80" className="w-full mt-1 pl-7 p-2 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-700 rounded-lg text-sm text-slate-900 dark:text-white" />
+                                    <input name="installationHeight" type="number" step="0.01" placeholder="Ej: 3.5" className="w-full mt-1 pl-7 p-2 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-700 rounded-lg text-sm text-slate-900 dark:text-white" />
                                 </div>
                             </div>
                              <div className="w-1/2">
