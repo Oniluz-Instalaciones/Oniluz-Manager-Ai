@@ -15,17 +15,37 @@ const DocumentManager: React.FC<DocumentManagerProps> = ({ project, onUpdate, on
     const [isUploading, setIsUploading] = useState(false);
     const [isDeleting, setIsDeleting] = useState<string | null>(null);
 
-    // Filter documents based on current category
-    // If a document has no category, assume 'general'
-    const documents = (project.documents || []).filter(d => 
-        (d.category || 'general') === category
-    );
+    // Helper: Detect if a document belongs to the current view category
+    const isDocumentInCurrentCategory = (doc: ProjectDocument) => {
+        // 1. Explicit Category Check (if DB supports it)
+        if (doc.category) {
+            return doc.category === category;
+        }
+        
+        // 2. Compatibility Check: Look for [TEC] tag in name
+        const isTaggedTechnical = doc.name.startsWith('[TEC] ');
+        
+        if (category === 'technical') {
+            return isTaggedTechnical;
+        } else {
+            // General view shows items that are NOT tagged technical
+            return !isTaggedTechnical;
+        }
+    };
+
+    // Filter documents
+    const documents = (project.documents || []).filter(isDocumentInCurrentCategory);
 
     // Helper to format dates as dd-mm-yyyy
     const formatDate = (dateStr: string) => {
         if (!dateStr) return '';
         const [year, month, day] = dateStr.split('-');
         return `${day}-${month}-${year}`;
+    };
+
+    // Helper to display clean name (remove tag)
+    const getDisplayName = (name: string) => {
+        return name.replace('[TEC] ', '');
     };
 
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -36,11 +56,6 @@ const DocumentManager: React.FC<DocumentManagerProps> = ({ project, onUpdate, on
 
             try {
                 for (const file of files) {
-                    // Convert to Base64 for DB storage (simpler for small files) 
-                    // or ideally upload to Storage for large files.
-                    // For consistency with current app logic, we'll maintain Base64 for small docs 
-                    // but save to DB immediately.
-                    
                     const base64String: string = await new Promise((resolve) => {
                         const reader = new FileReader();
                         reader.onloadend = () => resolve(reader.result as string);
@@ -51,36 +66,61 @@ const DocumentManager: React.FC<DocumentManagerProps> = ({ project, onUpdate, on
                     const newId = crypto.randomUUID();
                     const dateStr = new Date().toISOString().split('T')[0];
 
-                    const docPayload = {
+                    // Prepare Initial Payload
+                    let finalName = file.name;
+                    
+                    // Base payload object matching DB schema candidates
+                    const docPayload: any = {
                         id: newId,
                         project_id: project.id,
-                        name: file.name,
+                        name: finalName,
                         type: type,
-                        category: category, // Save with current category
                         date: dateStr,
-                        data: base64String
+                        data: base64String,
+                        category: category // Try sending category first
                     };
 
-                    // 1. Save directly to DB to ensure persistence
-                    const { error } = await supabase.from('documents').insert(docPayload);
+                    // 1. Attempt Save
+                    let { error } = await supabase.from('documents').insert(docPayload);
                     
+                    // 2. Fallback Compatibility Mode
+                    // If error indicates missing column 'category', modify name and retry
+                    if (error && (error.code === '42703' || error.message.includes('column'))) {
+                        console.warn("Schema mismatch detected. Using name-tagging compatibility mode for Technical Docs.");
+                        
+                        delete docPayload.category; // Remove problematic field
+                        
+                        if (category === 'technical') {
+                            docPayload.name = `[TEC] ${finalName}`; // Add tag
+                        }
+                        
+                        // Retry insert
+                        const retry = await supabase.from('documents').insert(docPayload);
+                        error = retry.error;
+                    }
+
                     if (error) {
                         console.error("Error saving document to DB:", error);
+                        alert(`Error al guardar ${file.name}: ${error.message}`);
                         continue; 
                     }
 
-                    newDocuments.push(docPayload as any);
+                    // Success: Add to local state
+                    // We use the payload that was actually saved (potentially with [TEC] in name)
+                    // We also ensure the 'category' field is set in local state for immediate UI consistency if we want,
+                    // but relying on the name tag filter is safer for consistency with reload.
+                    newDocuments.push(docPayload as ProjectDocument);
                 }
 
-                // 2. Update local state
+                // 3. Update local state
                 if (newDocuments.length > 0) {
                     const currentDocs = project.documents || [];
                     onUpdate({ ...project, documents: [...newDocuments, ...currentDocs] });
                 }
 
-            } catch (error) {
+            } catch (error: any) {
                 console.error("Critical upload error:", error);
-                alert("Error al subir los archivos.");
+                alert("Error crítico al subir los archivos: " + error.message);
             } finally {
                 setIsUploading(false);
                 if (fileInputRef.current) fileInputRef.current.value = '';
@@ -98,22 +138,16 @@ const DocumentManager: React.FC<DocumentManagerProps> = ({ project, onUpdate, on
         try {
             const docToDelete = project.documents.find(d => d.id === docId);
 
-            // 1. Try to delete file from Storage if it is a hosted URL (from ScannerModal)
-            // Checks if data is a URL and contains the supabase storage path
+            // 1. Try to delete file from Storage if it is a hosted URL
             if (docToDelete && docToDelete.data.includes('/storage/v1/object/public/')) {
                 try {
                     const url = new URL(docToDelete.data);
-                    // Extract path after /public/
                     const pathParts = url.pathname.split('/public/');
                     if (pathParts.length > 1) {
-                        const bucketAndPath = pathParts[1].split('/'); // "photos/projectId/file.jpg"
-                        const bucket = bucketAndPath[0];
+                        const bucketAndPath = pathParts[1].split('/'); 
                         const filePath = bucketAndPath.slice(1).join('/');
-                        
-                        // We assume bucket is 'photos' based on App logic, but let's be safe
-                        if (bucket === 'photos') {
-                            await supabase.storage.from('photos').remove([filePath]);
-                        }
+                        // Assume 'photos' bucket
+                        await supabase.storage.from('photos').remove([filePath]);
                     }
                 } catch (err) {
                     console.warn("Could not delete file from storage, proceeding to DB delete.", err);
@@ -128,7 +162,7 @@ const DocumentManager: React.FC<DocumentManagerProps> = ({ project, onUpdate, on
 
             if (error) throw error;
 
-            // 3. Update Local State (Optimistic UI update)
+            // 3. Update Local State
             const updatedDocs = project.documents.filter(d => d.id !== docId);
             onUpdate({ ...project, documents: updatedDocs });
 
@@ -225,7 +259,9 @@ const DocumentManager: React.FC<DocumentManagerProps> = ({ project, onUpdate, on
                                 )}
                             </div>
                             <div className="p-3">
-                                <p className="text-sm font-medium text-gray-900 dark:text-white truncate" title={doc.name}>{doc.name}</p>
+                                <p className="text-sm font-medium text-gray-900 dark:text-white truncate" title={doc.name}>
+                                    {getDisplayName(doc.name)}
+                                </p>
                                 <p className="text-xs text-gray-500 dark:text-gray-400">{formatDate(doc.date)}</p>
                             </div>
                             
