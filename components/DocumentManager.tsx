@@ -13,6 +13,13 @@ const DocumentManager: React.FC<DocumentManagerProps> = ({ project, onUpdate }) 
     const [isUploading, setIsUploading] = useState(false);
     const [isDeleting, setIsDeleting] = useState<string | null>(null);
 
+    // Helper to format dates as dd-mm-yyyy
+    const formatDate = (dateStr: string) => {
+        if (!dateStr) return '';
+        const [year, month, day] = dateStr.split('-');
+        return `${day}-${month}-${year}`;
+    };
+
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files.length > 0) {
             setIsUploading(true);
@@ -178,7 +185,7 @@ const DocumentManager: React.FC<DocumentManagerProps> = ({ project, onUpdate }) 
                             </div>
                             <div className="p-3">
                                 <p className="text-sm font-medium text-gray-900 dark:text-white truncate" title={doc.name}>{doc.name}</p>
-                                <p className="text-xs text-gray-500 dark:text-gray-400">{doc.date}</p>
+                                <p className="text-xs text-gray-500 dark:text-gray-400">{formatDate(doc.date)}</p>
                             </div>
                             
                             {/* Overlay Actions */}

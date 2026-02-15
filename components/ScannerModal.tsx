@@ -43,6 +43,14 @@ const normalizeDate = (dateStr: string | undefined): string => {
     return new Date().toISOString().split('T')[0];
 };
 
+// Helper for display formatting
+const formatDate = (dateStr: string) => {
+    if (!dateStr) return '';
+    const [year, month, day] = dateStr.split('-');
+    if (!year || !month || !day) return dateStr;
+    return `${day}-${month}-${year}`;
+};
+
 const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, currentUserName }) => {
   const [fileData, setFileData] = useState<string | null>(null); // Base64
   const [fileBlob, setFileBlob] = useState<Blob | null>(null);
@@ -365,7 +373,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
             newDocument = {
                 id: crypto.randomUUID(),
                 projectId: formData.projectId,
-                name: `${formData.docType === 'DELIVERY_NOTE' ? 'Albarán' : 'Factura'} ${formData.date}`,
+                name: `${formData.docType === 'DELIVERY_NOTE' ? 'Albarán' : 'Factura'} ${formatDate(formData.date)}`,
                 type: mimeType === 'application/pdf' ? 'pdf' : 'image',
                 date: formData.date || new Date().toISOString().split('T')[0],
                 data: fileUrl // Stores URL

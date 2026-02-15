@@ -28,6 +28,13 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
       scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
   }, [filterType, dateRange, selectedProject]);
 
+  // Helper to format dates as dd-mm-yyyy
+  const formatDate = (dateStr: string) => {
+      if (!dateStr) return '';
+      const [year, month, day] = dateStr.split('-');
+      return `${day}-${month}-${year}`;
+  };
+
   // --- Data Processing ---
 
   // 1. Flatten all transactions with project context
@@ -124,7 +131,7 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
   const handleExportCSV = () => {
     const headers = ['Fecha', 'Proyecto', 'Tipo', 'Categoría', 'Descripción', 'Importe', 'Usuario'];
     const rows = filteredTransactions.map(t => [
-        t.date,
+        formatDate(t.date),
         t.projectName,
         t.type,
         t.category,
@@ -302,7 +309,7 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
                                      <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
                                  </linearGradient>
                              </defs>
-                             <XAxis dataKey="date" tick={{fontSize: 10, fill: '#94a3b8'}} axisLine={false} tickLine={false} />
+                             <XAxis dataKey="date" tick={{fontSize: 10, fill: '#94a3b8'}} axisLine={false} tickLine={false} tickFormatter={(val) => val.split('-').reverse().join('-')} />
                              <YAxis tick={{fontSize: 10, fill: '#94a3b8'}} axisLine={false} tickLine={false} tickFormatter={(val) => `${val/1000}k`} />
                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                              <Tooltip 
@@ -426,7 +433,7 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
                     <div>
                       <p className="font-bold text-slate-900 dark:text-white text-base">{t.description}</p>
                       <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 mt-0.5 font-medium">
-                          <span>{t.date}</span>
+                          <span>{formatDate(t.date)}</span>
                           <span className="text-slate-300 dark:text-slate-600">•</span>
                           <span className="text-[#0047AB] dark:text-blue-400 font-bold">{t.projectName}</span>
                           {t.userName && (

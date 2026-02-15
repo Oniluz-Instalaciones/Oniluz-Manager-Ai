@@ -57,6 +57,13 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
     const [advanceType, setAdvanceType] = useState<'percent' | 'fixed'>('percent');
     const [advanceValue, setAdvanceValue] = useState<number>(50); // Default 50%
 
+    // Helper to format dates as dd-mm-yyyy
+    const formatDate = (dateStr: string) => {
+        if (!dateStr) return '';
+        const [year, month, day] = dateStr.split('-');
+        return `${day}-${month}-${year}`;
+    };
+
     // --- Actions ---
 
     const handleCreateNew = () => {
@@ -428,7 +435,7 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                                         }`}>{budget.status}</span>
                                     </div>
                                 </div>
-                                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1 ml-12">Creado el {budget.date} • {budget.items.length} partidas</p>
+                                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1 ml-12">Creado el {formatDate(budget.date)} • {budget.items.length} partidas</p>
                             </div>
                             <div className="flex items-center gap-6 mt-4 md:mt-0 pl-12 md:pl-0">
                                 <div className="text-right">

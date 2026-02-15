@@ -66,6 +66,14 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
       onUpdate(newProjectState);
   };
 
+  // Helper to format dates as dd-mm-yyyy
+  const formatDate = (dateStr: string | undefined) => {
+      if (!dateStr) return '';
+      const [year, month, day] = dateStr.split('-');
+      if (!year || !month || !day) return dateStr;
+      return `${day}-${month}-${year}`;
+  };
+
   // --- Specialized Update Helpers ---
   const updatePvField = (field: keyof PvData, value: any) => {
       const currentPv = project.pvData || { 
@@ -329,7 +337,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                                   <td className="px-4 py-3">
                                       <p className="font-semibold text-slate-700 dark:text-slate-200">{t.description}</p>
                                       <div className="flex items-center gap-2 mt-0.5">
-                                        <p className="text-[10px] text-slate-400">{t.date}</p>
+                                        <p className="text-[10px] text-slate-400">{formatDate(t.date)}</p>
                                         <span className="text-[10px] text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded">{t.category}</span>
                                         {t.userName && (
                                             <span className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1">
@@ -493,7 +501,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                   </div>
                   <div className="flex justify-between py-3 border-b border-slate-50 dark:border-slate-700">
                     <span className="text-slate-500 dark:text-slate-400 font-medium">Fecha Inicio</span>
-                    <span className="font-semibold text-slate-900 dark:text-white">{project.startDate}</span>
+                    <span className="font-semibold text-slate-900 dark:text-white">{formatDate(project.startDate)}</span>
                   </div>
 
                   {project.endDate && (
@@ -507,7 +515,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                                   <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wide mt-0.5">Basado en Presupuesto Aceptado</span>
                               )}
                           </div>
-                          <span className="font-bold text-lg text-slate-900 dark:text-white">{project.endDate}</span>
+                          <span className="font-bold text-lg text-slate-900 dark:text-white">{formatDate(project.endDate)}</span>
                       </div>
                   )}
 
@@ -891,7 +899,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                         <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md ${
                            inc.priority === Priority.CRITICAL ? 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400' : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
                         }`}>{inc.priority}</span>
-                        <span className="text-xs text-slate-400 font-mono">{inc.date}</span>
+                        <span className="text-xs text-slate-400 font-mono">{formatDate(inc.date)}</span>
                       </div>
                       <h4 className={`font-bold text-lg text-slate-900 dark:text-white ${inc.status === 'Resolved' && 'line-through text-slate-400'}`}>{inc.title}</h4>
                       <p className="text-sm text-slate-600 dark:text-slate-400 mt-2 mb-6 leading-relaxed">{inc.description}</p>
