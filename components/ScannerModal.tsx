@@ -10,6 +10,7 @@ interface ScannerModalProps {
   onSave: (projectId: string, transaction: Transaction, newMaterials: Material[], newDocument?: ProjectDocument) => void;
   currentUserName: string;
   defaultProjectId?: string; // New prop to lock project selection
+  defaultCategory?: 'general' | 'technical'; // New prop to set doc category
 }
 
 // Extend Material type locally to handle the UI state for "Add to Stock"
@@ -52,7 +53,7 @@ const formatDate = (dateStr: string) => {
     return `${day}-${month}-${year}`;
 };
 
-const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, currentUserName, defaultProjectId }) => {
+const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, currentUserName, defaultProjectId, defaultCategory = 'general' }) => {
   const [fileData, setFileData] = useState<string | null>(null); // Base64
   const [fileBlob, setFileBlob] = useState<Blob | null>(null);
   const [mimeType, setMimeType] = useState<string>('image/jpeg');
@@ -376,6 +377,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
                 projectId: formData.projectId,
                 name: `${formData.docType === 'DELIVERY_NOTE' ? 'Albarán' : 'Factura'} ${formatDate(formData.date)}`,
                 type: mimeType === 'application/pdf' ? 'pdf' : 'image',
+                category: defaultCategory, // Use the defaultCategory prop
                 date: formData.date || new Date().toISOString().split('T')[0],
                 data: fileUrl // Stores URL
             };
@@ -385,6 +387,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
                 project_id: newDocument.projectId,
                 name: newDocument.name,
                 type: newDocument.type,
+                category: newDocument.category,
                 date: newDocument.date,
                 data: newDocument.data 
             });

@@ -99,6 +99,7 @@ export interface ProjectDocument {
   projectId: string;
   name: string;
   type: 'image' | 'pdf' | 'other';
+  category?: 'general' | 'technical'; // New field to distinguish Technical Docs vs General Files
   date: string;
   data: string; // Base64 string
 }

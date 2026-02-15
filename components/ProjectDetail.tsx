@@ -42,11 +42,12 @@ const HangGlider = ({ className }: { className?: string }) => (
 );
 
 const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate, onDelete, priceDatabase, currentUserName }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'financials' | 'stock' | 'incidents' | 'budgets' | 'documents' | 'settings'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'financials' | 'stock' | 'incidents' | 'budgets' | 'documents' | 'technical_docs' | 'settings'>('overview');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isSaving, setIsSaving] = useState(false); // Global saving state for manual actions
   const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [scannerCategory, setScannerCategory] = useState<'general' | 'technical'>('general');
   
   // Scroll container ref
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -157,19 +158,20 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
   // --- Actions ---
 
   const handleScanSave = (projectId: string, transaction: Transaction, newMaterials: Material[], newDocument?: ProjectDocument) => {
-      // Since we are inside ProjectDetail, projectId should match project.id
-      // but ScannerModal works generically, so we just use the data returned
-      
+      // Set the category on the new document if it exists, before saving to state
+      // (ScannerModal already saves to DB with category, this is for local state update)
+      const finalDoc = newDocument ? { ...newDocument, category: scannerCategory } : undefined;
+
       const updatedProject = {
           ...project,
           transactions: [transaction, ...project.transactions],
           materials: [...project.materials, ...newMaterials],
-          documents: newDocument ? [...project.documents, newDocument] : project.documents
+          documents: finalDoc ? [...project.documents, finalDoc] : project.documents
       };
       
       updateProjectWithHistory(updatedProject);
       setIsScannerOpen(false);
-      alert(`Guardado correctamente: Gasto registrado${newMaterials.length > 0 ? `, ${newMaterials.length} nuevos materiales` : ''}${newDocument ? ' y documento archivado' : ''}.`);
+      alert(`Guardado correctamente: Gasto registrado${newMaterials.length > 0 ? `, ${newMaterials.length} nuevos materiales` : ''}${finalDoc ? ' y documento archivado en ' + (scannerCategory === 'technical' ? 'Documentos Técnicos' : 'Archivos') : ''}.`);
   };
 
   const handleAddTransaction = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -392,7 +394,8 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
         { id: 'overview', label: 'Resumen', icon: FileText },
         { id: 'financials', label: 'Finanzas', icon: TrendingUp },
         { id: 'budgets', label: 'Presupuestos', icon: Receipt },
-        { id: 'documents', label: 'Archivos', icon: Paperclip }, // Renamed to Archivos
+        { id: 'documents', label: 'Archivos', icon: Paperclip }, // General files
+        { id: 'technical_docs', label: 'Documentos Técnicos', icon: Ruler }, // Technical files
         { id: 'stock', label: 'Stock Material', icon: Package },
         { id: 'incidents', label: 'Incidencias', icon: AlertTriangle },
         { id: 'settings', label: 'Configuración', icon: Settings },
@@ -802,7 +805,24 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
             <DocumentManager 
                 project={project} 
                 onUpdate={updateProjectWithHistory} 
-                onOpenScanner={() => setIsScannerOpen(true)}
+                onOpenScanner={() => {
+                    setScannerCategory('general');
+                    setIsScannerOpen(true);
+                }}
+                category="general"
+            />
+        )}
+
+        {/* TECHNICAL DOCUMENTS TAB (NEW) */}
+        {activeTab === 'technical_docs' && (
+            <DocumentManager 
+                project={project} 
+                onUpdate={updateProjectWithHistory} 
+                onOpenScanner={() => {
+                    setScannerCategory('technical');
+                    setIsScannerOpen(true);
+                }}
+                category="technical"
             />
         )}
 
@@ -1231,6 +1251,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
               onSave={handleScanSave}
               currentUserName={currentUserName}
               defaultProjectId={project.id} // Lock selection to this project
+              defaultCategory={scannerCategory} // Pass the category (general or technical)
           />
       )}
     </div>
