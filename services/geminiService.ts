@@ -223,7 +223,8 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
         const prompt = `Actúa como el CONTABLE experto. Analiza documento.
         OBJETIVO: Extraer datos y DECIDIR SI LOS ITEMS VAN AL ALMACÉN (Stock).
         CRITERIOS 'isStockable': TRUE para materiales físicos (cables, mecanismos). FALSE para servicios, comida, gasolina, herramientas.
-        CATEGORIAS: Material, Dietas, Transporte, Combustible, Herramienta, Varios.
+        IMPORTANTE: Si es una FACTURA RECTIFICATIVA, ABONO o DEVOLUCIÓN, el 'total' debe ser NEGATIVO.
+        CATEGORIAS: Material, Dietas, Transporte, Combustible, Herramienta, Varios, Devolución.
         Extrae items línea por línea.`;
         
         const documentSchema = {
@@ -231,9 +232,9 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
             properties: {
                 comercio: { type: Type.STRING },
                 fecha: { type: Type.STRING },
-                total: { type: Type.NUMBER },
+                total: { type: Type.NUMBER, description: "Importe total. Usar negativo para devoluciones/abonos." },
                 iva: { type: Type.NUMBER },
-                categoria: { type: Type.STRING, enum: ['Material', 'Dietas', 'Transporte', 'Combustible', 'Herramienta', 'Varios'] },
+                categoria: { type: Type.STRING, enum: ['Material', 'Dietas', 'Transporte', 'Combustible', 'Herramienta', 'Varios', 'Devolución'] },
                 isStockable: { type: Type.BOOLEAN },
                 items: {
                     type: Type.ARRAY,

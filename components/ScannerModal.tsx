@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Project, Transaction, Material, ProjectDocument } from '../types';
-import { Camera, X, Loader2, Save, Image as ImageIcon, Package, Trash2, Plus, RefreshCw, Upload, FileText, AlertTriangle, CreditCard, ExternalLink, ArchiveRestore, Ban, Tag } from 'lucide-react';
+import { Camera, X, Loader2, Save, Image as ImageIcon, Package, Trash2, Plus, RefreshCw, Upload, FileText, AlertTriangle, CreditCard, ExternalLink, ArchiveRestore, Ban, Tag, RotateCcw, TrendingUp, TrendingDown } from 'lucide-react';
 import { analyzeDocument } from '../services/geminiService';
 import { supabase } from '../lib/supabase';
 
@@ -63,6 +63,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
 
   // Form Data
   const [formData, setFormData] = useState({
+    transactionType: 'expense' as 'income' | 'expense', // New field to handle refunds
     docType: 'RECEIPT', 
     supplier: '',
     amount: 0,
@@ -188,6 +189,10 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
           setScanErrorType('GENERIC');
       }
 
+      // Detect negative amount for Refund logic
+      const isRefund = data.total < 0;
+      const absoluteAmount = Math.abs(data.total || 0);
+
       // AUTOMATIC STOCK LOGIC: Now controlled by the AI's boolean 'isStockable'
       // Fallback to legacy string check if AI doesn't return the boolean for some reason
       const shouldAddToStock = typeof data.isStockable === 'boolean' 
@@ -199,12 +204,13 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
 
       setFormData(prev => ({
         ...prev,
-        docType: data.total > 0 ? 'RECEIPT' : 'DELIVERY_NOTE',
+        transactionType: isRefund ? 'income' : 'expense', // Auto-set to income if refund
+        docType: absoluteAmount > 0 ? 'RECEIPT' : 'DELIVERY_NOTE',
         supplier: data.comercio || '',
-        amount: data.total || 0,
-        tax: data.iva || 0,
-        description: data.comercio ? `Gasto en ${data.comercio}` : 'Gasto detectado',
-        category: data.categoria || 'Varios',
+        amount: absoluteAmount, // Always positive in form
+        tax: Math.abs(data.iva || 0),
+        description: isRefund ? `Devolución - ${data.comercio || 'Desconocido'}` : (data.comercio ? `Gasto en ${data.comercio}` : 'Gasto detectado'),
+        category: isRefund ? 'Devolución' : (data.categoria || 'Varios'),
         date: safeDate // Use normalized date YYYY-MM-DD
       }));
 
@@ -217,7 +223,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
               unit: item.unit || 'ud',
               pricePerUnit: item.price ? Number(item.price) : 0,
               minStock: 5,
-              addToStock: shouldAddToStock
+              addToStock: shouldAddToStock // In refund, we probably don't want to add negative stock yet, user manual review is safer
           }));
           setDetectedMaterials(newMats);
       } else {
@@ -307,7 +313,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
         const newTransaction: Transaction = {
           id: crypto.randomUUID(),
           projectId: formData.projectId,
-          type: 'expense', 
+          type: formData.transactionType, // Uses dynamic type (income/expense)
           category: formData.category,
           amount: Number(formData.amount),
           date: formData.date,
@@ -533,14 +539,38 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
                     </div>
 
                     {/* Auto-detected Category Display */}
-                    <div className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800 p-3 rounded-xl flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                            <Tag className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-                            <span className="text-xs font-bold text-indigo-800 dark:text-indigo-300 uppercase">Categoría Detectada</span>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800 p-3 rounded-xl flex flex-col justify-center">
+                            <div className="flex items-center gap-2 mb-1">
+                                <Tag className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                                <span className="text-[10px] font-bold text-indigo-800 dark:text-indigo-300 uppercase">Categoría</span>
+                            </div>
+                            <span className="text-sm font-extrabold text-indigo-700 dark:text-indigo-300 uppercase truncate">
+                                {formData.category}
+                            </span>
                         </div>
-                        <span className="text-sm font-extrabold text-indigo-700 dark:text-indigo-300 uppercase bg-white dark:bg-indigo-900/50 px-3 py-1 rounded-lg border border-indigo-100 dark:border-indigo-700">
-                            {formData.category}
-                        </span>
+
+                        {/* Transaction Type Toggle */}
+                        <button
+                            onClick={() => setFormData({
+                                ...formData, 
+                                transactionType: formData.transactionType === 'expense' ? 'income' : 'expense',
+                                category: formData.transactionType === 'expense' ? 'Devolución' : 'Material' 
+                            })}
+                            className={`p-3 rounded-xl border flex flex-col justify-center transition-all ${
+                                formData.transactionType === 'income' 
+                                ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' 
+                                : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
+                            }`}
+                        >
+                            <div className="flex items-center gap-2 mb-1">
+                                {formData.transactionType === 'income' ? <RotateCcw className="w-3.5 h-3.5 text-green-600" /> : <TrendingDown className="w-3.5 h-3.5 text-red-500" />}
+                                <span className={`text-[10px] font-bold uppercase ${formData.transactionType === 'income' ? 'text-green-800 dark:text-green-300' : 'text-red-800 dark:text-red-300'}`}>Tipo</span>
+                            </div>
+                            <span className={`text-sm font-extrabold uppercase truncate ${formData.transactionType === 'income' ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'}`}>
+                                {formData.transactionType === 'income' ? 'Devolución' : 'Gasto'}
+                            </span>
+                        </button>
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">

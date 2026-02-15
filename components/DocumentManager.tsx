@@ -1,6 +1,7 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { ProjectDocument, Project } from '../types';
-import { FileText, Image as ImageIcon, Trash2, Upload, X, File } from 'lucide-react';
+import { FileText, Image as ImageIcon, Trash2, Upload, X, File, Loader2 } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 
 interface DocumentManagerProps {
     project: Project;
@@ -9,39 +10,117 @@ interface DocumentManagerProps {
 
 const DocumentManager: React.FC<DocumentManagerProps> = ({ project, onUpdate }) => {
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const [isUploading, setIsUploading] = useState(false);
+    const [isDeleting, setIsDeleting] = useState<string | null>(null);
 
-    const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files) {
-            Array.from(e.target.files).forEach((file: File) => {
-                const reader = new FileReader();
-                reader.onloadend = () => {
-                    const base64String = reader.result as string;
-                    const type = file.type.startsWith('image/') ? 'image' : file.type === 'application/pdf' ? 'pdf' : 'other';
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files.length > 0) {
+            setIsUploading(true);
+            const files = Array.from(e.target.files);
+            const newDocuments: ProjectDocument[] = [];
+
+            try {
+                for (const file of files) {
+                    // Convert to Base64 for DB storage (simpler for small files) 
+                    // or ideally upload to Storage for large files.
+                    // For consistency with current app logic, we'll maintain Base64 for small docs 
+                    // but save to DB immediately.
                     
-                    const newDoc: ProjectDocument = {
-                        id: Date.now().toString() + Math.random(),
-                        projectId: project.id,
+                    const base64String: string = await new Promise((resolve) => {
+                        const reader = new FileReader();
+                        reader.onloadend = () => resolve(reader.result as string);
+                        reader.readAsDataURL(file);
+                    });
+
+                    const type = file.type.startsWith('image/') ? 'image' : file.type === 'application/pdf' ? 'pdf' : 'other';
+                    const newId = crypto.randomUUID();
+                    const dateStr = new Date().toISOString().split('T')[0];
+
+                    const docPayload = {
+                        id: newId,
+                        project_id: project.id,
                         name: file.name,
-                        type: type as any,
-                        date: new Date().toISOString().split('T')[0],
+                        type: type,
+                        date: dateStr,
                         data: base64String
                     };
 
-                    // We need to use a callback or ensure we are working with the latest state if multiple files are processed
-                    // For simplicity in this structure, we update immediately. In a real app with large files, 
-                    // this should be handled more carefully with state batching.
+                    // 1. Save directly to DB to ensure persistence
+                    const { error } = await supabase.from('documents').insert(docPayload);
+                    
+                    if (error) {
+                        console.error("Error saving document to DB:", error);
+                        continue; 
+                    }
+
+                    newDocuments.push(docPayload as any);
+                }
+
+                // 2. Update local state
+                if (newDocuments.length > 0) {
                     const currentDocs = project.documents || [];
-                    onUpdate({ ...project, documents: [newDoc, ...currentDocs] });
-                };
-                reader.readAsDataURL(file);
-            });
+                    onUpdate({ ...project, documents: [...newDocuments, ...currentDocs] });
+                }
+
+            } catch (error) {
+                console.error("Critical upload error:", error);
+                alert("Error al subir los archivos.");
+            } finally {
+                setIsUploading(false);
+                if (fileInputRef.current) fileInputRef.current.value = '';
+            }
         }
     };
 
-    const handleDelete = (docId: string) => {
-        if (window.confirm('¿Estás seguro de que quieres eliminar este documento?')) {
+    const handleDelete = async (docId: string) => {
+        if (!window.confirm('¿Estás seguro de que quieres eliminar este documento permanentemente?')) {
+            return;
+        }
+
+        setIsDeleting(docId);
+        
+        try {
+            const docToDelete = project.documents.find(d => d.id === docId);
+
+            // 1. Try to delete file from Storage if it is a hosted URL (from ScannerModal)
+            // Checks if data is a URL and contains the supabase storage path
+            if (docToDelete && docToDelete.data.includes('/storage/v1/object/public/')) {
+                try {
+                    const url = new URL(docToDelete.data);
+                    // Extract path after /public/
+                    const pathParts = url.pathname.split('/public/');
+                    if (pathParts.length > 1) {
+                        const bucketAndPath = pathParts[1].split('/'); // "photos/projectId/file.jpg"
+                        const bucket = bucketAndPath[0];
+                        const filePath = bucketAndPath.slice(1).join('/');
+                        
+                        // We assume bucket is 'photos' based on App logic, but let's be safe
+                        if (bucket === 'photos') {
+                            await supabase.storage.from('photos').remove([filePath]);
+                        }
+                    }
+                } catch (err) {
+                    console.warn("Could not delete file from storage, proceeding to DB delete.", err);
+                }
+            }
+
+            // 2. Delete Record from Database
+            const { error } = await supabase
+                .from('documents')
+                .delete()
+                .eq('id', docId);
+
+            if (error) throw error;
+
+            // 3. Update Local State (Optimistic UI update)
             const updatedDocs = project.documents.filter(d => d.id !== docId);
             onUpdate({ ...project, documents: updatedDocs });
+
+        } catch (error: any) {
+            console.error("Error deleting document:", error);
+            alert("No se pudo eliminar el documento de la base de datos: " + error.message);
+        } finally {
+            setIsDeleting(null);
         }
     };
 
@@ -62,9 +141,11 @@ const DocumentManager: React.FC<DocumentManagerProps> = ({ project, onUpdate }) 
                     />
                     <button 
                         onClick={() => fileInputRef.current?.click()}
-                        className="bg-gray-900 dark:bg-slate-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-black dark:hover:bg-slate-600 transition-colors shadow-lg"
+                        disabled={isUploading}
+                        className="bg-gray-900 dark:bg-slate-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-black dark:hover:bg-slate-600 transition-colors shadow-lg disabled:opacity-70"
                     >
-                        <Upload className="w-4 h-4" /> Subir Archivos
+                        {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                        {isUploading ? 'Subiendo...' : 'Subir Archivos'}
                     </button>
                 </div>
             </div>
@@ -79,13 +160,19 @@ const DocumentManager: React.FC<DocumentManagerProps> = ({ project, onUpdate }) 
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
                     {documents.map(doc => (
                         <div key={doc.id} className="group relative bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-all">
-                            <div className="aspect-square bg-gray-100 dark:bg-slate-700/50 flex items-center justify-center overflow-hidden">
+                            <div className="aspect-square bg-gray-100 dark:bg-slate-700/50 flex items-center justify-center overflow-hidden relative">
                                 {doc.type === 'image' ? (
                                     <img src={doc.data} alt={doc.name} className="w-full h-full object-cover" />
                                 ) : (
                                     <div className="flex flex-col items-center text-gray-400 dark:text-slate-500">
                                         <FileText className="w-12 h-12 mb-2" />
                                         <span className="text-xs uppercase font-bold text-gray-300 dark:text-slate-600">PDF</span>
+                                    </div>
+                                )}
+                                {/* Deleting Overlay */}
+                                {isDeleting === doc.id && (
+                                    <div className="absolute inset-0 bg-white/80 dark:bg-slate-900/80 flex items-center justify-center z-10">
+                                        <Loader2 className="w-8 h-8 animate-spin text-red-500" />
                                     </div>
                                 )}
                             </div>
@@ -106,7 +193,8 @@ const DocumentManager: React.FC<DocumentManagerProps> = ({ project, onUpdate }) 
                                 </a>
                                 <button 
                                     onClick={() => handleDelete(doc.id)}
-                                    className="p-1.5 bg-white/90 dark:bg-slate-900/90 rounded-full text-red-500 hover:text-red-700 shadow-sm"
+                                    disabled={isDeleting === doc.id}
+                                    className="p-1.5 bg-white/90 dark:bg-slate-900/90 rounded-full text-red-500 hover:text-red-700 shadow-sm disabled:opacity-50"
                                     title="Eliminar"
                                 >
                                     <Trash2 className="w-3 h-3" />
