@@ -12,31 +12,75 @@ import { getCurrentSession, onAuthStateChange, signOut } from './services/authSe
 import { Loader2 } from 'lucide-react';
 
 // --- Helpers for Schema Compatibility ---
-// Since the DB might be missing 'client_phone' and 'client_email' columns,
-// we store this data embedded in the description field as a fallback.
+// Tags to identify embedded data in description
 const EMBED_TAG = '[Contacto:';
+const ELEVATOR_TAG_OPEN = '[ELEVATOR_JSON]';
+const ELEVATOR_TAG_CLOSE = '[/ELEVATOR_JSON]';
+const PV_TAG_OPEN = '[PV_JSON]';
+const PV_TAG_CLOSE = '[/PV_JSON]';
 
+// Embed contact info legacy helper
 const embedContactInfo = (desc: string, phone?: string, email?: string) => {
     const cleanDesc = desc ? desc.split(EMBED_TAG)[0].trim() : '';
     if (!phone && !email) return cleanDesc;
     return `${cleanDesc}\n\n${EMBED_TAG} ${phone || ''} | ${email || ''}]`;
 };
 
-const extractContactInfo = (rawDesc: string) => {
-    if (!rawDesc) return { description: '', phone: '', email: '' };
-    
-    // Check if our tag exists
-    const parts = rawDesc.split(EMBED_TAG);
-    const cleanDesc = parts[0].trim();
-    
-    if (parts.length > 1) {
-        // Parse the tag content: " 666777888 | email@test.com]"
-        const tagContent = parts[1].replace(']', '').trim();
-        const [phone, email] = tagContent.split('|').map(s => s.trim());
-        return { description: cleanDesc, phone, email };
+// Robust extractor for all embedded data types
+const extractProjectData = (rawDesc: string, rawPhone: string, rawEmail: string, rawElevator: any, rawPv: any) => {
+    let description = rawDesc || '';
+    let phone = rawPhone;
+    let email = rawEmail;
+    let elevatorData = rawElevator;
+    let pvData = rawPv;
+
+    // 1. Extract Contact Info (if column was empty)
+    if (!phone && !email && description.includes(EMBED_TAG)) {
+        const parts = description.split(EMBED_TAG);
+        // We take the part before the tag as the potential description, 
+        // but wait until other tags are stripped to finalize
+        const contactContent = parts[1].split(']')[0];
+        const [p, e] = contactContent.split('|').map(s => s.trim());
+        phone = p;
+        email = e;
+        description = description.replace(`${EMBED_TAG} ${contactContent}]`, '');
     }
-    
-    return { description: cleanDesc, phone: '', email: '' };
+
+    // 2. Extract Elevator Data (Fallback if column is null)
+    if (!elevatorData && description.includes(ELEVATOR_TAG_OPEN)) {
+        try {
+            const startIndex = description.indexOf(ELEVATOR_TAG_OPEN);
+            const endIndex = description.indexOf(ELEVATOR_TAG_CLOSE);
+            if (startIndex !== -1 && endIndex !== -1) {
+                const jsonStr = description.substring(startIndex + ELEVATOR_TAG_OPEN.length, endIndex);
+                elevatorData = JSON.parse(jsonStr);
+                // Remove from description for display
+                description = description.substring(0, startIndex) + description.substring(endIndex + ELEVATOR_TAG_CLOSE.length);
+            }
+        } catch (e) { console.error("Error parsing embedded elevator data", e); }
+    }
+
+    // 3. Extract PV Data (Fallback if column is null)
+    if (!pvData && description.includes(PV_TAG_OPEN)) {
+        try {
+            const startIndex = description.indexOf(PV_TAG_OPEN);
+            const endIndex = description.indexOf(PV_TAG_CLOSE);
+            if (startIndex !== -1 && endIndex !== -1) {
+                const jsonStr = description.substring(startIndex + PV_TAG_OPEN.length, endIndex);
+                pvData = JSON.parse(jsonStr);
+                // Remove from description
+                description = description.substring(0, startIndex) + description.substring(endIndex + PV_TAG_CLOSE.length);
+            }
+        } catch (e) { console.error("Error parsing embedded pv data", e); }
+    }
+
+    return {
+        description: description.trim(),
+        phone,
+        email,
+        elevatorData,
+        pvData
+    };
 };
 
 const App: React.FC = () => {
@@ -65,6 +109,7 @@ const App: React.FC = () => {
 
   // --- Auth & Initial Load ---
   useEffect(() => {
+    console.log("Oniluz App v2.2 - System Ready"); // Debug flag to ensure new code is loaded
     let mounted = true;
 
     // 1. Check initial session from local storage immediately
@@ -127,26 +172,31 @@ const App: React.FC = () => {
 
       if (data) {
         const formattedProjects: Project[] = data.map((p: any) => {
-          // Extract contact info from description fallback if columns are missing/empty
-          const { description, phone, email } = extractContactInfo(p.description);
+          // Robust extraction: Checks DB columns first, falls back to description embedding
+          const { description, phone, email, elevatorData, pvData } = extractProjectData(
+              p.description, 
+              p.client_phone, 
+              p.client_email, 
+              p.elevator_data, 
+              p.pv_data
+          );
           
           return {
             id: p.id,
             type: p.type as any,
             name: p.name,
             client: p.client,
-            // Prefer DB column if exists, otherwise use extracted fallback
-            clientPhone: p.client_phone || phone, 
-            clientEmail: p.client_email || email,
+            clientPhone: phone, 
+            clientEmail: email,
             location: p.location,
             status: p.status,
             progress: Number(p.progress),
             startDate: p.start_date,
             endDate: p.end_date,
             budget: Number(p.budget),
-            description: description, // Use cleaned description
-            pvData: p.pv_data, // JSONB column
-            elevatorData: p.elevator_data, // JSONB column
+            description: description, // Clean description without JSON blobs
+            pvData: pvData, 
+            elevatorData: elevatorData, 
             transactions: p.transactions?.map((t: any) => ({
                 ...t,
                 userName: t.user_name // Map database snake_case to app camelCase
@@ -211,8 +261,8 @@ const App: React.FC = () => {
 
   const handleAddProject = async (newProject: Project) => {
     try {
-      // Compatibility Mode: Embed contact info into description to avoid "column not found" errors
-      const combinedDescription = embedContactInfo(
+      // 1. Prepare Base Payload (Standard Attempt)
+      const baseDescription = embedContactInfo(
           newProject.description || '', 
           newProject.clientPhone, 
           newProject.clientEmail
@@ -222,23 +272,65 @@ const App: React.FC = () => {
            type: newProject.type,
            name: newProject.name,
            client: newProject.client,
-           // Removed client_phone & client_email to fix schema error
            location: newProject.location,
            status: newProject.status,
            progress: newProject.progress || 0,
            start_date: newProject.startDate || null, 
            end_date: newProject.endDate || null,   
-           description: combinedDescription,
+           description: baseDescription,
            budget: newProject.budget || 0,
            pv_data: newProject.pvData || null,
            elevator_data: newProject.elevatorData || null
       };
 
-      const { data, error } = await supabase
+      // 2. Try Insert
+      let { data, error } = await supabase
         .from('projects')
         .insert(payload)
         .select()
         .single();
+
+      // 3. FALLBACK: Handle Missing Columns Schema Mismatch (PGRST204, 42703, 400 Bad Request)
+      // Expanded conditions to catch more potential DB errors
+      if (error) {
+          const errCode = error.code;
+          const errMsg = error.message.toLowerCase();
+          
+          if (
+              errCode === 'PGRST204' || 
+              errCode === '42703' || // Undefined column
+              errMsg.includes('could not find the') || 
+              errMsg.includes('column') ||
+              errMsg.includes('does not exist')
+          ) {
+              console.warn(`[Oniluz System] ⚠️ Schema mismatch detected (${errCode}). Engaging Compatibility Mode.`);
+              
+              // Create fallback payload by removing missing columns and embedding data in description
+              const fallbackPayload = { ...payload };
+              
+              // Remove keys that might cause errors
+              delete (fallbackPayload as any).elevator_data;
+              delete (fallbackPayload as any).pv_data;
+              
+              // Embed data into description
+              let embeddedDesc = baseDescription;
+              
+              if (newProject.elevatorData) {
+                  embeddedDesc += `\n\n${ELEVATOR_TAG_OPEN}${JSON.stringify(newProject.elevatorData)}${ELEVATOR_TAG_CLOSE}`;
+              }
+              if (newProject.pvData) {
+                  embeddedDesc += `\n\n${PV_TAG_OPEN}${JSON.stringify(newProject.pvData)}${PV_TAG_CLOSE}`;
+              }
+              
+              fallbackPayload.description = embeddedDesc;
+
+              // Retry insert with safe payload
+              const retry = await supabase.from('projects').insert(fallbackPayload).select().single();
+              
+              data = retry.data;
+              error = retry.error; // Update error with retry result
+          }
+      }
 
       if (error) throw error;
 
@@ -261,7 +353,6 @@ const App: React.FC = () => {
               if (docError) console.error("Error saving initial documents:", docError);
           } catch (docErr) {
               console.error("Critical error saving documents:", docErr);
-              // Don't alert user here, just log it, as project is created.
           }
       }
 
@@ -277,23 +368,54 @@ const App: React.FC = () => {
      // Optimistic UI update
      setProjects(projects.map(p => p.id === updatedProject.id ? updatedProject : p));
 
-     // Compatibility Mode: Embed contact info
-     const combinedDescription = embedContactInfo(
+     const baseDesc = embedContactInfo(
         updatedProject.description || '', 
         updatedProject.clientPhone, 
         updatedProject.clientEmail
      );
 
-     // Update logic with sanitization
-     const { error } = await supabase.from('projects').update({
+     const updatePayload = {
          name: updatedProject.name,
          status: updatedProject.status,
          progress: updatedProject.progress,
          end_date: updatedProject.endDate || null,
-         description: combinedDescription,
+         description: baseDesc,
          budget: updatedProject.budget || 0,
-         // Removed client_phone & client_email to fix schema error
-     }).eq('id', updatedProject.id);
+         pv_data: updatedProject.pvData || null, // Try standard
+         elevator_data: updatedProject.elevatorData || null // Try standard
+     };
+
+     // Try Update
+     let { error } = await supabase.from('projects').update(updatePayload).eq('id', updatedProject.id);
+
+     // Fallback on Update Error
+     if (error) {
+         const errCode = error.code;
+         const errMsg = error.message.toLowerCase();
+
+         if (
+             errCode === 'PGRST204' || 
+             errCode === '42703' ||
+             errMsg.includes('could not find the') || 
+             errMsg.includes('column')
+         ) {
+             const fallbackPayload = { ...updatePayload };
+             delete (fallbackPayload as any).pv_data;
+             delete (fallbackPayload as any).elevator_data;
+
+             let embeddedDesc = baseDesc;
+             if (updatedProject.elevatorData) {
+                 embeddedDesc += `\n\n${ELEVATOR_TAG_OPEN}${JSON.stringify(updatedProject.elevatorData)}${ELEVATOR_TAG_CLOSE}`;
+             }
+             if (updatedProject.pvData) {
+                 embeddedDesc += `\n\n${PV_TAG_OPEN}${JSON.stringify(updatedProject.pvData)}${PV_TAG_CLOSE}`;
+             }
+             fallbackPayload.description = embeddedDesc;
+
+             const retry = await supabase.from('projects').update(fallbackPayload).eq('id', updatedProject.id);
+             error = retry.error;
+         }
+     }
 
      if (error) {
          console.error("Error updating project root:", error);
