@@ -242,11 +242,14 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
       if (!fileBlob) return null;
       try {
           const ext = mimeType.includes('pdf') ? 'pdf' : 'jpg';
-          const fileName = `${projectId}/${Date.now()}.${ext}`;
+          const timestamp = Date.now();
+          // Añadimos un string aleatorio para evitar colisiones de caché
+          const randomString = Math.random().toString(36).substring(7);
+          const fileName = `${projectId}/${timestamp}_${randomString}.${ext}`;
           
           const { error } = await supabase.storage.from('photos').upload(fileName, fileBlob, { 
               contentType: mimeType, 
-              upsert: true 
+              upsert: false // Importante: no sobrescribir, crear nuevo
           });
           
           if (error) throw error;
@@ -316,21 +319,14 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
         }
 
         // 3. Document 
-        // LÓGICA DE CATEGORIZACIÓN ROBUSTA:
-        // - Si el usuario inició el escáner desde "Técnico", SE RESPETA 'technical'.
-        // - Si inició desde general, y la IA detecta precio > 0, va a 'financial'.
-        // - Si no hay precio y es general, se queda en 'general' (o albarán).
+        // CORRECCIÓN CRÍTICA: Respetar siempre la categoría por defecto (general o technical)
+        // No forzar 'financial' para que aparezcan en la pestaña "Archivos" (que usa category='general')
         let newDocument: ProjectDocument | undefined;
         if (fileUrl) {
-            let finalCategory = defaultCategory; // Empieza con la categoría de la pestaña donde estaba
-
-            if (defaultCategory === 'general') {
-                // Solo si estamos en modo general intentamos ser inteligentes
-                if (formData.amount > 0 || formData.docType === 'RECEIPT') {
-                    finalCategory = 'financial';
-                }
-            }
-            // Si defaultCategory era 'technical', finalCategory sigue siendo 'technical' (correcto).
+            
+            // Si estamos en modo técnico, es técnico. Si es general, es general.
+            // Los tickets irán a 'general' para que se vean en la pestaña de archivos.
+            const finalCategory = defaultCategory; 
 
             newDocument = {
                 id: crypto.randomUUID(),

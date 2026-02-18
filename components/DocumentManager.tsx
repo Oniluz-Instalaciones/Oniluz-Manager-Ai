@@ -18,15 +18,19 @@ const DocumentManager: React.FC<DocumentManagerProps> = ({ project, onUpdate, on
 
     // Filtrado estricto para mostrar solo lo que corresponde a esta pestaña
     const isDocumentInCurrentCategory = (doc: ProjectDocument) => {
-        // Compatibilidad con archivos antiguos (sin categoría o null)
-        if (!doc.category || doc.category === 'general') {
-            // Si estamos en la pestaña GENERAL, mostramos todo lo que NO sea técnico NI financiero explícito
-            if (category === 'general') {
-                 return !doc.name.startsWith('[TEC] ');
-            }
-            return false;
+        // Lógica corregida: 
+        // Si estamos en la pestaña GENERAL ('Archivos'), queremos ver:
+        // 1. Archivos con category = 'general'
+        // 2. Archivos con category = 'financial' (tickets)
+        // 3. Archivos antiguos (category = null)
+        // 4. EXCLUIR los técnicos.
+        if (category === 'general') {
+             if (doc.category === 'technical') return false;
+             if (doc.name.startsWith('[TEC] ')) return false;
+             return true; // Muestra general, financial y null
         }
-        // Coincidencia exacta para technical/financial
+        
+        // Si estamos en TECHNICAL, solo mostrar technical
         return doc.category === category;
     };
 
