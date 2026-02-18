@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { Project, Transaction, Material, ProjectDocument } from '../types';
 import { Camera, X, Loader2, Save, Image as ImageIcon, Package, Trash2, Plus, RefreshCw, Upload, FileText, AlertTriangle, CreditCard, ExternalLink, ArchiveRestore, Ban, Tag, RotateCcw, TrendingUp, TrendingDown } from 'lucide-react';
@@ -9,7 +10,7 @@ interface ScannerModalProps {
   onClose: () => void;
   onSave: (projectId: string, transaction: Transaction, newMaterials: Material[], newDocument?: ProjectDocument) => void;
   currentUserName: string;
-  defaultProjectId?: string; // New prop to lock project selection
+  defaultProjectId?: string; // Nuevo prop para bloquear selección
   defaultCategory?: 'general' | 'technical' | 'financial'; // Updated type
 }
 
@@ -18,7 +19,6 @@ interface DetectedItem extends Material {
     addToStock: boolean;
 }
 
-// Helper to fix date format mismatch (DD/MM/YYYY -> YYYY-MM-DD)
 const normalizeDate = (dateStr: string | undefined): string => {
     if (!dateStr) return new Date().toISOString().split('T')[0];
     let cleanDate = dateStr.trim();
@@ -51,7 +51,6 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
   const [isUploading, setIsUploading] = useState(false);
   const [step, setStep] = useState<'capture' | 'review' | 'form'>('capture');
   const [isCameraActive, setIsCameraActive] = useState(false);
-  
   const [scanErrorType, setScanErrorType] = useState<string | null>(null);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -82,9 +81,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
 
   const stopCamera = () => {
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => {
-        track.stop();
-      });
+      streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
     }
     if (videoRef.current) {
@@ -98,36 +95,23 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
       alert("Tu navegador no soporta el acceso a la cámara.");
       return;
     }
-
     try {
       setIsCameraActive(true);
       const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { 
-          facingMode: 'environment', 
-          width: { ideal: 1920 },
-          height: { ideal: 1080 }
-        },
+        video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
         audio: false
       });
-      
       streamRef.current = stream;
-      
       setTimeout(() => {
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           videoRef.current.play().catch(e => console.error("Error playing video:", e));
         }
       }, 100);
-
     } catch (err) {
       console.error("Error accessing camera:", err);
       setIsCameraActive(false);
-      
-      if (err instanceof DOMException && err.name === "NotAllowedError") {
-         alert("Permiso denegado. Por favor, permite el acceso a la cámara en la configuración de tu navegador.");
-      } else {
-         alert("No se pudo iniciar la cámara. Intenta subir un archivo.");
-      }
+      alert("No se pudo iniciar la cámara. Intenta subir un archivo.");
     }
   };
 
@@ -135,12 +119,10 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
     if (videoRef.current && canvasRef.current) {
       const video = videoRef.current;
       const canvas = canvasRef.current;
-      
       if (video.videoWidth === 0 || video.videoHeight === 0) return;
 
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
-      
       const context = canvas.getContext('2d');
       if (context) {
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -162,7 +144,6 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
       const file = e.target.files[0];
       setFileBlob(file); 
       setMimeType(file.type);
-      
       const reader = new FileReader();
       reader.onloadend = () => {
         const base64String = reader.result as string;
@@ -180,11 +161,8 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
     try {
       const data = await analyzeDocument(base64, type);
       
-      if (data.errorType) {
-          setScanErrorType(data.errorType);
-      } else if (data.description && data.description.includes("Error")) {
-          setScanErrorType('GENERIC');
-      }
+      if (data.errorType) setScanErrorType(data.errorType);
+      else if (data.description && data.description.includes("Error")) setScanErrorType('GENERIC');
 
       const isRefund = data.total < 0;
       const absoluteAmount = Math.abs(data.total || 0);
@@ -219,7 +197,6 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
       } else {
         setDetectedMaterials([]);
       }
-
       setStep('form');
     } catch (error) {
       console.error(error);
@@ -249,9 +226,6 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
   };
 
   const addEmptyMaterial = () => {
-      const stockCategories = ['Material', 'Herramienta'];
-      const shouldAddToStock = stockCategories.includes(formData.category);
-
       setDetectedMaterials([...detectedMaterials, {
           id: crypto.randomUUID(),
           projectId: '',
@@ -260,21 +234,28 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
           unit: 'ud',
           pricePerUnit: 0,
           minStock: 5,
-          addToStock: shouldAddToStock
+          addToStock: true
       }]);
   };
 
   const uploadFileToSupabase = async (projectId: string): Promise<string | null> => {
       if (!fileBlob) return null;
       try {
-          const ext = mimeType === 'application/pdf' ? 'pdf' : 'jpg';
+          const ext = mimeType.includes('pdf') ? 'pdf' : 'jpg';
           const fileName = `${projectId}/${Date.now()}.${ext}`;
-          const { error } = await supabase.storage.from('photos').upload(fileName, fileBlob, { contentType: mimeType, upsert: false });
+          
+          const { error } = await supabase.storage.from('photos').upload(fileName, fileBlob, { 
+              contentType: mimeType, 
+              upsert: true 
+          });
+          
           if (error) throw error;
-          const { data: { publicUrl } } = supabase.storage.from('photos').getPublicUrl(fileName);
-          return publicUrl;
-      } catch (e) {
+          
+          const { data } = supabase.storage.from('photos').getPublicUrl(fileName);
+          return data.publicUrl;
+      } catch (e: any) {
           console.error("Upload error:", e);
+          alert(`Error subiendo imagen: ${e.message}`);
           return null; 
       }
   };
@@ -304,18 +285,20 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
 
         const stockItemsToAdd = detectedMaterials.filter(m => m.addToStock).map(m => ({ ...m, id: crypto.randomUUID(), projectId: formData.projectId }));
 
-        // 1. Transaction
-        const { error: txError } = await supabase.from('transactions').insert({
-            id: newTransaction.id,
-            project_id: newTransaction.projectId,
-            type: newTransaction.type,
-            category: newTransaction.category,
-            amount: newTransaction.amount,
-            date: newTransaction.date || null,
-            description: newTransaction.description,
-            user_name: newTransaction.userName
-        });
-        if (txError) throw new Error("Error al guardar la transacción: " + txError.message);
+        // 1. Transaction (Only if amount > 0)
+        if (newTransaction.amount > 0) {
+            const { error: txError } = await supabase.from('transactions').insert({
+                id: newTransaction.id,
+                project_id: newTransaction.projectId,
+                type: newTransaction.type,
+                category: newTransaction.category,
+                amount: newTransaction.amount,
+                date: newTransaction.date || null,
+                description: newTransaction.description,
+                user_name: newTransaction.userName
+            });
+            if (txError) throw new Error("Error al guardar la transacción: " + txError.message);
+        }
 
         // 2. Materials
         if (stockItemsToAdd.length > 0) {
@@ -332,18 +315,28 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
             if (matError) throw new Error("Error al guardar materiales: " + matError.message);
         }
 
-        // 3. Document -> SEPARATE INTO 'financial' category automatically if it's a receipt
+        // 3. Document 
+        // LÓGICA DE CATEGORIZACIÓN ROBUSTA:
+        // - Si el usuario inició el escáner desde "Técnico", SE RESPETA 'technical'.
+        // - Si inició desde general, y la IA detecta precio > 0, va a 'financial'.
+        // - Si no hay precio y es general, se queda en 'general' (o albarán).
         let newDocument: ProjectDocument | undefined;
         if (fileUrl) {
-            // LOGIC: If it has amount > 0, it's financial. Unless explicitly in 'technical' mode (rare for scanner)
-            // This ensures it doesn't show up in "General Files"
-            const finalCategory = (formData.amount > 0 || formData.docType === 'RECEIPT') ? 'financial' : defaultCategory;
+            let finalCategory = defaultCategory; // Empieza con la categoría de la pestaña donde estaba
+
+            if (defaultCategory === 'general') {
+                // Solo si estamos en modo general intentamos ser inteligentes
+                if (formData.amount > 0 || formData.docType === 'RECEIPT') {
+                    finalCategory = 'financial';
+                }
+            }
+            // Si defaultCategory era 'technical', finalCategory sigue siendo 'technical' (correcto).
 
             newDocument = {
                 id: crypto.randomUUID(),
                 projectId: formData.projectId,
                 name: `${formData.docType === 'DELIVERY_NOTE' ? 'Albarán' : 'Factura'} ${formatDate(formData.date)}`,
-                type: mimeType === 'application/pdf' ? 'pdf' : 'image',
+                type: mimeType.includes('pdf') ? 'pdf' : 'image',
                 category: finalCategory, 
                 date: formData.date || new Date().toISOString().split('T')[0],
                 data: fileUrl
@@ -358,14 +351,18 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
                 date: newDocument.date,
                 data: newDocument.data 
             });
-            if (docError) console.error("Warning: Document save failed", docError);
+            
+            if (docError) {
+                console.error("Warning: Document save failed", docError);
+                alert("Atención: Los datos se guardaron pero la imagen falló al registrarse en la base de datos.");
+            }
         }
 
         onSave(formData.projectId, newTransaction, stockItemsToAdd, newDocument);
     
     } catch (error: any) {
         console.error("Error saving to DB:", error);
-        alert(`Error guardando datos en la nube: ${error.message || error}`);
+        alert(`Error guardando datos: ${error.message || error}`);
     } finally {
         setIsUploading(false);
     }
@@ -417,7 +414,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
           {step === 'review' && (
             <div className="flex flex-col items-center justify-center space-y-6 py-8 h-full">
                <div className="relative">
-                  {mimeType === 'application/pdf' ? (
+                  {mimeType.includes('pdf') ? (
                       <div className="w-64 h-80 bg-slate-100 dark:bg-slate-700 rounded-2xl flex flex-col items-center justify-center border-4 border-white dark:border-slate-600 shadow-lg"><FileText className="w-20 h-20 text-red-500 mb-4" /><span className="text-sm font-bold text-slate-500 dark:text-slate-300">Documento PDF</span></div>
                   ) : (
                     fileData && <img src={fileData} alt="Preview" className="w-64 h-auto object-contain rounded-2xl shadow-lg border-4 border-white dark:border-slate-700" />
