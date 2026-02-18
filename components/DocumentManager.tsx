@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { ProjectDocument, Project } from '../types';
-import { FileText, Image as ImageIcon, Trash2, Upload, X, File, Loader2, Camera, Ruler } from 'lucide-react';
+import { FileText, Image as ImageIcon, Trash2, Upload, X, File, Loader2, Camera, Ruler, ExternalLink } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 interface DocumentManagerProps {
@@ -48,68 +48,107 @@ const DocumentManager: React.FC<DocumentManagerProps> = ({ project, onUpdate, on
         return name.replace('[TEC] ', '');
     };
 
+    /**
+     * UPLOADS FILE TO SUPABASE STORAGE
+     * This is the robust way to handle files. Storing Base64 in DB rows causes failures for large files.
+     */
+    const uploadFileToStorage = async (file: File, projectId: string): Promise<string> => {
+        // Sanitize filename to avoid issues with special characters
+        const cleanFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+        const timestamp = Date.now();
+        const filePath = `${projectId}/${timestamp}_${cleanFileName}`;
+
+        // Attempt upload to 'photos' bucket (standardized with ScannerModal)
+        const { error: uploadError } = await supabase.storage
+            .from('photos')
+            .upload(filePath, file, {
+                cacheControl: '3600',
+                upsert: false
+            });
+
+        if (uploadError) {
+            console.error("Storage upload error:", uploadError);
+            throw new Error(`Error subiendo archivo a la nube: ${uploadError.message}`);
+        }
+
+        // Get Public URL
+        const { data: { publicUrl } } = supabase.storage
+            .from('photos')
+            .getPublicUrl(filePath);
+
+        return publicUrl;
+    };
+
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files.length > 0) {
             setIsUploading(true);
             const files = Array.from(e.target.files);
             const newDocuments: ProjectDocument[] = [];
+            let errorCount = 0;
 
             try {
                 for (const file of files) {
-                    const base64String: string = await new Promise((resolve) => {
-                        const reader = new FileReader();
-                        reader.onloadend = () => resolve(reader.result as string);
-                        reader.readAsDataURL(file);
-                    });
-
-                    const type = file.type.startsWith('image/') ? 'image' : file.type === 'application/pdf' ? 'pdf' : 'other';
-                    const newId = crypto.randomUUID();
-                    const dateStr = new Date().toISOString().split('T')[0];
-
-                    // Prepare Initial Payload
-                    let finalName = file.name;
-                    
-                    // Base payload object matching DB schema candidates
-                    const docPayload: any = {
-                        id: newId,
-                        project_id: project.id,
-                        name: finalName,
-                        type: type,
-                        date: dateStr,
-                        data: base64String,
-                        category: category // Try sending category first
-                    };
-
-                    // 1. Attempt Save
-                    let { error } = await supabase.from('documents').insert(docPayload);
-                    
-                    // 2. Fallback Compatibility Mode
-                    // If error indicates missing column 'category', modify name and retry
-                    if (error && (error.code === '42703' || error.message.includes('column'))) {
-                        console.warn("Schema mismatch detected. Using name-tagging compatibility mode for Technical Docs.");
+                    try {
+                        let fileDataUrl: string;
                         
-                        delete docPayload.category; // Remove problematic field
-                        
-                        if (category === 'technical') {
-                            docPayload.name = `[TEC] ${finalName}`; // Add tag
+                        // ROBUST STRATEGY: Try Storage First
+                        try {
+                            fileDataUrl = await uploadFileToStorage(file, project.id);
+                        } catch (storageErr) {
+                            console.warn("Storage failed, attempting legacy Base64 fallback (not recommended for large files)", storageErr);
+                            // Fallback: Base64 (Legacy, risk of DB size limit)
+                            fileDataUrl = await new Promise((resolve) => {
+                                const reader = new FileReader();
+                                reader.onloadend = () => resolve(reader.result as string);
+                                reader.readAsDataURL(file);
+                            });
                         }
+
+                        const type = file.type.startsWith('image/') ? 'image' : file.type === 'application/pdf' ? 'pdf' : 'other';
+                        const newId = crypto.randomUUID();
+                        const dateStr = new Date().toISOString().split('T')[0];
+
+                        // Prepare Payload
+                        let finalName = file.name;
                         
-                        // Retry insert
-                        const retry = await supabase.from('documents').insert(docPayload);
-                        error = retry.error;
-                    }
+                        // Determine payload based on category (handling schema compatibility)
+                        const docPayload: any = {
+                            id: newId,
+                            project_id: project.id,
+                            name: finalName,
+                            type: type,
+                            date: dateStr,
+                            data: fileDataUrl, // Now storing URL mostly
+                            category: category 
+                        };
 
-                    if (error) {
-                        console.error("Error saving document to DB:", error);
-                        alert(`Error al guardar ${file.name}: ${error.message}`);
-                        continue; 
-                    }
+                        // 1. Attempt Save to DB
+                        let { error } = await supabase.from('documents').insert(docPayload);
+                        
+                        // 2. Fallback Compatibility Mode (if DB lacks 'category' column)
+                        if (error && (error.code === '42703' || error.message.includes('column'))) {
+                            console.warn("Schema mismatch detected. Using name-tagging compatibility mode.");
+                            delete docPayload.category; 
+                            if (category === 'technical') {
+                                docPayload.name = `[TEC] ${finalName}`; 
+                            }
+                            const retry = await supabase.from('documents').insert(docPayload);
+                            error = retry.error;
+                        }
 
-                    // Success: Add to local state
-                    // We use the payload that was actually saved (potentially with [TEC] in name)
-                    // We also ensure the 'category' field is set in local state for immediate UI consistency if we want,
-                    // but relying on the name tag filter is safer for consistency with reload.
-                    newDocuments.push(docPayload as ProjectDocument);
+                        if (error) throw error;
+
+                        // Success: Add to local state
+                        newDocuments.push(docPayload as ProjectDocument);
+
+                    } catch (fileErr: any) {
+                        console.error(`Error processing file ${file.name}:`, fileErr);
+                        errorCount++;
+                    }
+                }
+
+                if (errorCount > 0) {
+                    alert(`${errorCount} archivo(s) no se pudieron guardar. Verifique su conexión.`);
                 }
 
                 // 3. Update local state
@@ -120,7 +159,7 @@ const DocumentManager: React.FC<DocumentManagerProps> = ({ project, onUpdate, on
 
             } catch (error: any) {
                 console.error("Critical upload error:", error);
-                alert("Error crítico al subir los archivos: " + error.message);
+                alert("Error crítico al gestionar los archivos: " + error.message);
             } finally {
                 setIsUploading(false);
                 if (fileInputRef.current) fileInputRef.current.value = '';
@@ -145,9 +184,11 @@ const DocumentManager: React.FC<DocumentManagerProps> = ({ project, onUpdate, on
                     const pathParts = url.pathname.split('/public/');
                     if (pathParts.length > 1) {
                         const bucketAndPath = pathParts[1].split('/'); 
+                        // The first part is the bucket name, rest is path
+                        const bucketName = bucketAndPath[0];
                         const filePath = bucketAndPath.slice(1).join('/');
-                        // Assume 'photos' bucket
-                        await supabase.storage.from('photos').remove([filePath]);
+                        
+                        await supabase.storage.from(bucketName).remove([filePath]);
                     }
                 } catch (err) {
                     console.warn("Could not delete file from storage, proceeding to DB delete.", err);
@@ -240,52 +281,68 @@ const DocumentManager: React.FC<DocumentManagerProps> = ({ project, onUpdate, on
                 </div>
             ) : (
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                    {documents.map(doc => (
-                        <div key={doc.id} className="group relative bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-all">
-                            <div className="aspect-square bg-gray-100 dark:bg-slate-700/50 flex items-center justify-center overflow-hidden relative">
-                                {doc.type === 'image' ? (
-                                    <img src={doc.data} alt={doc.name} className="w-full h-full object-cover" />
-                                ) : (
-                                    <div className="flex flex-col items-center text-gray-400 dark:text-slate-500">
-                                        <FileText className="w-12 h-12 mb-2" />
-                                        <span className="text-xs uppercase font-bold text-gray-300 dark:text-slate-600">PDF</span>
-                                    </div>
-                                )}
-                                {/* Deleting Overlay */}
-                                {isDeleting === doc.id && (
-                                    <div className="absolute inset-0 bg-white/80 dark:bg-slate-900/80 flex items-center justify-center z-10">
-                                        <Loader2 className="w-8 h-8 animate-spin text-red-500" />
-                                    </div>
-                                )}
+                    {documents.map(doc => {
+                        const isUrl = doc.data.startsWith('http');
+                        return (
+                            <div key={doc.id} className="group relative bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-all">
+                                <div className="aspect-square bg-gray-100 dark:bg-slate-700/50 flex items-center justify-center overflow-hidden relative">
+                                    {doc.type === 'image' ? (
+                                        <img 
+                                            src={doc.data} 
+                                            alt={doc.name} 
+                                            className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity" 
+                                            onClick={() => window.open(doc.data, '_blank')}
+                                        />
+                                    ) : (
+                                        <div 
+                                            className="flex flex-col items-center text-gray-400 dark:text-slate-500 cursor-pointer hover:text-[#0047AB] dark:hover:text-blue-400 transition-colors"
+                                            onClick={() => window.open(doc.data, '_blank')}
+                                        >
+                                            <FileText className="w-12 h-12 mb-2" />
+                                            <span className="text-xs uppercase font-bold text-gray-300 dark:text-slate-600">PDF</span>
+                                        </div>
+                                    )}
+                                    {/* Deleting Overlay */}
+                                    {isDeleting === doc.id && (
+                                        <div className="absolute inset-0 bg-white/80 dark:bg-slate-900/80 flex items-center justify-center z-10">
+                                            <Loader2 className="w-8 h-8 animate-spin text-red-500" />
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="p-3">
+                                    <p className="text-sm font-medium text-gray-900 dark:text-white truncate" title={doc.name}>
+                                        {getDisplayName(doc.name)}
+                                    </p>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 flex justify-between items-center mt-1">
+                                        <span>{formatDate(doc.date)}</span>
+                                        {isUrl && <ExternalLink className="w-3 h-3 text-slate-300" />}
+                                    </p>
+                                </div>
+                                
+                                {/* Overlay Actions */}
+                                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                                    <a 
+                                        href={doc.data} 
+                                        download={doc.name}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="p-1.5 bg-white/90 dark:bg-slate-900/90 rounded-full text-blue-600 dark:text-blue-400 hover:text-blue-800 shadow-sm"
+                                        title="Descargar/Ver"
+                                    >
+                                        <Upload className="w-3 h-3 rotate-180" />
+                                    </a>
+                                    <button 
+                                        onClick={() => handleDelete(doc.id)}
+                                        disabled={isDeleting === doc.id}
+                                        className="p-1.5 bg-white/90 dark:bg-slate-900/90 rounded-full text-red-500 hover:text-red-700 shadow-sm disabled:opacity-50"
+                                        title="Eliminar"
+                                    >
+                                        <Trash2 className="w-3 h-3" />
+                                    </button>
+                                </div>
                             </div>
-                            <div className="p-3">
-                                <p className="text-sm font-medium text-gray-900 dark:text-white truncate" title={doc.name}>
-                                    {getDisplayName(doc.name)}
-                                </p>
-                                <p className="text-xs text-gray-500 dark:text-gray-400">{formatDate(doc.date)}</p>
-                            </div>
-                            
-                            {/* Overlay Actions */}
-                            <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
-                                <a 
-                                    href={doc.data} 
-                                    download={doc.name}
-                                    className="p-1.5 bg-white/90 dark:bg-slate-900/90 rounded-full text-blue-600 dark:text-blue-400 hover:text-blue-800 shadow-sm"
-                                    title="Descargar"
-                                >
-                                    <Upload className="w-3 h-3 rotate-180" />
-                                </a>
-                                <button 
-                                    onClick={() => handleDelete(doc.id)}
-                                    disabled={isDeleting === doc.id}
-                                    className="p-1.5 bg-white/90 dark:bg-slate-900/90 rounded-full text-red-500 hover:text-red-700 shadow-sm disabled:opacity-50"
-                                    title="Eliminar"
-                                >
-                                    <Trash2 className="w-3 h-3" />
-                                </button>
-                            </div>
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
             )}
         </div>
