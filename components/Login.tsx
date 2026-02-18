@@ -119,7 +119,7 @@ const Login: React.FC = () => {
           
           <div className="mt-8 text-center">
             <p className="text-xs text-slate-400 dark:text-slate-500">
-              Oniluz AI &copy; {new Date().getFullYear()} - Gestión Integral
+              Oniluz iA &copy; {new Date().getFullYear()} - Gestión Integral
             </p>
           </div>
         </div>

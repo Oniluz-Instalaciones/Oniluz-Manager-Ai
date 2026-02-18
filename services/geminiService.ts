@@ -39,7 +39,7 @@ class RequestQueue {
 
     public pause(ms: number) {
         const resumeTime = Date.now() + ms;
-        console.warn(`[Oniluz AI] 🛑 Cola pausada por ${Math.ceil(ms/1000)}s debido a límites de API.`);
+        console.warn(`[Oniluz iA] 🛑 Cola pausada por ${Math.ceil(ms/1000)}s debido a límites de API.`);
         // Solo extendemos la pausa si el nuevo tiempo es mayor al actual
         if (resumeTime > this.pausedUntil) {
             this.pausedUntil = resumeTime;
@@ -169,11 +169,11 @@ const robustGenerate = async <T>(
                 continue;
             }
 
-            console.warn(`[Oniluz AI] ⚠️ Cuota excedida en ${currentModel}.`);
+            console.warn(`[Oniluz iA] ⚠️ Cuota excedida en ${currentModel}.`);
 
             // 1. ESTRATEGIA FALLBACK: Cambiar de modelo si es posible
             if (allowFallback && currentModel === MODEL_PRIMARY) {
-                console.log(`[Oniluz AI] 🔄 Cambiando a modelo de respaldo: ${MODEL_FALLBACK}`);
+                console.log(`[Oniluz iA] 🔄 Cambiando a modelo de respaldo: ${MODEL_FALLBACK}`);
                 currentModel = MODEL_FALLBACK;
                 // Reiniciamos intentos para el nuevo modelo
                 attempt = 0; 
@@ -189,7 +189,7 @@ const robustGenerate = async <T>(
             if (match && match[1]) {
                 const seconds = parseFloat(match[1]);
                 waitMs = Math.ceil(seconds * 1000) + 1500; // Buffer de 1.5s
-                console.log(`[Oniluz AI] ⏳ Google solicita espera de: ${seconds}s`);
+                console.log(`[Oniluz iA] ⏳ Google solicita espera de: ${seconds}s`);
             }
 
             // Si la espera es muy larga (> 10s), pausamos toda la cola para no quemar intentos

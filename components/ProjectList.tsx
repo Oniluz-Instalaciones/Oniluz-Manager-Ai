@@ -241,7 +241,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
                       <path d="M12 22H12.01" stroke="currentColor" strokeWidth="3" strokeLinecap="round"/>
                   </svg>
               </div>
-              Oniluz AI
+              Oniluz iA
             </h1>
             <p className="text-slate-500 dark:text-slate-400 mt-2 text-lg font-medium">Gestión integral de obras</p>
           </div>
