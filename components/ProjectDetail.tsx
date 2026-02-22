@@ -416,12 +416,20 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
     </div>
   );
 
+  const handleBackNavigation = () => {
+    if (activeTab !== 'overview') {
+      setActiveTab('overview');
+    } else {
+      onBack();
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-100 dark:bg-slate-900 flex flex-col font-sans transition-colors duration-300">
       {/* Header */}
       <div className="bg-white dark:bg-slate-800 shadow-sm px-8 py-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-100 dark:border-slate-700 transition-colors">
         <div className="flex items-center w-full sm:w-auto">
-          <button onClick={onBack} className="mr-6 p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 transition-colors">
+          <button onClick={handleBackNavigation} className="mr-6 p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 transition-colors">
             <ArrowLeft className="w-6 h-6" />
           </button>
           <div className="flex-1">

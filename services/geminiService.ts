@@ -6,12 +6,11 @@ const apiKey = process.env.API_KEY || 'AIzaSyAPt-4D6bA9qLK-BrijbJBcmnBU1ojXOA8';
 const genAI = new GoogleGenAI({ apiKey });
 
 // --- ESTRATEGIA DE MODELOS (ROBUSTEZ) ---
-// CAMBIO IMPORTANTE: Volvemos a la arquitectura estable.
-// Primary: 2.5 Flash (Equilibrado y estable en producción).
-// Fallback: 2.0 Flash Lite (Extremadamente rápido y con cuotas muy generosas).
-// Abandonamos el 3.0 Preview para producción por sus bloqueos de cuota (429).
-const MODEL_PRIMARY = 'gemini-2.5-flash';
-const MODEL_FALLBACK = 'gemini-2.0-flash-lite-preview-02-05'; 
+// CAMBIO IMPORTANTE: Arquitectura actualizada a Gemini 3.
+// Primary: 3.0 Flash Preview (Mayor inteligencia y velocidad).
+// Fallback: Flash Lite Latest (Respaldo robusto y económico).
+const MODEL_PRIMARY = 'gemini-3-flash-preview';
+const MODEL_FALLBACK = 'gemini-flash-lite-latest'; 
 
 // --- SISTEMA DE CACHÉ ---
 const responseCache = new Map<string, { timestamp: number, data: any }>();
