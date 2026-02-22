@@ -329,6 +329,7 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
                   <th className="text-right py-3 text-xs font-bold text-slate-400 uppercase tracking-wider w-16">Cant.</th>
                   <th className="text-right py-3 text-xs font-bold text-slate-400 uppercase tracking-wider w-24">Precio</th>
                   <th className="text-right py-3 text-xs font-bold text-slate-400 uppercase tracking-wider w-20">IVA %</th>
+                  <th className="text-right py-3 text-xs font-bold text-slate-400 uppercase tracking-wider w-24">IVA (€)</th>
                   <th className="text-right py-3 text-xs font-bold text-slate-400 uppercase tracking-wider w-24">Total</th>
                   <th className="w-10"></th>
                 </tr>
@@ -379,6 +380,9 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
                             <option value="10">10%</option>
                             <option value="21">21%</option>
                         </select>
+                    </td>
+                    <td className="py-3 text-right text-sm text-slate-600">
+                        {((item.amount * (item.taxRate ?? 21)) / 100).toLocaleString('es-ES', { minimumFractionDigits: 2 })}€
                     </td>
                     <td className="py-3 text-right text-sm font-bold text-slate-800">
                       {item.amount.toLocaleString('es-ES', { minimumFractionDigits: 2 })}€
