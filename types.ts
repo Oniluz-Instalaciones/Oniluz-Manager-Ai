@@ -106,20 +106,26 @@ export interface ProjectDocument {
 
 export interface InvoiceItem {
   id: string;
-  concept: string;
+  description: string;
   quantity: number;
-  price: number;
+  unitPrice: number;
   amount: number;
 }
 
-export interface InvoiceData {
-  invoiceNumber: string;
+export interface Invoice {
+  id: string;
+  projectId: string;
+  number: string;
   date: string;
+  dueDate?: string;
   clientName: string;
-  clientNif: string;
-  clientAddress: string;
+  clientAddress?: string;
+  clientNif?: string;
   items: InvoiceItem[];
-  notes: string;
+  subtotal: number;
+  taxRate: number; // e.g., 21
+  taxAmount: number;
+  total: number;
   status: 'Draft' | 'Sent' | 'Paid';
 }
 
@@ -128,7 +134,6 @@ export interface Project {
   type: ProjectType;
   pvData?: PvData;
   elevatorData?: ElevatorData;
-  invoiceData?: InvoiceData; // New field for Invoicing
   name: string;
   client: string;
   clientPhone?: string; // Nuevo campo
@@ -144,5 +149,6 @@ export interface Project {
   materials: Material[];
   incidents: Incident[];
   budgets?: Budget[];
+  invoices?: Invoice[];
   documents: ProjectDocument[];
 }

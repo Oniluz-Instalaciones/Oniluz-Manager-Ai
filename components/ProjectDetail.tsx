@@ -3,12 +3,13 @@ import { Project, Transaction, Material, Incident, ProjectStatus, Priority, Pric
 import { 
   ArrowLeft, Plus, Trash2, AlertTriangle, CheckCircle, 
   TrendingUp, TrendingDown, Package, FileText, Settings, BrainCircuit, X, Receipt, Paperclip, ChevronDown, Building2, Calendar, RotateCcw, Edit3,
-  Hammer, Coffee, User, Wallet, BarChart3, Save, Loader2, Fuel, Car, HelpCircle, Phone, Mail, Sun as SunIcon, Zap, MapPin, Ruler
+  Hammer, Coffee, User, Wallet, BarChart3, Save, Loader2, Fuel, Car, HelpCircle, Phone, Mail, Sun as SunIcon, Zap, MapPin, Ruler, FileCheck
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { analyzeProjectStatus } from '../services/geminiService';
 import BudgetManager from './BudgetManager';
 import DocumentManager from './DocumentManager';
+import InvoiceManager from './InvoiceManager';
 import ScannerModal from './ScannerModal';
 import { supabase } from '../lib/supabase';
 
@@ -42,7 +43,7 @@ const HangGlider = ({ className }: { className?: string }) => (
 );
 
 const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate, onDelete, priceDatabase, currentUserName }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'financials' | 'stock' | 'incidents' | 'budgets' | 'documents' | 'technical_docs' | 'settings'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'financials' | 'stock' | 'incidents' | 'budgets' | 'invoices' | 'documents' | 'technical_docs' | 'settings'>('overview');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isSaving, setIsSaving] = useState(false); // Global saving state for manual actions
@@ -395,6 +396,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
         { id: 'overview', label: 'Resumen', icon: FileText },
         { id: 'financials', label: 'Finanzas', icon: TrendingUp },
         { id: 'budgets', label: 'Presupuestos', icon: Receipt },
+        { id: 'invoices', label: 'Facturación', icon: FileCheck },
         { id: 'documents', label: 'Archivos', icon: Paperclip }, // General files
         { id: 'technical_docs', label: 'Documentos Técnicos', icon: Ruler }, // Technical files
         { id: 'stock', label: 'Stock Material', icon: Package },
@@ -807,6 +809,11 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
         {/* BUDGETS TAB */}
         {activeTab === 'budgets' && (
            <BudgetManager project={project} onUpdate={updateProjectWithHistory} priceDatabase={priceDatabase} />
+        )}
+
+        {/* INVOICES TAB */}
+        {activeTab === 'invoices' && (
+            <InvoiceManager project={project} onUpdate={updateProjectWithHistory} />
         )}
 
         {/* DOCUMENTS TAB (RENAMED TO ARCHIVOS) */}
