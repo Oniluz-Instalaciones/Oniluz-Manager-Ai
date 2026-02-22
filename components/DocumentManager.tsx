@@ -85,17 +85,18 @@ const DocumentManager: React.FC<DocumentManagerProps> = ({ project, onUpdate, on
             try {
                 for (const file of files) {
                     try {
-                        const fileUrl = await uploadFileToStorage(file, project.id);
+                        const fileObj = file as File;
+                        const fileUrl = await uploadFileToStorage(fileObj, project.id);
                         
-                        const type = file.type.startsWith('image/') ? 'image' : file.type === 'application/pdf' ? 'pdf' : 'other';
+                        const type = fileObj.type.startsWith('image/') ? 'image' : fileObj.type === 'application/pdf' ? 'pdf' : 'other';
                         const newId = crypto.randomUUID();
                         const dateStr = new Date().toISOString().split('T')[0];
                         
                         // Objeto listo para DB
-                        const docPayload = {
+                        const docPayload: any = {
                             id: newId,
                             project_id: project.id,
-                            name: file.name,
+                            name: fileObj.name,
                             type: type,
                             date: dateStr,
                             data: fileUrl,
@@ -108,12 +109,21 @@ const DocumentManager: React.FC<DocumentManagerProps> = ({ project, onUpdate, on
                         if (error) throw error;
                         
                         // Añadir a estado local solo si la DB respondió OK
-                        // @ts-ignore
-                        newDocuments.push(docPayload);
+                        const newDoc: ProjectDocument = {
+                            id: newId,
+                            projectId: project.id,
+                            name: fileObj.name,
+                            type: type as 'pdf' | 'image' | 'other',
+                            date: dateStr,
+                            data: fileUrl,
+                            category: category as 'general' | 'technical' | 'financial'
+                        };
+                        newDocuments.push(newDoc);
 
                     } catch (fileErr: any) {
-                        console.error(`Error procesando ${file.name}:`, fileErr);
-                        errorMessages.push(`${file.name}: ${fileErr.message}`);
+                        const f = file as File;
+                        console.error(`Error procesando ${f.name}:`, fileErr);
+                        errorMessages.push(`${f.name}: ${fileErr.message}`);
                     }
                 }
 

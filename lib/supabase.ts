@@ -17,7 +17,9 @@ const getEnv = (key: string): string => {
 const supabaseUrl = getEnv('VITE_SUPABASE_URL');
 const supabaseAnonKey = getEnv('VITE_SUPABASE_ANON_KEY');
 
-if (!supabaseUrl || !supabaseAnonKey) {
+export const isSupabaseConfigured = !!supabaseUrl && !!supabaseAnonKey && !supabaseUrl.includes('placeholder');
+
+if (!isSupabaseConfigured) {
   console.warn("ADVERTENCIA: Faltan credenciales de Supabase. La base de datos no conectará.");
 }
 

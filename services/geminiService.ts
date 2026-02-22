@@ -225,6 +225,7 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
         CRITERIOS 'isStockable': TRUE para materiales físicos (cables, mecanismos). FALSE para servicios, comida, gasolina, herramientas.
         IMPORTANTE: Si es una FACTURA RECTIFICATIVA, ABONO o DEVOLUCIÓN, el 'total' debe ser NEGATIVO.
         CATEGORIAS: Material, Dietas, Transporte, Combustible, Herramienta, Varios, Devolución.
+        PAGINACIÓN: Detecta si el documento indica que hay más páginas (ej: "Página 1 de 3", "1/2").
         Extrae items línea por línea.`;
         
         const documentSchema = {
@@ -236,6 +237,15 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
                 iva: { type: Type.NUMBER },
                 categoria: { type: Type.STRING, enum: ['Material', 'Dietas', 'Transporte', 'Combustible', 'Herramienta', 'Varios', 'Devolución'] },
                 isStockable: { type: Type.BOOLEAN },
+                pagination: { 
+                    type: Type.OBJECT,
+                    properties: {
+                        current: { type: Type.NUMBER },
+                        total: { type: Type.NUMBER },
+                        hasMore: { type: Type.BOOLEAN }
+                    },
+                    description: "Información de paginación si existe (ej: Pag 1/3)"
+                },
                 items: {
                     type: Type.ARRAY,
                     items: {

@@ -52,6 +52,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
   const [step, setStep] = useState<'capture' | 'review' | 'form'>('capture');
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [scanErrorType, setScanErrorType] = useState<string | null>(null);
+  const [paginationWarning, setPaginationWarning] = useState<string | null>(null);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -163,6 +164,18 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
       
       if (data.errorType) setScanErrorType(data.errorType);
       else if (data.description && data.description.includes("Error")) setScanErrorType('GENERIC');
+
+      // Check for pagination
+      if (data.pagination && data.pagination.hasMore) {
+          const { current, total } = data.pagination;
+          if (total && current < total) {
+              setPaginationWarning(`Atención: Detectada página ${current} de ${total}. Asegúrate de escanear todas las páginas.`);
+          } else if (data.pagination.hasMore) {
+              setPaginationWarning("Atención: El documento parece tener más páginas.");
+          }
+      } else {
+          setPaginationWarning(null);
+      }
 
       const isRefund = data.total < 0;
       const absoluteAmount = Math.abs(data.total || 0);
@@ -333,7 +346,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
                 projectId: formData.projectId,
                 name: `${formData.docType === 'DELIVERY_NOTE' ? 'Albarán' : 'Factura'} ${formatDate(formData.date)}`,
                 type: mimeType.includes('pdf') ? 'pdf' : 'image',
-                category: finalCategory, 
+                category: finalCategory as 'general' | 'technical' | 'financial', 
                 date: formData.date || new Date().toISOString().split('T')[0],
                 data: fileUrl
             };
@@ -343,7 +356,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
                 project_id: newDocument.projectId,
                 name: newDocument.name,
                 type: newDocument.type,
-                category: newDocument.category,
+                category: newDocument.category as "general" | "technical" | "financial",
                 date: newDocument.date,
                 data: newDocument.data 
             });
@@ -426,6 +439,16 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
             <div className="p-6 space-y-6">
                 {scanErrorType && <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-100 dark:border-orange-800 p-4 rounded-xl flex items-start gap-3"><AlertTriangle className="w-5 h-5 text-orange-500 shrink-0 mt-0.5" /><div><h4 className="font-bold text-orange-700 dark:text-orange-400 text-sm">Revisar Datos</h4><p className="text-xs text-orange-600 dark:text-orange-300 mt-1">Verifica los campos detectados manualmente.</p></div></div>}
                 
+                {paginationWarning && (
+                    <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-100 dark:border-yellow-800 p-4 rounded-xl flex items-start gap-3 animate-pulse">
+                        <FileText className="w-5 h-5 text-yellow-600 dark:text-yellow-400 shrink-0 mt-0.5" />
+                        <div>
+                            <h4 className="font-bold text-yellow-800 dark:text-yellow-300 text-sm">Documento Incompleto</h4>
+                            <p className="text-xs text-yellow-700 dark:text-yellow-200 mt-1">{paginationWarning}</p>
+                        </div>
+                    </div>
+                )}
+
                 <div className="space-y-4">
                     <div>
                         <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">Proyecto</label>

@@ -1,4 +1,4 @@
-import { supabase } from '../lib/supabase';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { Session } from '@supabase/supabase-js';
 
 /**
@@ -6,6 +6,10 @@ import { Session } from '@supabase/supabase-js';
  * Útil para el chequeo inicial al cargar la app.
  */
 export const getCurrentSession = async () => {
+  if (!isSupabaseConfigured) {
+    console.warn("Supabase no configurado, omitiendo verificación de sesión.");
+    return null;
+  }
   try {
     const { data, error } = await supabase.auth.getSession();
     if (error) {
@@ -23,6 +27,9 @@ export const getCurrentSession = async () => {
  * Inicia sesión con email y contraseña.
  */
 export const signInWithEmail = async (email: string, password: string) => {
+  if (!isSupabaseConfigured) {
+    return { data: { user: null, session: null }, error: { message: "Supabase no configurado. Revisa .env" } };
+  }
   // Supabase v2 usa signInWithPassword
   const { data, error } = await supabase.auth.signInWithPassword({
     email,
@@ -44,6 +51,11 @@ export const signOut = async () => {
  * Retorna la suscripción para poder desuscribirse al desmontar componentes.
  */
 export const onAuthStateChange = (callback: (session: Session | null) => void) => {
+  if (!isSupabaseConfigured) {
+    // Simulate initial auth state check completion (no session)
+    setTimeout(() => callback(null), 0);
+    return { unsubscribe: () => {} };
+  }
   const { data } = supabase.auth.onAuthStateChange((_event, session) => {
     callback(session);
   });
