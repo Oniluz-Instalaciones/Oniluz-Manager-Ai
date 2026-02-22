@@ -131,6 +131,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
   const totalOther = otherExpenses.reduce((sum, t) => sum + t.amount, 0);
 
   const financialData = [
+    { name: 'Ingresos', value: totalIncome, color: '#10b981' }, // Green
     { name: 'Material', value: totalMaterial, color: '#3b82f6' }, // Blue
     { name: 'Personal', value: totalPersonal, color: '#ef4444' }, // Red
     { name: 'Otros', value: totalOther, color: '#94a3b8' }, // Slate
@@ -589,7 +590,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
              {/* Charts Row */}
              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 flex flex-col items-center">
-                    <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-2 w-full text-left uppercase tracking-wider">Desglose de Gastos</h3>
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-2 w-full text-left uppercase tracking-wider">Desglose Financiero</h3>
                     {financialData.length > 0 ? (
                         <div className="h-[200px] w-full min-h-[200px] min-w-0">
                           <ResponsiveContainer width="100%" height="100%">
