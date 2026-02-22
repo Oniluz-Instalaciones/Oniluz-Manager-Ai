@@ -28,36 +28,47 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
   };
 
   const handleCreateInvoice = () => {
-    // Calculate default values
-    const activeBudgetsTotal = project.budgets?.filter(b => b.status === 'Accepted').reduce((sum, b) => sum + b.total, 0) || 0;
-    const budgetAmount = project.budget > 0 ? project.budget : activeBudgetsTotal;
-    
-    // Calculate diets (without VAT - assuming transaction amount is gross, but user said "sin el iva". 
-    // Usually expenses are stored as total. If we assume they are gross, we might need to strip VAT.
-    // However, for simplicity and lack of data, we'll assume the stored amount is the base or just use it as is.
-    // The user said "gastos de dietas sin el iva". If the stored expense is 121 (incl 21% VAT), base is 100.
-    // I'll assume stored expenses are final amounts paid. I'll just use the sum for now, or maybe add a note.
-    // Let's just sum the 'Dietas' category.
-    const dietExpenses = project.transactions
-      .filter(t => t.type === 'expense' && (t.category === 'Dietas' || t.category === 'Personal'))
-      .reduce((sum, t) => sum + t.amount, 0);
+    // 1. Get Budget Items (Detailed)
+    const acceptedBudgets = project.budgets?.filter(b => b.status === 'Accepted') || [];
+    let budgetItems: InvoiceItem[] = [];
 
-    const newItems: InvoiceItem[] = [
-      {
+    if (acceptedBudgets.length > 0) {
+        // If there are accepted budgets, use their items
+        acceptedBudgets.forEach(budget => {
+            const items = budget.items.map(item => ({
+                id: crypto.randomUUID(),
+                description: item.name, // Use item name directly
+                quantity: item.quantity,
+                unitPrice: item.pricePerUnit,
+                amount: item.quantity * item.pricePerUnit
+            }));
+            budgetItems = [...budgetItems, ...items];
+        });
+    } else if (project.budget > 0) {
+        // Fallback to global budget if no detailed budget exists
+        budgetItems.push({
+            id: crypto.randomUUID(),
+            description: `Presupuesto Proyecto: ${project.name}`,
+            quantity: 1,
+            unitPrice: project.budget,
+            amount: project.budget
+        });
+    }
+
+    // 2. Get Diet Expenses (Detailed)
+    // Filter ONLY 'Dietas'. Exclude 'Personal' (unless it was strictly diets, but user said "solo gastos de comida o dietas")
+    // In ProjectDetail, 'Personal' and 'Dietas' were grouped. Here we split.
+    const dietTransactions = project.transactions.filter(t => t.type === 'expense' && t.category === 'Dietas');
+    
+    const expenseItems: InvoiceItem[] = dietTransactions.map(t => ({
         id: crypto.randomUUID(),
-        description: `Presupuesto Proyecto: ${project.name}`,
+        description: `Dieta: ${t.description} (${t.date})`,
         quantity: 1,
-        unitPrice: budgetAmount,
-        amount: budgetAmount
-      },
-      {
-        id: crypto.randomUUID(),
-        description: 'Gastos de Dietas y Desplazamientos',
-        quantity: 1,
-        unitPrice: dietExpenses,
-        amount: dietExpenses
-      }
-    ];
+        unitPrice: t.amount,
+        amount: t.amount
+    }));
+
+    const newItems: InvoiceItem[] = [...budgetItems, ...expenseItems];
 
     const { subtotal, taxAmount, total } = calculateTotals(newItems, 21);
 
@@ -67,8 +78,8 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
       number: `INV-${new Date().getFullYear()}-${(invoices.length + 1).toString().padStart(3, '0')}`,
       date: new Date().toISOString().split('T')[0],
       clientName: project.client,
-      clientAddress: '', // User can fill this
-      clientNif: '',     // User can fill this
+      clientAddress: '', 
+      clientNif: '',     
       items: newItems,
       subtotal,
       taxRate: 21,
