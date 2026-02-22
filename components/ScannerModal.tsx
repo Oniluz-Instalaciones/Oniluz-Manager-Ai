@@ -4,6 +4,7 @@ import { Project, Transaction, Material, ProjectDocument } from '../types';
 import { Camera, X, Loader2, Save, Image as ImageIcon, Package, Trash2, Plus, RefreshCw, Upload, FileText, AlertTriangle, CreditCard, ExternalLink, ArchiveRestore, Ban, Tag, RotateCcw, TrendingUp, TrendingDown } from 'lucide-react';
 import { analyzeDocument } from '../services/geminiService';
 import { supabase } from '../lib/supabase';
+import { jsPDF } from "jspdf";
 
 interface ScannerModalProps {
   projects: Project[];
@@ -295,28 +296,59 @@ const formatDate = (dateStr: string) => {
       }]);
   };
 
-  const uploadFileToSupabase = async (projectId: string): Promise<string | null> => {
+  const uploadFileToSupabase = async (projectId: string): Promise<{ url: string, type: 'image' | 'pdf' } | null> => {
       if (pages.length === 0) return null;
       try {
-          // Use the first page as the main document
-          const mainPage = pages[0];
-          const ext = mainPage.mimeType.includes('pdf') ? 'pdf' : 'jpg';
+          let fileBlob: Blob;
+          let mimeType: string;
+          let ext: string;
+
+          // Check if we have multiple pages (images) to merge
+          const allImages = pages.every(p => p.mimeType.startsWith('image/'));
+          
+          if (pages.length > 1 && allImages) {
+              // Generate PDF from images
+              const doc = new jsPDF();
+              for (let i = 0; i < pages.length; i++) {
+                  const page = pages[i];
+                  if (i > 0) doc.addPage();
+                  
+                  const imgProps = doc.getImageProperties(page.base64);
+                  const pdfWidth = doc.internal.pageSize.getWidth();
+                  const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+                  
+                  const format = page.mimeType.includes('png') ? 'PNG' : 'JPEG';
+                  doc.addImage(page.base64, format, 0, 0, pdfWidth, pdfHeight);
+              }
+              fileBlob = doc.output('blob');
+              mimeType = 'application/pdf';
+              ext = 'pdf';
+          } else {
+              // Single file or mixed content (fallback to first file if mixed, though mixed shouldn't happen often)
+              // If mixed PDF + Images, we just take the first one for now or the PDF if it's the main one.
+              // Ideally we should warn, but for this feature request (multi-page scan), it's usually images.
+              const page = pages[0];
+              fileBlob = page.blob;
+              mimeType = page.mimeType;
+              ext = mimeType.includes('pdf') ? 'pdf' : 'jpg';
+          }
+
           const timestamp = Date.now();
           const randomString = Math.random().toString(36).substring(7);
           const fileName = `${projectId}/${timestamp}_${randomString}.${ext}`;
           
-          const { error } = await supabase.storage.from('photos').upload(fileName, mainPage.blob, { 
-              contentType: mainPage.mimeType, 
+          const { error } = await supabase.storage.from('photos').upload(fileName, fileBlob, { 
+              contentType: mimeType, 
               upsert: false 
           });
           
           if (error) throw error;
           
           const { data } = supabase.storage.from('photos').getPublicUrl(fileName);
-          return data.publicUrl;
+          return { url: data.publicUrl, type: ext === 'pdf' ? 'pdf' : 'image' };
       } catch (e: any) {
           console.error("Upload error:", e);
-          alert(`Error subiendo imagen: ${e.message}`);
+          alert(`Error subiendo archivo: ${e.message}`);
           return null; 
       }
   };
@@ -331,7 +363,9 @@ const formatDate = (dateStr: string) => {
     setIsUploading(true);
 
     try {
-        const fileUrl = await uploadFileToSupabase(formData.projectId);
+        const uploadResult = await uploadFileToSupabase(formData.projectId);
+        const fileUrl = uploadResult?.url;
+        const fileType = uploadResult?.type || 'image';
 
         const newTransaction: Transaction = {
           id: crypto.randomUUID(),
@@ -385,7 +419,7 @@ const formatDate = (dateStr: string) => {
                 id: crypto.randomUUID(),
                 projectId: formData.projectId,
                 name: `${formData.docType === 'DELIVERY_NOTE' ? 'Albarán' : 'Factura'} ${formatDate(formData.date)}`,
-                type: pages[0]?.mimeType.includes('pdf') ? 'pdf' : 'image',
+                type: fileType,
                 category: finalCategory as 'general' | 'technical' | 'financial', 
                 date: formData.date || new Date().toISOString().split('T')[0],
                 data: fileUrl
