@@ -18,6 +18,8 @@ const ELEVATOR_TAG_OPEN = '[ELEVATOR_JSON]';
 const ELEVATOR_TAG_CLOSE = '[/ELEVATOR_JSON]';
 const PV_TAG_OPEN = '[PV_JSON]';
 const PV_TAG_CLOSE = '[/PV_JSON]';
+const INVOICE_TAG_OPEN = '[INVOICE_JSON]';
+const INVOICE_TAG_CLOSE = '[/INVOICE_JSON]';
 
 // Embed contact info legacy helper
 const embedContactInfo = (desc: string, phone?: string, email?: string) => {
@@ -33,6 +35,7 @@ const extractProjectData = (rawDesc: string, rawPhone: string, rawEmail: string,
     let email = rawEmail;
     let elevatorData = rawElevator;
     let pvData = rawPv;
+    let invoiceData = null;
 
     // 1. Extract Contact Info (if column was empty)
     if (!phone && !email && description.includes(EMBED_TAG)) {
@@ -74,12 +77,27 @@ const extractProjectData = (rawDesc: string, rawPhone: string, rawEmail: string,
         } catch (e) { console.error("Error parsing embedded pv data", e); }
     }
 
+    // 4. Extract Invoice Data (Always embedded as we don't have a column)
+    if (description.includes(INVOICE_TAG_OPEN)) {
+        try {
+            const startIndex = description.indexOf(INVOICE_TAG_OPEN);
+            const endIndex = description.indexOf(INVOICE_TAG_CLOSE);
+            if (startIndex !== -1 && endIndex !== -1) {
+                const jsonStr = description.substring(startIndex + INVOICE_TAG_OPEN.length, endIndex);
+                invoiceData = JSON.parse(jsonStr);
+                // Remove from description
+                description = description.substring(0, startIndex) + description.substring(endIndex + INVOICE_TAG_CLOSE.length);
+            }
+        } catch (e) { console.error("Error parsing embedded invoice data", e); }
+    }
+
     return {
         description: description.trim(),
         phone,
         email,
         elevatorData,
-        pvData
+        pvData,
+        invoiceData
     };
 };
 
@@ -173,7 +191,7 @@ const App: React.FC = () => {
       if (data) {
         const formattedProjects: Project[] = data.map((p: any) => {
           // Robust extraction: Checks DB columns first, falls back to description embedding
-          const { description, phone, email, elevatorData, pvData } = extractProjectData(
+          const { description, phone, email, elevatorData, pvData, invoiceData } = extractProjectData(
               p.description, 
               p.client_phone, 
               p.client_email, 
@@ -197,6 +215,7 @@ const App: React.FC = () => {
             description: description, // Clean description without JSON blobs
             pvData: pvData, 
             elevatorData: elevatorData, 
+            invoiceData: invoiceData, 
             transactions: p.transactions?.map((t: any) => ({
                 ...t,
                 userName: t.user_name // Map database snake_case to app camelCase
@@ -262,11 +281,15 @@ const App: React.FC = () => {
   const handleAddProject = async (newProject: Project) => {
     try {
       // 1. Prepare Base Payload (Standard Attempt)
-      const baseDescription = embedContactInfo(
+      let baseDescription = embedContactInfo(
           newProject.description || '', 
           newProject.clientPhone, 
           newProject.clientEmail
       );
+
+      if (newProject.invoiceData) {
+          baseDescription += `\n\n${INVOICE_TAG_OPEN}${JSON.stringify(newProject.invoiceData)}${INVOICE_TAG_CLOSE}`;
+      }
 
       const payload = {
            type: newProject.type,
@@ -368,11 +391,15 @@ const App: React.FC = () => {
      // Optimistic UI update
      setProjects(projects.map(p => p.id === updatedProject.id ? updatedProject : p));
 
-     const baseDesc = embedContactInfo(
+     let baseDesc = embedContactInfo(
         updatedProject.description || '', 
         updatedProject.clientPhone, 
         updatedProject.clientEmail
      );
+
+     if (updatedProject.invoiceData) {
+         baseDesc += `\n\n${INVOICE_TAG_OPEN}${JSON.stringify(updatedProject.invoiceData)}${INVOICE_TAG_CLOSE}`;
+     }
 
      const updatePayload = {
          name: updatedProject.name,

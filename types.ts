@@ -104,11 +104,31 @@ export interface ProjectDocument {
   data: string; // Base64 string
 }
 
+export interface InvoiceItem {
+  id: string;
+  concept: string;
+  quantity: number;
+  price: number;
+  amount: number;
+}
+
+export interface InvoiceData {
+  invoiceNumber: string;
+  date: string;
+  clientName: string;
+  clientNif: string;
+  clientAddress: string;
+  items: InvoiceItem[];
+  notes: string;
+  status: 'Draft' | 'Sent' | 'Paid';
+}
+
 export interface Project {
   id: string;
   type: ProjectType;
   pvData?: PvData;
   elevatorData?: ElevatorData;
+  invoiceData?: InvoiceData; // New field for Invoicing
   name: string;
   client: string;
   clientPhone?: string; // Nuevo campo
