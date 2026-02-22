@@ -1,7 +1,7 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import { PriceItem } from '../types';
-import { ArrowLeft, Search, Plus, Trash2, Wand2, Loader2, Database, X, ImageIcon, AlertCircle, ArrowRight, CheckCircle, Percent, RefreshCw, Download, Tag, Edit3 } from 'lucide-react';
-import { parseMaterialsFromInput, parseMaterialsFromImage } from '../services/geminiService';
+import { ArrowLeft, Search, Plus, Trash2, Wand2, Loader2, Database, AlertCircle, ArrowRight, CheckCircle, Percent, Edit3, Tag } from 'lucide-react';
+import PriceScannerModal from './PriceScannerModal';
 
 interface PriceDatabaseProps {
   items: PriceItem[];
@@ -20,9 +20,6 @@ interface ConflictItem {
 
 const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onAdd, onEdit, onDelete, onBulkAdd, onBack }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [aiInput, setAiInput] = useState('');
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const [isProcessingAI, setIsProcessingAI] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [showAiModal, setShowAiModal] = useState(false);
   const [editingItem, setEditingItem] = useState<PriceItem | null>(null);
@@ -31,8 +28,6 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onAdd, onEdit, onD
   const [conflictItems, setConflictItems] = useState<ConflictItem[]>([]);
   const [cleanItems, setCleanItems] = useState<PriceItem[]>([]);
   const [showConflictModal, setShowConflictModal] = useState(false);
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Helper for fuzzy-ish matching
   const normalizeString = (str: string) => {
@@ -88,36 +83,9 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onAdd, onEdit, onD
     }
   };
 
-  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (e.target.files && e.target.files[0]) {
-          const file = e.target.files[0];
-          const reader = new FileReader();
-          reader.onloadend = () => {
-              setSelectedImage(reader.result as string);
-          };
-          reader.readAsDataURL(file);
-      }
-  };
-
-  const handleAiImport = async () => {
-    if (!aiInput.trim() && !selectedImage) return;
-    setIsProcessingAI(true);
-    try {
-      let importedItems: PriceItem[] = [];
-      
-      if (selectedImage) {
-          const imageItems = await parseMaterialsFromImage(selectedImage);
-          importedItems = [...importedItems, ...imageItems];
-      }
-      
-      if (aiInput.trim()) {
-          const textItems = await parseMaterialsFromInput(aiInput);
-          importedItems = [...importedItems, ...textItems];
-      }
-
+  const handleScannerSave = async (importedItems: PriceItem[]) => {
       if (importedItems.length === 0) {
           alert("No se encontraron artículos válidos.");
-          setIsProcessingAI(false);
           return;
       }
 
@@ -152,25 +120,17 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onAdd, onEdit, onD
       setCleanItems(safeItems);
       setConflictItems(conflicts);
 
+      // Close the scanner modal immediately after processing
+      setShowAiModal(false);
+
       if (conflicts.length > 0) {
           setShowConflictModal(true);
-          setShowAiModal(false); 
       } else {
           if (safeItems.length > 0) {
               await onBulkAdd(safeItems);
               alert(`Se han importado ${safeItems.length} artículos correctamente.`);
           }
-          setAiInput('');
-          setSelectedImage(null);
-          setShowAiModal(false);
       }
-
-    } catch (error) {
-      alert("Error al procesar con IA. Verifica el formato o inténtalo de nuevo.");
-      console.error(error);
-    } finally {
-      setIsProcessingAI(false);
-    }
   };
 
   const resolveConflicts = async () => {
@@ -198,8 +158,6 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onAdd, onEdit, onD
         // Cleanup
         setConflictItems([]);
         setCleanItems([]);
-        setAiInput('');
-        setSelectedImage(null);
         setShowConflictModal(false);
         alert("Importación y actualizaciones completadas.");
 
@@ -411,82 +369,12 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onAdd, onEdit, onD
           </div>
       )}
 
-      {/* AI Import Modal */}
+      {/* AI Import Modal (New Scanner) */}
       {showAiModal && (
-          <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-50 backdrop-blur-md">
-              <div className="bg-white dark:bg-slate-800 rounded-3xl w-full max-w-lg p-8 shadow-2xl max-h-[90vh] overflow-y-auto border border-slate-100 dark:border-slate-700 transition-colors">
-                  <div className="flex items-center gap-3 mb-6 text-purple-700 dark:text-purple-400">
-                      <div className="p-3 bg-purple-50 dark:bg-purple-900/30 rounded-xl">
-                        <Wand2 className="w-6 h-6" />
-                      </div>
-                      <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Importar Precios con IA</h2>
-                  </div>
-                  <p className="text-sm text-slate-600 dark:text-slate-400 mb-6 font-medium leading-relaxed">
-                      Sube una foto de una tarifa o pega el texto directamente. La IA detectará los artículos, precios y descuentos automáticamente.
-                  </p>
-                  
-                  {/* Image Upload Area */}
-                  <div className="mb-6">
-                      {!selectedImage ? (
-                          <div 
-                              onClick={() => fileInputRef.current?.click()}
-                              className="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-2xl p-8 flex flex-col items-center justify-center cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors group"
-                          >
-                              <ImageIcon className="w-12 h-12 text-slate-300 dark:text-slate-500 mb-3 group-hover:text-slate-400 dark:group-hover:text-slate-400 transition-colors" />
-                              <p className="text-sm text-slate-500 dark:text-slate-400 font-bold">Haz click para subir una imagen (JPG/PNG)</p>
-                              <input 
-                                  type="file" 
-                                  ref={fileInputRef} 
-                                  onChange={handleImageSelect} 
-                                  accept="image/*" 
-                                  className="hidden" 
-                              />
-                          </div>
-                      ) : (
-                          <div className="relative rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-600 shadow-md">
-                              <img src={selectedImage} alt="Preview" className="w-full h-56 object-cover" />
-                              <button 
-                                  onClick={() => setSelectedImage(null)}
-                                  className="absolute top-3 right-3 bg-black/50 text-white p-2 rounded-full hover:bg-black/70 backdrop-blur-sm transition-colors"
-                              >
-                                  <X className="w-4 h-4" />
-                              </button>
-                              <div className="absolute bottom-3 left-3 bg-black/50 text-white px-3 py-1.5 rounded-full text-xs font-bold backdrop-blur-sm">
-                                  Imagen seleccionada
-                              </div>
-                          </div>
-                      )}
-                  </div>
-
-                  <div className="relative mb-6">
-                    <div className="absolute inset-0 flex items-center">
-                        <div className="w-full border-t border-slate-200 dark:border-slate-700"></div>
-                    </div>
-                    <div className="relative flex justify-center text-sm">
-                        <span className="px-3 bg-white dark:bg-slate-800 text-slate-400 font-medium">O pega el texto</span>
-                    </div>
-                  </div>
-
-                  <textarea 
-                    value={aiInput}
-                    onChange={(e) => setAiInput(e.target.value)}
-                    placeholder="Ejemplo: Cable RV-K 3x1.5mm a 0.85€/m -20%, Interruptor automático 16A 8.50€..."
-                    className="w-full h-32 p-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-purple-500 outline-none mb-6 resize-none transition-colors"
-                  ></textarea>
-                  
-                  <div className="flex gap-4">
-                      <button type="button" onClick={() => setShowAiModal(false)} className="flex-1 py-3.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-600 font-bold transition-colors">Cancelar</button>
-                      <button 
-                        onClick={handleAiImport}
-                        disabled={isProcessingAI || (!aiInput && !selectedImage)}
-                        className="flex-1 py-3.5 bg-purple-600 text-white rounded-xl hover:bg-purple-700 font-bold flex items-center justify-center gap-2 disabled:opacity-50 shadow-lg shadow-purple-200 dark:shadow-purple-900/30 transition-all"
-                      >
-                          {isProcessingAI ? <Loader2 className="w-5 h-5 animate-spin" /> : <Download className="w-5 h-5" />}
-                          {isProcessingAI ? 'Procesando...' : 'Procesar'}
-                      </button>
-                  </div>
-              </div>
-          </div>
+          <PriceScannerModal 
+            onClose={() => setShowAiModal(false)}
+            onSave={handleScannerSave}
+          />
       )}
 
       {/* Conflict Resolution Modal */}

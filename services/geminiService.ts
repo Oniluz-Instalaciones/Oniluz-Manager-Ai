@@ -398,7 +398,11 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
 export const parseMaterialsFromInput = async (textInput: string): Promise<PriceItem[]> => {
     return apiQueue.add(async () => {
         try {
-            const prompt = `Analiza texto tarifa: "${textInput}". Extrae JSON array. 'price' es PVP lista. 'discount' es % (numérico).`;
+            const prompt = `Analiza texto tarifa: "${textInput}". Extrae JSON array.
+            OBJETIVO: Detectar precios. Si hay PAQUETES (ej: Caja 100), extrae TAMBIÉN el precio unitario si es calculable.
+            FORMATO: { name, unit, price, category, discount }.
+            Si detectas paquete, genera 2 items: 1 por la caja, 1 por la unidad (calculado).`;
+            
             const materialsSchema = {
                 type: Type.ARRAY,
                 items: {
@@ -435,11 +439,21 @@ export const parseMaterialsFromInput = async (textInput: string): Promise<PriceI
     });
 };
 
-export const parseMaterialsFromImage = async (base64Image: string): Promise<PriceItem[]> => {
+export const parseMaterialsFromImage = async (input: string | string[]): Promise<PriceItem[]> => {
     return apiQueue.add(async () => {
         try {
-            const cleanData = await optimizeImage(base64Image);
-            const prompt = `Analiza imagen tarifa. Extrae JSON. price=PVP. discount=%.`;
+            const inputs = Array.isArray(input) ? input : [input];
+            const imageParts = await Promise.all(inputs.map(async (imgStr) => {
+                const cleanBase64 = await optimizeImage(imgStr);
+                return { inlineData: { mimeType: 'image/jpeg', data: cleanBase64 } };
+            }));
+
+            const prompt = `Analiza imágenes de TARIFA DE PRECIOS. Extrae JSON array.
+            OBJETIVO: Detectar precios. Si hay PAQUETES (ej: Caja 100, Pack 50), extrae TAMBIÉN el precio unitario si es calculable.
+            Ejemplo: "Caja 100 tornillos 10€" -> Genera item "Caja 100 tornillos" (10€/caja) Y "Tornillo suelto" (0.10€/ud).
+            FORMATO: { name, unit, price, category, discount }.
+            price=PVP. discount=%.`;
+            
             const materialsSchema = {
                 type: Type.ARRAY,
                 items: {
@@ -460,7 +474,7 @@ export const parseMaterialsFromImage = async (base64Image: string): Promise<Pric
                     model: model,
                     contents: {
                         parts: [
-                            { inlineData: { mimeType: 'image/jpeg', data: cleanData } },
+                            ...imageParts,
                             { text: prompt }
                         ]
                     },
