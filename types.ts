@@ -110,7 +110,6 @@ export interface InvoiceItem {
   quantity: number;
   unitPrice: number;
   amount: number;
-  taxRate: number; // VAT % for this item (e.g., 21, 10, 4, 0)
 }
 
 export interface Invoice {
@@ -124,7 +123,8 @@ export interface Invoice {
   clientNif?: string;
   items: InvoiceItem[];
   subtotal: number;
-  taxAmount: number; // Total Tax Amount
+  taxRate: number; // e.g., 21
+  taxAmount: number;
   total: number;
   status: 'Draft' | 'Sent' | 'Paid';
 }

@@ -20,9 +20,9 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
     }
   }, [project.invoices]);
 
-  const calculateTotals = (items: InvoiceItem[]) => {
+  const calculateTotals = (items: InvoiceItem[], taxRate: number) => {
     const subtotal = items.reduce((sum, item) => sum + item.amount, 0);
-    const taxAmount = items.reduce((sum, item) => sum + (item.amount * (item.taxRate ?? 21) / 100), 0);
+    const taxAmount = (subtotal * taxRate) / 100;
     const total = subtotal + taxAmount;
     return { subtotal, taxAmount, total };
   };
@@ -40,8 +40,7 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
                 description: item.name, // Use item name directly
                 quantity: item.quantity,
                 unitPrice: item.pricePerUnit,
-                amount: item.quantity * item.pricePerUnit,
-                taxRate: 21 // Default standard VAT
+                amount: item.quantity * item.pricePerUnit
             }));
             budgetItems = [...budgetItems, ...items];
         });
@@ -52,28 +51,34 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
             description: `Presupuesto Proyecto: ${project.name}`,
             quantity: 1,
             unitPrice: project.budget,
-            amount: project.budget,
-            taxRate: 21
+            amount: project.budget
         });
     }
 
     // 2. Get Diet Expenses (Detailed)
-    // Filter ONLY 'Dietas'. Exclude 'Personal' (unless it was strictly diets, but user said "solo gastos de comida o dietas")
-    // In ProjectDetail, 'Personal' and 'Dietas' were grouped. Here we split.
+    // Filter ONLY 'Dietas'. Exclude 'Personal'.
     const dietTransactions = project.transactions.filter(t => t.type === 'expense' && t.category === 'Dietas');
     
-    const expenseItems: InvoiceItem[] = dietTransactions.map(t => ({
-        id: crypto.randomUUID(),
-        description: `Dieta: ${t.description} (${t.date})`,
-        quantity: 1,
-        unitPrice: t.amount,
-        amount: t.amount,
-        taxRate: 10 // Reduced VAT for food/diets
-    }));
+    const expenseItems: InvoiceItem[] = dietTransactions.map(t => {
+        // Assume stored expense amount is GROSS (includes VAT).
+        // User said: "si el hotel cuesta 220 euros 200 de hotel y 20 de iva".
+        // This implies 10% VAT for Dietas/Hotel.
+        // We need to extract the BASE amount to invoice it, then apply 21% invoice VAT.
+        // Base = Amount / 1.10
+        const baseAmount = t.amount / 1.10;
+        
+        return {
+            id: crypto.randomUUID(),
+            description: `Dieta: ${t.description} (${t.date})`,
+            quantity: 1,
+            unitPrice: baseAmount,
+            amount: baseAmount
+        };
+    });
 
     const newItems: InvoiceItem[] = [...budgetItems, ...expenseItems];
 
-    const { subtotal, taxAmount, total } = calculateTotals(newItems);
+    const { subtotal, taxAmount, total } = calculateTotals(newItems, 21);
 
     const newInvoice: Invoice = {
       id: crypto.randomUUID(),
@@ -85,6 +90,7 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
       clientNif: '',     
       items: newItems,
       subtotal,
+      taxRate: 21,
       taxAmount,
       total,
       status: 'Draft'
@@ -165,7 +171,7 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
       newItems[index].amount = newItems[index].quantity * newItems[index].unitPrice;
     }
 
-    const { subtotal, taxAmount, total } = calculateTotals(newItems);
+    const { subtotal, taxAmount, total } = calculateTotals(newItems, editingInvoice.taxRate);
     
     setEditingInvoice({
       ...editingInvoice,
@@ -183,12 +189,11 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
       description: '',
       quantity: 1,
       unitPrice: 0,
-      amount: 0,
-      taxRate: 21 // Default VAT
+      amount: 0
     };
     
     const newItems = [...editingInvoice.items, newItem];
-    const { subtotal, taxAmount, total } = calculateTotals(newItems);
+    const { subtotal, taxAmount, total } = calculateTotals(newItems, editingInvoice.taxRate);
     
     setEditingInvoice({
       ...editingInvoice,
@@ -202,7 +207,7 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
   const removeInvoiceItem = (index: number) => {
     if (!editingInvoice) return;
     const newItems = editingInvoice.items.filter((_, i) => i !== index);
-    const { subtotal, taxAmount, total } = calculateTotals(newItems);
+    const { subtotal, taxAmount, total } = calculateTotals(newItems, editingInvoice.taxRate);
     
     setEditingInvoice({
       ...editingInvoice,
@@ -216,7 +221,13 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
   const updateInvoiceField = (field: keyof Invoice, value: any) => {
     if (!editingInvoice) return;
     
-    const updates: Partial<Invoice> = { [field]: value };
+    let updates: Partial<Invoice> = { [field]: value };
+    
+    if (field === 'taxRate') {
+      const { subtotal, taxAmount, total } = calculateTotals(editingInvoice.items, value);
+      updates = { ...updates, subtotal, taxAmount, total };
+    }
+
     setEditingInvoice({ ...editingInvoice, ...updates });
   };
 
@@ -325,12 +336,10 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
             <table className="w-full">
               <thead>
                 <tr className="border-b-2 border-slate-100">
-                  <th className="text-left py-3 text-xs font-bold text-slate-400 uppercase tracking-wider w-5/12">Descripción</th>
-                  <th className="text-right py-3 text-xs font-bold text-slate-400 uppercase tracking-wider w-16">Cant.</th>
-                  <th className="text-right py-3 text-xs font-bold text-slate-400 uppercase tracking-wider w-24">Precio</th>
-                  <th className="text-right py-3 text-xs font-bold text-slate-400 uppercase tracking-wider w-20">IVA %</th>
-                  <th className="text-right py-3 text-xs font-bold text-slate-400 uppercase tracking-wider w-24">IVA (€)</th>
-                  <th className="text-right py-3 text-xs font-bold text-slate-400 uppercase tracking-wider w-24">Total</th>
+                  <th className="text-left py-3 text-xs font-bold text-slate-400 uppercase tracking-wider w-1/2">Descripción</th>
+                  <th className="text-right py-3 text-xs font-bold text-slate-400 uppercase tracking-wider w-24">Cant.</th>
+                  <th className="text-right py-3 text-xs font-bold text-slate-400 uppercase tracking-wider w-32">Precio (Base)</th>
+                  <th className="text-right py-3 text-xs font-bold text-slate-400 uppercase tracking-wider w-32">Total (Base)</th>
                   <th className="w-10"></th>
                 </tr>
               </thead>
@@ -364,26 +373,6 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
                         className="w-full text-right text-sm text-slate-600 bg-transparent outline-none"
                       />
                     </td>
-                    <td className="py-3">
-                        <select
-                            value={item.taxRate ?? 21}
-                            onChange={(e) => {
-                                const newItems = [...editingInvoice.items];
-                                newItems[index] = { ...newItems[index], taxRate: Number(e.target.value) };
-                                const { subtotal, taxAmount, total } = calculateTotals(newItems);
-                                setEditingInvoice({ ...editingInvoice, items: newItems, subtotal, taxAmount, total });
-                            }}
-                            className="w-full text-right text-sm text-slate-600 bg-transparent outline-none cursor-pointer"
-                        >
-                            <option value="0">0%</option>
-                            <option value="4">4%</option>
-                            <option value="10">10%</option>
-                            <option value="21">21%</option>
-                        </select>
-                    </td>
-                    <td className="py-3 text-right text-sm text-slate-600">
-                        {((item.amount * (item.taxRate ?? 21)) / 100).toLocaleString('es-ES', { minimumFractionDigits: 2 })}€
-                    </td>
                     <td className="py-3 text-right text-sm font-bold text-slate-800">
                       {item.amount.toLocaleString('es-ES', { minimumFractionDigits: 2 })}€
                     </td>
@@ -411,11 +400,23 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
           <div className="flex justify-end border-t-2 border-slate-100 pt-8">
             <div className="w-64 space-y-3">
               <div className="flex justify-between text-sm text-slate-500">
-                <span>Subtotal</span>
+                <span>Base Imponible</span>
                 <span className="font-medium text-slate-900">{editingInvoice.subtotal.toLocaleString('es-ES', { minimumFractionDigits: 2 })}€</span>
               </div>
               <div className="flex justify-between items-center text-sm text-slate-500">
-                <span>Total IVA</span>
+                <div className="flex items-center gap-2">
+                  <span>IVA</span>
+                  <select 
+                    value={editingInvoice.taxRate}
+                    onChange={(e) => updateInvoiceField('taxRate', Number(e.target.value))}
+                    className="bg-slate-50 border border-slate-200 rounded px-1 py-0.5 text-xs outline-none focus:border-[#0047AB]"
+                  >
+                    <option value="0">0%</option>
+                    <option value="4">4%</option>
+                    <option value="10">10%</option>
+                    <option value="21">21%</option>
+                  </select>
+                </div>
                 <span className="font-medium text-slate-900">{editingInvoice.taxAmount.toLocaleString('es-ES', { minimumFractionDigits: 2 })}€</span>
               </div>
               <div className="flex justify-between text-lg font-extrabold text-[#0047AB] pt-4 border-t border-slate-100">
