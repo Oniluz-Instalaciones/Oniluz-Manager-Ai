@@ -42,10 +42,16 @@ const formatDate = (dateStr: string) => {
     return `${day}-${month}-${year}`;
 };
 
-const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, currentUserName, defaultProjectId, defaultCategory = 'general' }) => {
-  const [fileData, setFileData] = useState<string | null>(null); // Base64
-  const [fileBlob, setFileBlob] = useState<Blob | null>(null);
-  const [mimeType, setMimeType] = useState<string>('image/jpeg');
+  interface ScannedPage {
+      id: string;
+      base64: string;
+      blob: Blob;
+      mimeType: string;
+  }
+
+  const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, currentUserName, defaultProjectId, defaultCategory = 'general' }) => {
+  const [pages, setPages] = useState<ScannedPage[]>([]);
+  const [currentPageIndex, setCurrentPageIndex] = useState(0);
   
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -128,14 +134,26 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
       if (context) {
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
         const base64String = canvas.toDataURL('image/jpeg', 0.85); 
+        
         canvas.toBlob((blob) => {
-            if (blob) setFileBlob(blob);
+            if (blob) {
+                const newPage: ScannedPage = {
+                    id: crypto.randomUUID(),
+                    base64: base64String,
+                    blob: blob,
+                    mimeType: 'image/jpeg'
+                };
+                setPages(prev => [...prev, newPage]);
+                setCurrentPageIndex(pages.length); // Point to new page (length before update + 1 - 1 = length)
+                stopCamera();
+                setStep('review');
+                
+                // Si es la primera página, analizamos para detectar paginación
+                if (pages.length === 0) {
+                    checkPagination(base64String, 'image/jpeg');
+                }
+            }
         }, 'image/jpeg', 0.85);
-        stopCamera();
-        setFileData(base64String);
-        setMimeType('image/jpeg');
-        setStep('review');
-        processDocument(base64String, 'image/jpeg');
       }
     }
   };
@@ -143,39 +161,65 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      setFileBlob(file); 
-      setMimeType(file.type);
       const reader = new FileReader();
       reader.onloadend = () => {
         const base64String = reader.result as string;
-        setFileData(base64String);
+        const newPage: ScannedPage = {
+            id: crypto.randomUUID(),
+            base64: base64String,
+            blob: file,
+            mimeType: file.type
+        };
+        setPages(prev => [...prev, newPage]);
+        setCurrentPageIndex(pages.length);
         setStep('review');
-        processDocument(base64String, file.type);
+        
+        if (pages.length === 0) {
+            checkPagination(base64String, file.type);
+        }
       };
       reader.readAsDataURL(file);
     }
   };
 
-  const processDocument = async (base64: string, type: string) => {
+  // Función ligera solo para detectar paginación en la primera página
+  const checkPagination = async (base64: string, type: string) => {
+      setIsAnalyzing(true);
+      try {
+          // Usamos analyzeDocument pero solo nos interesa la paginación por ahora
+          // Nota: Esto consume una llamada a la API. Es el costo de la "inteligencia".
+          const data = await analyzeDocument(base64, type);
+          if (data.pagination && data.pagination.hasMore) {
+              const { current, total } = data.pagination;
+              if (total && current < total) {
+                  setPaginationWarning(`Página ${current} de ${total} detectada.`);
+              } else {
+                  setPaginationWarning("El documento parece tener más páginas.");
+              }
+          }
+      } catch (e) {
+          console.warn("Error checking pagination:", e);
+      } finally {
+          setIsAnalyzing(false);
+      }
+  };
+
+  const processAllPages = async () => {
+    if (pages.length === 0) return;
+    
     setIsAnalyzing(true);
     setScanErrorType(null);
+    setPaginationWarning(null); // Limpiamos advertencia al procesar todo definitivo
+
     try {
-      const data = await analyzeDocument(base64, type);
+      // Enviamos TODAS las páginas
+      const images = pages.map(p => p.base64);
+      // Usamos el mimeType de la primera (asumimos consistencia o que la API maneja mezcla si soportara, pero aquí enviamos base64 puros)
+      // analyzeDocument maneja array de strings
+      const data = await analyzeDocument(images, pages[0].mimeType);
       
       if (data.errorType) setScanErrorType(data.errorType);
       else if (data.description && data.description.includes("Error")) setScanErrorType('GENERIC');
-
-      // Check for pagination
-      if (data.pagination && data.pagination.hasMore) {
-          const { current, total } = data.pagination;
-          if (total && current < total) {
-              setPaginationWarning(`Atención: Detectada página ${current} de ${total}. Asegúrate de escanear todas las páginas.`);
-          } else if (data.pagination.hasMore) {
-              setPaginationWarning("Atención: El documento parece tener más páginas.");
-          }
-      } else {
-          setPaginationWarning(null);
-      }
 
       const isRefund = data.total < 0;
       const absoluteAmount = Math.abs(data.total || 0);
@@ -252,17 +296,18 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
   };
 
   const uploadFileToSupabase = async (projectId: string): Promise<string | null> => {
-      if (!fileBlob) return null;
+      if (pages.length === 0) return null;
       try {
-          const ext = mimeType.includes('pdf') ? 'pdf' : 'jpg';
+          // Use the first page as the main document
+          const mainPage = pages[0];
+          const ext = mainPage.mimeType.includes('pdf') ? 'pdf' : 'jpg';
           const timestamp = Date.now();
-          // Añadimos un string aleatorio para evitar colisiones de caché
           const randomString = Math.random().toString(36).substring(7);
           const fileName = `${projectId}/${timestamp}_${randomString}.${ext}`;
           
-          const { error } = await supabase.storage.from('photos').upload(fileName, fileBlob, { 
-              contentType: mimeType, 
-              upsert: false // Importante: no sobrescribir, crear nuevo
+          const { error } = await supabase.storage.from('photos').upload(fileName, mainPage.blob, { 
+              contentType: mainPage.mimeType, 
+              upsert: false 
           });
           
           if (error) throw error;
@@ -332,20 +377,15 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
         }
 
         // 3. Document 
-        // CORRECCIÓN CRÍTICA: Respetar siempre la categoría por defecto (general o technical)
-        // No forzar 'financial' para que aparezcan en la pestaña "Archivos" (que usa category='general')
         let newDocument: ProjectDocument | undefined;
         if (fileUrl) {
-            
-            // Si estamos en modo técnico, es técnico. Si es general, es general.
-            // Los tickets irán a 'general' para que se vean en la pestaña de archivos.
             const finalCategory = defaultCategory; 
 
             newDocument = {
                 id: crypto.randomUUID(),
                 projectId: formData.projectId,
                 name: `${formData.docType === 'DELIVERY_NOTE' ? 'Albarán' : 'Factura'} ${formatDate(formData.date)}`,
-                type: mimeType.includes('pdf') ? 'pdf' : 'image',
+                type: pages[0]?.mimeType.includes('pdf') ? 'pdf' : 'image',
                 category: finalCategory as 'general' | 'technical' | 'financial', 
                 date: formData.date || new Date().toISOString().split('T')[0],
                 data: fileUrl
@@ -422,15 +462,53 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
 
           {step === 'review' && (
             <div className="flex flex-col items-center justify-center space-y-6 py-8 h-full">
-               <div className="relative">
-                  {mimeType.includes('pdf') ? (
-                      <div className="w-64 h-80 bg-slate-100 dark:bg-slate-700 rounded-2xl flex flex-col items-center justify-center border-4 border-white dark:border-slate-600 shadow-lg"><FileText className="w-20 h-20 text-red-500 mb-4" /><span className="text-sm font-bold text-slate-500 dark:text-slate-300">Documento PDF</span></div>
-                  ) : (
-                    fileData && <img src={fileData} alt="Preview" className="w-64 h-auto object-contain rounded-2xl shadow-lg border-4 border-white dark:border-slate-700" />
+               <div className="relative group">
+                  {pages.length > 0 && (
+                      pages[pages.length - 1].mimeType.includes('pdf') ? (
+                          <div className="w-64 h-80 bg-slate-100 dark:bg-slate-700 rounded-2xl flex flex-col items-center justify-center border-4 border-white dark:border-slate-600 shadow-lg"><FileText className="w-20 h-20 text-red-500 mb-4" /><span className="text-sm font-bold text-slate-500 dark:text-slate-300">Documento PDF</span></div>
+                      ) : (
+                        <img src={pages[pages.length - 1].base64} alt="Preview" className="w-64 h-auto object-contain rounded-2xl shadow-lg border-4 border-white dark:border-slate-700" />
+                      )
                   )}
+                  <div className="absolute -top-2 -right-2 bg-blue-600 text-white w-8 h-8 rounded-full flex items-center justify-center font-bold shadow-md">
+                      {pages.length}
+                  </div>
                </div>
-               <div className="flex flex-col items-center gap-2 text-[#0047AB] dark:text-blue-400 font-bold animate-pulse">
-                 <div className="flex items-center gap-3 text-lg"><Loader2 className="w-6 h-6 animate-spin" /> Analizando documento...</div>
+               
+               <div className="flex flex-col items-center gap-4 w-full px-8">
+                 {isAnalyzing ? (
+                    <div className="flex flex-col items-center gap-2 text-[#0047AB] dark:text-blue-400 font-bold animate-pulse">
+                        <div className="flex items-center gap-3 text-lg"><Loader2 className="w-6 h-6 animate-spin" /> Analizando {pages.length} página(s)...</div>
+                    </div>
+                 ) : (
+                    <>
+                        {paginationWarning && (
+                            <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 p-4 rounded-xl flex flex-col items-center gap-2 text-center w-full animate-in fade-in slide-in-from-bottom-4">
+                                <div className="flex items-center gap-2 text-yellow-700 dark:text-yellow-400 font-bold">
+                                    <AlertTriangle className="w-5 h-5" />
+                                    <span>¡Documento Incompleto!</span>
+                                </div>
+                                <p className="text-sm text-yellow-600 dark:text-yellow-300">{paginationWarning}</p>
+                                <button onClick={() => setStep('capture')} className="mt-2 bg-yellow-100 dark:bg-yellow-800/40 text-yellow-800 dark:text-yellow-200 px-4 py-2 rounded-lg font-bold text-sm hover:bg-yellow-200 dark:hover:bg-yellow-800/60 transition-colors flex items-center gap-2">
+                                    <Plus className="w-4 h-4" /> Escanear Siguiente Página
+                                </button>
+                            </div>
+                        )}
+
+                        <div className="flex gap-3 w-full">
+                             <button onClick={() => setStep('capture')} className="flex-1 py-3 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 rounded-xl font-bold hover:bg-slate-50 dark:hover:bg-slate-600 transition-colors flex items-center justify-center gap-2">
+                                <Plus className="w-5 h-5" /> Añadir Pág.
+                             </button>
+                             <button onClick={processAllPages} className="flex-[2] py-3 bg-[#0047AB] text-white rounded-xl font-bold shadow-lg shadow-blue-900/20 hover:bg-[#003380] transition-all flex items-center justify-center gap-2">
+                                <FileText className="w-5 h-5" /> Procesar ({pages.length})
+                             </button>
+                        </div>
+                        
+                        <button onClick={() => { setPages([]); setStep('capture'); }} className="text-slate-400 hover:text-red-500 text-sm flex items-center gap-1 transition-colors">
+                            <Trash2 className="w-4 h-4" /> Descartar todo y empezar de cero
+                        </button>
+                    </>
+                 )}
                </div>
             </div>
           )}
@@ -512,7 +590,7 @@ const ScannerModal: React.FC<ScannerModalProps> = ({ projects, onClose, onSave, 
                     <button onClick={handleSubmit} disabled={isUploading} className="flex-[2] py-3 bg-[#0047AB] text-white rounded-xl font-bold shadow-lg shadow-blue-900/20 hover:bg-[#003380] transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed">{isUploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}{isUploading ? 'Guardando...' : 'Guardar Todo'}</button>
                 </>
             ) : step === 'review' ? (
-                <button onClick={() => { setFileData(null); setStep('capture'); }} className="flex-1 py-3 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 rounded-xl font-bold hover:bg-slate-50 dark:hover:bg-slate-600 transition-colors flex items-center justify-center gap-2"><RefreshCw className="w-4 h-4" /> Repetir</button>
+                <button onClick={() => { setPages([]); setStep('capture'); }} className="flex-1 py-3 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 rounded-xl font-bold hover:bg-slate-50 dark:hover:bg-slate-600 transition-colors flex items-center justify-center gap-2"><RefreshCw className="w-4 h-4" /> Reiniciar</button>
             ) : (
                 <button onClick={handleClose} className="w-full py-3 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors">Cerrar</button>
             )}

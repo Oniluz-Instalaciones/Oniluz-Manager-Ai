@@ -208,32 +208,37 @@ const robustGenerate = async <T>(
 
 // --- FUNCIONES PÚBLICAS ---
 
-export const analyzeDocument = async (base64String: string, mimeType: string = 'image/jpeg'): Promise<any> => {
+export const analyzeDocument = async (input: string | string[], mimeType: string = 'image/jpeg'): Promise<any> => {
   const fallbackData = { comercio: "", fecha: new Date().toISOString().split('T')[0], total: 0, iva: 0, categoria: "Material", isStockable: false, description: "Introducir datos manualmente", items: [] };
   
   return apiQueue.add(async () => {
       try {
-        let cleanBase64;
-        if (mimeType.startsWith('image/')) {
-            cleanBase64 = await optimizeImage(base64String);
-        } else {
-            cleanBase64 = base64String.includes(',') ? base64String.split(',')[1] : base64String;
-        }
+        const inputs = Array.isArray(input) ? input : [input];
+        const imageParts = await Promise.all(inputs.map(async (imgStr) => {
+            let cleanBase64;
+            if (mimeType.startsWith('image/')) {
+                cleanBase64 = await optimizeImage(imgStr);
+            } else {
+                cleanBase64 = imgStr.includes(',') ? imgStr.split(',')[1] : imgStr;
+            }
+            return { inlineData: { mimeType: mimeType, data: cleanBase64 } };
+        }));
 
-        const prompt = `Actúa como el CONTABLE experto. Analiza documento.
+        const prompt = `Actúa como el CONTABLE experto. Analiza documento (puede tener múltiples páginas).
         OBJETIVO: Extraer datos y DECIDIR SI LOS ITEMS VAN AL ALMACÉN (Stock).
         CRITERIOS 'isStockable': TRUE para materiales físicos (cables, mecanismos). FALSE para servicios, comida, gasolina, herramientas.
         IMPORTANTE: Si es una FACTURA RECTIFICATIVA, ABONO o DEVOLUCIÓN, el 'total' debe ser NEGATIVO.
+        TOTALES: Si hay múltiples páginas, busca el 'Total a Pagar' definitivo del documento completo. No sumes totales parciales si ya están incluidos en el final.
         CATEGORIAS: Material, Dietas, Transporte, Combustible, Herramienta, Varios, Devolución.
         PAGINACIÓN: Detecta si el documento indica que hay más páginas (ej: "Página 1 de 3", "1/2").
-        Extrae items línea por línea.`;
+        Extrae items línea por línea de TODAS las páginas.`;
         
         const documentSchema = {
             type: Type.OBJECT,
             properties: {
                 comercio: { type: Type.STRING },
                 fecha: { type: Type.STRING },
-                total: { type: Type.NUMBER, description: "Importe total. Usar negativo para devoluciones/abonos." },
+                total: { type: Type.NUMBER, description: "Importe total del documento completo." },
                 iva: { type: Type.NUMBER },
                 categoria: { type: Type.STRING, enum: ['Material', 'Dietas', 'Transporte', 'Combustible', 'Herramienta', 'Varios', 'Devolución'] },
                 isStockable: { type: Type.BOOLEAN },
@@ -267,7 +272,7 @@ export const analyzeDocument = async (base64String: string, mimeType: string = '
                 model: model,
                 contents: { 
                     parts: [
-                        { inlineData: { mimeType: mimeType, data: cleanBase64 } }, 
+                        ...imageParts,
                         { text: prompt }
                     ] 
                 },
