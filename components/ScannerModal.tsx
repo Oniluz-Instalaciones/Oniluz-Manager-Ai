@@ -123,101 +123,18 @@ const formatDate = (dateStr: string) => {
     }
   };
 
-  const capturePhoto = () => {
-    if (videoRef.current && canvasRef.current) {
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      if (video.videoWidth === 0 || video.videoHeight === 0) return;
+  const [isMultiPage, setIsMultiPage] = useState(false);
 
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const context = canvas.getContext('2d');
-      if (context) {
-        context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const base64String = canvas.toDataURL('image/jpeg', 0.85); 
-        
-        canvas.toBlob((blob) => {
-            if (blob) {
-                const newPage: ScannedPage = {
-                    id: crypto.randomUUID(),
-                    base64: base64String,
-                    blob: blob,
-                    mimeType: 'image/jpeg'
-                };
-                setPages(prev => [...prev, newPage]);
-                setCurrentPageIndex(pages.length); // Point to new page (length before update + 1 - 1 = length)
-                stopCamera();
-                setStep('review');
-                
-                // Si es la primera página, analizamos para detectar paginación
-                if (pages.length === 0) {
-                    checkPagination(base64String, 'image/jpeg');
-                }
-            }
-        }, 'image/jpeg', 0.85);
-      }
-    }
-  };
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64String = reader.result as string;
-        const newPage: ScannedPage = {
-            id: crypto.randomUUID(),
-            base64: base64String,
-            blob: file,
-            mimeType: file.type
-        };
-        setPages(prev => [...prev, newPage]);
-        setCurrentPageIndex(pages.length);
-        setStep('review');
-        
-        if (pages.length === 0) {
-            checkPagination(base64String, file.type);
-        }
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  // Función ligera solo para detectar paginación en la primera página
-  const checkPagination = async (base64: string, type: string) => {
-      setIsAnalyzing(true);
-      try {
-          // Usamos analyzeDocument pero solo nos interesa la paginación por ahora
-          // Nota: Esto consume una llamada a la API. Es el costo de la "inteligencia".
-          const data = await analyzeDocument(base64, type);
-          if (data.pagination && data.pagination.hasMore) {
-              const { current, total } = data.pagination;
-              if (total && current < total) {
-                  setPaginationWarning(`Página ${current} de ${total} detectada.`);
-              } else {
-                  setPaginationWarning("El documento parece tener más páginas.");
-              }
-          }
-      } catch (e) {
-          console.warn("Error checking pagination:", e);
-      } finally {
-          setIsAnalyzing(false);
-      }
-  };
-
-  const processAllPages = async () => {
-    if (pages.length === 0) return;
+  const processPagesList = async (pagesToProcess: ScannedPage[]) => {
+    if (pagesToProcess.length === 0) return;
     
     setIsAnalyzing(true);
     setScanErrorType(null);
-    setPaginationWarning(null); // Limpiamos advertencia al procesar todo definitivo
+    setPaginationWarning(null); 
 
     try {
-      // Enviamos TODAS las páginas
-      const images = pages.map(p => p.base64);
-      // Usamos el mimeType de la primera (asumimos consistencia o que la API maneja mezcla si soportara, pero aquí enviamos base64 puros)
-      // analyzeDocument maneja array de strings
-      const data = await analyzeDocument(images, pages[0].mimeType);
+      const images = pagesToProcess.map(p => p.base64);
+      const data = await analyzeDocument(images, pagesToProcess[0].mimeType);
       
       if (data.errorType) setScanErrorType(data.errorType);
       else if (data.description && data.description.includes("Error")) setScanErrorType('GENERIC');
@@ -263,6 +180,108 @@ const formatDate = (dateStr: string) => {
     } finally {
       setIsAnalyzing(false);
     }
+  };
+
+  const processAllPages = async () => {
+      await processPagesList(pages);
+  };
+
+  const capturePhoto = () => {
+    if (videoRef.current && canvasRef.current) {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      if (video.videoWidth === 0 || video.videoHeight === 0) return;
+
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const context = canvas.getContext('2d');
+      if (context) {
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const base64String = canvas.toDataURL('image/jpeg', 0.85); 
+        
+        canvas.toBlob((blob) => {
+            if (blob) {
+                const newPage: ScannedPage = {
+                    id: crypto.randomUUID(),
+                    base64: base64String,
+                    blob: blob,
+                    mimeType: 'image/jpeg'
+                };
+                
+                if (isMultiPage) {
+                    setPages(prev => [...prev, newPage]);
+                    setCurrentPageIndex(pages.length); 
+                    stopCamera();
+                    setStep('review');
+                    
+                    if (pages.length === 0) {
+                        checkPagination(base64String, 'image/jpeg');
+                    }
+                } else {
+                    // Single page mode: Process immediately
+                    setPages([newPage]);
+                    stopCamera();
+                    setStep('review'); // Show review/loading briefly
+                    processPagesList([newPage]);
+                }
+            }
+        }, 'image/jpeg', 0.85);
+      }
+    }
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64String = reader.result as string;
+        const newPage: ScannedPage = {
+            id: crypto.randomUUID(),
+            base64: base64String,
+            blob: file,
+            mimeType: file.type
+        };
+        
+        if (isMultiPage) {
+            setPages(prev => [...prev, newPage]);
+            setCurrentPageIndex(pages.length);
+            setStep('review');
+            
+            if (pages.length === 0) {
+                checkPagination(base64String, file.type);
+            }
+        } else {
+            // Single page mode: Process immediately
+            setPages([newPage]);
+            setStep('review');
+            processPagesList([newPage]);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Función ligera solo para detectar paginación en la primera página
+  const checkPagination = async (base64: string, type: string) => {
+      setIsAnalyzing(true);
+      try {
+          // Usamos analyzeDocument pero solo nos interesa la paginación por ahora
+          // Nota: Esto consume una llamada a la API. Es el costo de la "inteligencia".
+          const data = await analyzeDocument(base64, type);
+          if (data.pagination && data.pagination.hasMore) {
+              const { current, total } = data.pagination;
+              if (total && current < total) {
+                  setPaginationWarning(`Página ${current} de ${total} detectada.`);
+              } else {
+                  setPaginationWarning("El documento parece tener más páginas.");
+              }
+          }
+      } catch (e) {
+          console.warn("Error checking pagination:", e);
+      } finally {
+          setIsAnalyzing(false);
+      }
   };
 
   const updateMaterial = (index: number, field: keyof DetectedItem, value: any) => {
@@ -484,6 +503,18 @@ const formatDate = (dateStr: string) => {
                 ) : (
                     <div className="flex flex-col items-center justify-center space-y-8 py-12 px-6 h-full">
                         <div className="w-28 h-28 bg-white dark:bg-slate-700 rounded-full flex items-center justify-center text-slate-300 dark:text-slate-500 mb-2 shadow-sm border border-slate-100 dark:border-slate-600"><FileText className="w-12 h-12" /></div>
+                        
+                        <div className="flex items-center gap-3 bg-slate-100 dark:bg-slate-700/50 p-2 rounded-xl">
+                            <span className={`text-xs font-bold uppercase ${!isMultiPage ? 'text-[#0047AB] dark:text-blue-400' : 'text-slate-400'}`}>Una Página</span>
+                            <button 
+                                onClick={() => setIsMultiPage(!isMultiPage)}
+                                className={`w-12 h-6 rounded-full p-1 transition-colors ${isMultiPage ? 'bg-[#0047AB]' : 'bg-slate-300 dark:bg-slate-600'}`}
+                            >
+                                <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${isMultiPage ? 'translate-x-6' : 'translate-x-0'}`} />
+                            </button>
+                            <span className={`text-xs font-bold uppercase ${isMultiPage ? 'text-[#0047AB] dark:text-blue-400' : 'text-slate-400'}`}>Multipágina</span>
+                        </div>
+
                         <div className="w-full space-y-4">
                             <button onClick={startCamera} className="w-full bg-[#0047AB] text-white py-4 rounded-2xl font-bold shadow-xl shadow-blue-900/20 hover:bg-[#003380] transition-transform active:scale-95 flex items-center justify-center gap-3 text-lg"><Camera className="w-6 h-6" /> Escanear con Cámara</button>
                             <input type="file" accept="image/*,application/pdf" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
