@@ -20,9 +20,9 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
     }
   }, [project.invoices]);
 
-  const calculateTotals = (items: InvoiceItem[], taxRate: number) => {
+  const calculateTotals = (items: InvoiceItem[]) => {
     const subtotal = items.reduce((sum, item) => sum + item.amount, 0);
-    const taxAmount = (subtotal * taxRate) / 100;
+    const taxAmount = items.reduce((sum, item) => sum + (item.amount * (item.taxRate ?? 21) / 100), 0);
     const total = subtotal + taxAmount;
     return { subtotal, taxAmount, total };
   };
@@ -40,7 +40,8 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
                 description: item.name, // Use item name directly
                 quantity: item.quantity,
                 unitPrice: item.pricePerUnit,
-                amount: item.quantity * item.pricePerUnit
+                amount: item.quantity * item.pricePerUnit,
+                taxRate: 21 // Default standard VAT
             }));
             budgetItems = [...budgetItems, ...items];
         });
@@ -51,7 +52,8 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
             description: `Presupuesto Proyecto: ${project.name}`,
             quantity: 1,
             unitPrice: project.budget,
-            amount: project.budget
+            amount: project.budget,
+            taxRate: 21
         });
     }
 
@@ -65,12 +67,13 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
         description: `Dieta: ${t.description} (${t.date})`,
         quantity: 1,
         unitPrice: t.amount,
-        amount: t.amount
+        amount: t.amount,
+        taxRate: 10 // Reduced VAT for food/diets
     }));
 
     const newItems: InvoiceItem[] = [...budgetItems, ...expenseItems];
 
-    const { subtotal, taxAmount, total } = calculateTotals(newItems, 21);
+    const { subtotal, taxAmount, total } = calculateTotals(newItems);
 
     const newInvoice: Invoice = {
       id: crypto.randomUUID(),
@@ -82,7 +85,6 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
       clientNif: '',     
       items: newItems,
       subtotal,
-      taxRate: 21,
       taxAmount,
       total,
       status: 'Draft'
@@ -163,7 +165,7 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
       newItems[index].amount = newItems[index].quantity * newItems[index].unitPrice;
     }
 
-    const { subtotal, taxAmount, total } = calculateTotals(newItems, editingInvoice.taxRate);
+    const { subtotal, taxAmount, total } = calculateTotals(newItems);
     
     setEditingInvoice({
       ...editingInvoice,
@@ -181,11 +183,12 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
       description: '',
       quantity: 1,
       unitPrice: 0,
-      amount: 0
+      amount: 0,
+      taxRate: 21 // Default VAT
     };
     
     const newItems = [...editingInvoice.items, newItem];
-    const { subtotal, taxAmount, total } = calculateTotals(newItems, editingInvoice.taxRate);
+    const { subtotal, taxAmount, total } = calculateTotals(newItems);
     
     setEditingInvoice({
       ...editingInvoice,
@@ -199,7 +202,7 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
   const removeInvoiceItem = (index: number) => {
     if (!editingInvoice) return;
     const newItems = editingInvoice.items.filter((_, i) => i !== index);
-    const { subtotal, taxAmount, total } = calculateTotals(newItems, editingInvoice.taxRate);
+    const { subtotal, taxAmount, total } = calculateTotals(newItems);
     
     setEditingInvoice({
       ...editingInvoice,
@@ -213,13 +216,7 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
   const updateInvoiceField = (field: keyof Invoice, value: any) => {
     if (!editingInvoice) return;
     
-    let updates: Partial<Invoice> = { [field]: value };
-    
-    if (field === 'taxRate') {
-      const { subtotal, taxAmount, total } = calculateTotals(editingInvoice.items, value);
-      updates = { ...updates, subtotal, taxAmount, total };
-    }
-
+    const updates: Partial<Invoice> = { [field]: value };
     setEditingInvoice({ ...editingInvoice, ...updates });
   };
 
@@ -328,10 +325,11 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
             <table className="w-full">
               <thead>
                 <tr className="border-b-2 border-slate-100">
-                  <th className="text-left py-3 text-xs font-bold text-slate-400 uppercase tracking-wider w-1/2">Descripción</th>
-                  <th className="text-right py-3 text-xs font-bold text-slate-400 uppercase tracking-wider w-24">Cant.</th>
-                  <th className="text-right py-3 text-xs font-bold text-slate-400 uppercase tracking-wider w-32">Precio</th>
-                  <th className="text-right py-3 text-xs font-bold text-slate-400 uppercase tracking-wider w-32">Total</th>
+                  <th className="text-left py-3 text-xs font-bold text-slate-400 uppercase tracking-wider w-5/12">Descripción</th>
+                  <th className="text-right py-3 text-xs font-bold text-slate-400 uppercase tracking-wider w-16">Cant.</th>
+                  <th className="text-right py-3 text-xs font-bold text-slate-400 uppercase tracking-wider w-24">Precio</th>
+                  <th className="text-right py-3 text-xs font-bold text-slate-400 uppercase tracking-wider w-20">IVA %</th>
+                  <th className="text-right py-3 text-xs font-bold text-slate-400 uppercase tracking-wider w-24">Total</th>
                   <th className="w-10"></th>
                 </tr>
               </thead>
@@ -365,6 +363,23 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
                         className="w-full text-right text-sm text-slate-600 bg-transparent outline-none"
                       />
                     </td>
+                    <td className="py-3">
+                        <select
+                            value={item.taxRate ?? 21}
+                            onChange={(e) => {
+                                const newItems = [...editingInvoice.items];
+                                newItems[index] = { ...newItems[index], taxRate: Number(e.target.value) };
+                                const { subtotal, taxAmount, total } = calculateTotals(newItems);
+                                setEditingInvoice({ ...editingInvoice, items: newItems, subtotal, taxAmount, total });
+                            }}
+                            className="w-full text-right text-sm text-slate-600 bg-transparent outline-none cursor-pointer"
+                        >
+                            <option value="0">0%</option>
+                            <option value="4">4%</option>
+                            <option value="10">10%</option>
+                            <option value="21">21%</option>
+                        </select>
+                    </td>
                     <td className="py-3 text-right text-sm font-bold text-slate-800">
                       {item.amount.toLocaleString('es-ES', { minimumFractionDigits: 2 })}€
                     </td>
@@ -396,19 +411,7 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
                 <span className="font-medium text-slate-900">{editingInvoice.subtotal.toLocaleString('es-ES', { minimumFractionDigits: 2 })}€</span>
               </div>
               <div className="flex justify-between items-center text-sm text-slate-500">
-                <div className="flex items-center gap-2">
-                  <span>IVA</span>
-                  <select 
-                    value={editingInvoice.taxRate}
-                    onChange={(e) => updateInvoiceField('taxRate', Number(e.target.value))}
-                    className="bg-slate-50 border border-slate-200 rounded px-1 py-0.5 text-xs outline-none focus:border-[#0047AB]"
-                  >
-                    <option value="0">0%</option>
-                    <option value="4">4%</option>
-                    <option value="10">10%</option>
-                    <option value="21">21%</option>
-                  </select>
-                </div>
+                <span>Total IVA</span>
                 <span className="font-medium text-slate-900">{editingInvoice.taxAmount.toLocaleString('es-ES', { minimumFractionDigits: 2 })}€</span>
               </div>
               <div className="flex justify-between text-lg font-extrabold text-[#0047AB] pt-4 border-t border-slate-100">
