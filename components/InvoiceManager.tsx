@@ -286,26 +286,29 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
           <div className="grid grid-cols-2 gap-12 mb-12">
             <div>
               <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">Facturar a</h4>
-              <div className="space-y-3">
+              <div className="space-y-1">
                 <input 
                   value={editingInvoice.clientName}
                   onChange={(e) => updateInvoiceField('clientName', e.target.value)}
-                  className="w-full font-bold text-lg border-b border-transparent hover:border-slate-300 focus:border-[#0047AB] outline-none bg-transparent transition-colors placeholder-slate-300"
+                  className="w-full font-bold text-xl text-slate-900 border-b border-transparent hover:border-slate-300 focus:border-[#0047AB] outline-none bg-transparent transition-colors placeholder-slate-300"
                   placeholder="Nombre del Cliente"
-                />
-                <input 
-                  value={editingInvoice.clientNif || ''}
-                  onChange={(e) => updateInvoiceField('clientNif', e.target.value)}
-                  className="w-full text-sm border-b border-transparent hover:border-slate-300 focus:border-[#0047AB] outline-none bg-transparent transition-colors placeholder-slate-400"
-                  placeholder="NIF / CIF"
                 />
                 <textarea 
                   value={editingInvoice.clientAddress || ''}
                   onChange={(e) => updateInvoiceField('clientAddress', e.target.value)}
-                  className="w-full text-sm border-b border-transparent hover:border-slate-300 focus:border-[#0047AB] outline-none bg-transparent transition-colors placeholder-slate-400 resize-none"
+                  className="w-full text-sm text-slate-500 border-b border-transparent hover:border-slate-300 focus:border-[#0047AB] outline-none bg-transparent transition-colors placeholder-slate-400 resize-none mt-1"
                   placeholder="Dirección completa"
-                  rows={3}
+                  rows={2}
                 />
+                <div className="flex items-center gap-2 text-sm text-slate-500">
+                  <span>CIF:</span>
+                  <input 
+                    value={editingInvoice.clientNif || ''}
+                    onChange={(e) => updateInvoiceField('clientNif', e.target.value)}
+                    className="w-32 border-b border-transparent hover:border-slate-300 focus:border-[#0047AB] outline-none bg-transparent transition-colors placeholder-slate-400"
+                    placeholder="NIF / CIF"
+                  />
+                </div>
               </div>
             </div>
             <div className="text-right space-y-2">
@@ -315,15 +318,6 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
                   type="date"
                   value={editingInvoice.date}
                   onChange={(e) => updateInvoiceField('date', e.target.value)}
-                  className="text-sm font-medium text-slate-900 bg-transparent border-b border-slate-200 focus:border-[#0047AB] outline-none text-right w-32"
-                />
-              </div>
-              <div className="flex justify-end items-center gap-4">
-                <label className="text-sm font-medium text-slate-500">Vencimiento:</label>
-                <input 
-                  type="date"
-                  value={editingInvoice.dueDate || ''}
-                  onChange={(e) => updateInvoiceField('dueDate', e.target.value)}
                   className="text-sm font-medium text-slate-900 bg-transparent border-b border-slate-200 focus:border-[#0047AB] outline-none text-right w-32"
                 />
               </div>
@@ -357,9 +351,11 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
                       <input 
                         type="number"
                         min="0"
+                        step="0.01"
                         value={item.quantity}
                         onChange={(e) => updateInvoiceItem(index, 'quantity', Number(e.target.value))}
                         className="w-full text-right text-sm text-slate-600 bg-transparent outline-none"
+                        onBlur={(e) => updateInvoiceItem(index, 'quantity', Number(parseFloat(e.target.value).toFixed(2)))}
                       />
                     </td>
                     <td className="py-3">
@@ -370,6 +366,7 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
                         value={item.unitPrice}
                         onChange={(e) => updateInvoiceItem(index, 'unitPrice', Number(e.target.value))}
                         className="w-full text-right text-sm text-slate-600 bg-transparent outline-none"
+                        onBlur={(e) => updateInvoiceItem(index, 'unitPrice', Number(parseFloat(e.target.value).toFixed(2)))}
                       />
                     </td>
                     <td className="py-3 text-right text-sm font-bold text-slate-800">
