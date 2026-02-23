@@ -275,7 +275,7 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
               </div>
             </div>
             <div className="text-right">
-              <h3 className="text-xl font-bold text-slate-900">Oniluz JAYPE Instalaciones S.L.</h3>
+              <h3 className="text-xl font-bold text-slate-900">Oniluz S.L.</h3>
               <p className="text-sm text-slate-500 mt-1">C/ Don Eduardo Martín, Nº 27</p>
               <p className="text-sm text-slate-500">45560 Oropesa, Toledo</p>
               <p className="text-sm text-slate-500">CIF: B26575688</p>
@@ -428,7 +428,7 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
           {/* Footer */}
           <div className="mt-12 pt-8 border-t border-slate-100 text-center text-xs text-slate-400">
             <p>Gracias por su confianza.</p>
-            <p className="mt-1">Oniluz JAYPE Instalaciones S.L. - B26575688</p>
+            <p className="mt-1">Oniluz S.L. - B26575688</p>
           </div>
         </div>
       </div>
