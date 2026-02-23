@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Project, Invoice, InvoiceItem, PriceItem } from '../types';
 import { Plus, Trash2, Printer, Save, Edit3, FileText, Calculator, Download, Check } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 interface InvoiceManagerProps {
   project: Project;
@@ -40,6 +42,96 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
       setInvoices(project.invoices);
     }
   }, [project.invoices]);
+
+  const handleDownloadPDF = (invoice: Invoice) => {
+    const doc = new jsPDF();
+    
+    // Header
+    doc.setFontSize(20);
+    doc.setTextColor(0, 71, 171); // #0047AB
+    doc.text('FACTURA', 20, 20);
+    
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    doc.text(`#${invoice.number}`, 20, 25);
+    
+    // Company Info (Right aligned)
+    doc.setFontSize(12);
+    doc.setTextColor(0);
+    doc.text('Oniluz S.L.', 190, 20, { align: 'right' });
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    doc.text('C/ Don Eduardo Martín, Nº 27', 190, 25, { align: 'right' });
+    doc.text('45560 Oropesa, Toledo', 190, 30, { align: 'right' });
+    doc.text('CIF: B26575688', 190, 35, { align: 'right' });
+
+    // Client Info
+    doc.setFontSize(10);
+    doc.setTextColor(150);
+    doc.text('FACTURAR A', 20, 45);
+    
+    doc.setFontSize(12);
+    doc.setTextColor(0);
+    doc.text(invoice.clientName, 20, 52);
+    
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    const addressLines = doc.splitTextToSize(invoice.clientAddress || '', 80);
+    doc.text(addressLines, 20, 58);
+    
+    if (invoice.clientNif) {
+        doc.text(`CIF: ${invoice.clientNif}`, 20, 58 + (addressLines.length * 5));
+    }
+
+    // Date
+    doc.text(`Fecha: ${new Date(invoice.date).toLocaleDateString()}`, 190, 50, { align: 'right' });
+
+    // Table
+    const tableBody = invoice.items.map(item => [
+        item.description,
+        item.quantity.toString(),
+        `${item.unitPrice.toFixed(2)}€`,
+        `${item.amount.toFixed(2)}€`
+    ]);
+
+    autoTable(doc, {
+        startY: 80,
+        head: [['Descripción', 'Cant.', 'Precio', 'Total']],
+        body: tableBody,
+        theme: 'grid',
+        headStyles: { fillColor: [0, 71, 171], textColor: 255 },
+        styles: { fontSize: 9, cellPadding: 3 },
+        columnStyles: {
+            0: { cellWidth: 'auto' },
+            1: { cellWidth: 20, halign: 'right' },
+            2: { cellWidth: 30, halign: 'right' },
+            3: { cellWidth: 30, halign: 'right' }
+        }
+    });
+
+    // Totals
+    const finalY = (doc as any).lastAutoTable.finalY + 10;
+    
+    doc.text('Base Imponible:', 140, finalY);
+    doc.text(`${invoice.subtotal.toFixed(2)}€`, 190, finalY, { align: 'right' });
+    
+    doc.text(`IVA (${invoice.taxRate}%):`, 140, finalY + 7);
+    doc.text(`${invoice.taxAmount.toFixed(2)}€`, 190, finalY + 7, { align: 'right' });
+    
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(0, 71, 171);
+    doc.text('TOTAL:', 140, finalY + 15);
+    doc.text(`${invoice.total.toFixed(2)}€`, 190, finalY + 15, { align: 'right' });
+
+    // Footer
+    doc.setFontSize(8);
+    doc.setTextColor(150);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Gracias por su confianza. Oniluz S.L. - B26575688', 105, 280, { align: 'center' });
+
+    doc.save(`Factura_${invoice.number}.pdf`);
+  };
 
   const calculateTotals = (items: InvoiceItem[], taxRate: number) => {
     const subtotal = items.reduce((sum, item) => sum + item.amount, 0);
@@ -324,6 +416,14 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
             {editingInvoice.id ? 'Editar Factura' : 'Nueva Factura'}
           </h2>
           <div className="flex gap-2">
+            {editingInvoice.id && (
+                <button 
+                onClick={() => handleDownloadPDF(editingInvoice)}
+                className="px-4 py-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors flex items-center gap-2"
+                >
+                <Download className="w-4 h-4" /> PDF
+                </button>
+            )}
             <button 
               onClick={() => setEditingInvoice(null)}
               className="px-4 py-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
@@ -575,6 +675,13 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
                   <p className="text-xs text-slate-500">{new Date(invoice.date).toLocaleDateString()}</p>
                 </div>
                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button 
+                    onClick={() => handleDownloadPDF(invoice)}
+                    className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg text-slate-500 hover:text-[#0047AB] transition-colors"
+                    title="Descargar PDF"
+                  >
+                    <Download className="w-4 h-4" />
+                  </button>
                   <button 
                     onClick={() => setEditingInvoice(invoice)}
                     className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg text-slate-500 hover:text-[#0047AB] transition-colors"
