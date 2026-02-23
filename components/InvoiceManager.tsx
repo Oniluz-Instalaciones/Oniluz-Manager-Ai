@@ -22,9 +22,11 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
 
   const calculateTotals = (items: InvoiceItem[], taxRate: number) => {
     const subtotal = items.reduce((sum, item) => sum + item.amount, 0);
-    const taxAmount = (subtotal * taxRate) / 100;
-    const total = subtotal + taxAmount;
-    return { subtotal, taxAmount, total };
+    // Fix floating point errors
+    const safeSubtotal = Number(subtotal.toFixed(2));
+    const taxAmount = Number(((safeSubtotal * taxRate) / 100).toFixed(2));
+    const total = Number((safeSubtotal + taxAmount).toFixed(2));
+    return { subtotal: safeSubtotal, taxAmount, total };
   };
 
   const handleCreateInvoice = () => {
@@ -35,13 +37,16 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
     if (acceptedBudgets.length > 0) {
         // If there are accepted budgets, use their items
         acceptedBudgets.forEach(budget => {
-            const items = budget.items.map(item => ({
-                id: crypto.randomUUID(),
-                description: item.name, // Use item name directly
-                quantity: item.quantity,
-                unitPrice: item.pricePerUnit,
-                amount: item.quantity * item.pricePerUnit
-            }));
+            const items = budget.items.map(item => {
+                const unitPrice = Number(item.pricePerUnit.toFixed(2));
+                return {
+                    id: crypto.randomUUID(),
+                    description: item.name, // Use item name directly
+                    quantity: item.quantity,
+                    unitPrice: unitPrice,
+                    amount: Number((item.quantity * unitPrice).toFixed(2))
+                };
+            });
             budgetItems = [...budgetItems, ...items];
         });
     } else if (project.budget > 0) {
@@ -50,8 +55,8 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
             id: crypto.randomUUID(),
             description: `Presupuesto Proyecto: ${project.name}`,
             quantity: 1,
-            unitPrice: project.budget,
-            amount: project.budget
+            unitPrice: Number(project.budget.toFixed(2)),
+            amount: Number(project.budget.toFixed(2))
         });
     }
 
@@ -65,7 +70,7 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
         // This implies 10% VAT for Dietas/Hotel.
         // We need to extract the BASE amount to invoice it, then apply 21% invoice VAT.
         // Base = Amount / 1.10
-        const baseAmount = t.amount / 1.10;
+        const baseAmount = Number((t.amount / 1.10).toFixed(2));
         
         return {
             id: crypto.randomUUID(),
@@ -168,7 +173,9 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
     
     // Recalculate amount if quantity or price changes
     if (field === 'quantity' || field === 'unitPrice') {
-      newItems[index].amount = newItems[index].quantity * newItems[index].unitPrice;
+      const q = field === 'quantity' ? Number(value) : newItems[index].quantity;
+      const p = field === 'unitPrice' ? Number(value) : newItems[index].unitPrice;
+      newItems[index].amount = Number((q * p).toFixed(2));
     }
 
     const { subtotal, taxAmount, total } = calculateTotals(newItems, editingInvoice.taxRate);
