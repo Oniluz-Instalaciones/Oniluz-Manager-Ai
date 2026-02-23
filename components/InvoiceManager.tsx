@@ -72,9 +72,12 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
         // Base = Amount / 1.10
         const baseAmount = Number((t.amount / 1.10).toFixed(2));
         
+        // Format date to dd-mm-yyyy
+        const formattedDate = t.date ? t.date.split('-').reverse().join('-') : '';
+
         return {
             id: crypto.randomUUID(),
-            description: `Dieta: ${t.description} (${t.date})`,
+            description: `Dieta: ${t.description} (${formattedDate})`,
             quantity: 1,
             unitPrice: baseAmount,
             amount: baseAmount
