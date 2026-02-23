@@ -1,17 +1,38 @@
-import React, { useState, useEffect } from 'react';
-import { Project, Invoice, InvoiceItem } from '../types';
+import React, { useState, useEffect, useRef } from 'react';
+import { Project, Invoice, InvoiceItem, PriceItem } from '../types';
 import { Plus, Trash2, Printer, Save, Edit3, FileText, Calculator, Download, Check } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 interface InvoiceManagerProps {
   project: Project;
   onUpdate: (updatedProject: Project) => void;
+  priceDatabase: PriceItem[];
 }
 
-const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) => {
+const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, priceDatabase }) => {
   const [invoices, setInvoices] = useState<Invoice[]>(project.invoices || []);
   const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  
+  // Autocomplete state
+  const [suggestions, setSuggestions] = useState<PriceItem[]>([]);
+  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState<number | null>(null);
+  const suggestionsRef = useRef<HTMLDivElement>(null);
+
+  // Close suggestions on click outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (suggestionsRef.current && !suggestionsRef.current.contains(event.target as Node)) {
+        setSuggestions([]);
+        setActiveSuggestionIndex(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   // Update local state when project prop changes
   useEffect(() => {
@@ -166,6 +187,51 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleDescriptionChange = (index: number, value: string) => {
+    updateInvoiceItem(index, 'description', value);
+    
+    if (value.trim().length > 1) {
+      const lowerValue = value.toLowerCase();
+      const matches = priceDatabase.filter(item => 
+        item.name.toLowerCase().includes(lowerValue)
+      ).slice(0, 5); // Limit to 5 suggestions
+      
+      setSuggestions(matches);
+      setActiveSuggestionIndex(index);
+    } else {
+      setSuggestions([]);
+      setActiveSuggestionIndex(null);
+    }
+  };
+
+  const handleSelectSuggestion = (index: number, suggestion: PriceItem) => {
+    // Update description and price
+    const newItems = [...(editingInvoice?.items || [])];
+    if (!newItems[index]) return;
+
+    newItems[index] = {
+      ...newItems[index],
+      description: suggestion.name,
+      unitPrice: suggestion.price
+    };
+    
+    // Recalculate amount
+    newItems[index].amount = Number((newItems[index].quantity * suggestion.price).toFixed(2));
+    
+    const { subtotal, taxAmount, total } = calculateTotals(newItems, editingInvoice?.taxRate || 21);
+    
+    setEditingInvoice({
+      ...(editingInvoice as Invoice),
+      items: newItems,
+      subtotal,
+      taxAmount,
+      total
+    });
+
+    setSuggestions([]);
+    setActiveSuggestionIndex(null);
   };
 
   const updateInvoiceItem = (index: number, field: keyof InvoiceItem, value: any) => {
@@ -349,13 +415,33 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
               <tbody className="divide-y divide-slate-50">
                 {editingInvoice.items.map((item, index) => (
                   <tr key={item.id} className="group">
-                    <td className="py-3">
+                    <td className="py-3 relative">
                       <input 
                         value={item.description}
-                        onChange={(e) => updateInvoiceItem(index, 'description', e.target.value)}
+                        onChange={(e) => handleDescriptionChange(index, e.target.value)}
                         className="w-full text-sm font-medium text-slate-700 bg-transparent outline-none placeholder-slate-300"
                         placeholder="Descripción del concepto"
+                        onFocus={() => setActiveSuggestionIndex(null)} // Clear suggestions when focusing another field? No, maybe just let it be.
                       />
+                      {activeSuggestionIndex === index && suggestions.length > 0 && (
+                        <div 
+                          ref={suggestionsRef}
+                          className="absolute z-50 left-0 top-full mt-1 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl max-h-60 overflow-y-auto"
+                        >
+                          {suggestions.map((suggestion) => (
+                            <button
+                              key={suggestion.id}
+                              onClick={() => handleSelectSuggestion(index, suggestion)}
+                              className="w-full text-left px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border-b border-slate-50 dark:border-slate-700 last:border-0 flex justify-between items-center group"
+                            >
+                              <span className="font-medium">{suggestion.name}</span>
+                              <span className="text-xs text-slate-400 group-hover:text-[#0047AB] dark:group-hover:text-blue-400 font-mono">
+                                {suggestion.price.toFixed(2)}€
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </td>
                     <td className="py-3">
                       <input 

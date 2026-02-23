@@ -813,7 +813,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
 
         {/* INVOICES TAB */}
         {activeTab === 'invoices' && (
-            <InvoiceManager project={project} onUpdate={updateProjectWithHistory} />
+            <InvoiceManager project={project} onUpdate={updateProjectWithHistory} priceDatabase={priceDatabase} />
         )}
 
         {/* DOCUMENTS TAB (RENAMED TO ARCHIVOS) */}
