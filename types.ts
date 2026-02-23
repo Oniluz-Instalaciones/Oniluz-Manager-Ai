@@ -150,5 +150,6 @@ export interface Project {
   incidents: Incident[];
   budgets?: Budget[];
   invoices?: Invoice[];
+  invoiceData?: Invoice[]; // Legacy/Embedded storage for invoices
   documents: ProjectDocument[];
 }

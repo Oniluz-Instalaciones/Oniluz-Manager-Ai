@@ -216,6 +216,7 @@ const App: React.FC = () => {
             pvData: pvData, 
             elevatorData: elevatorData, 
             invoiceData: invoiceData, 
+            invoices: invoiceData || [], // Sync invoices from embedded data
             transactions: p.transactions?.map((t: any) => ({
                 ...t,
                 userName: t.user_name // Map database snake_case to app camelCase
@@ -287,8 +288,9 @@ const App: React.FC = () => {
           newProject.clientEmail
       );
 
-      if (newProject.invoiceData) {
-          baseDescription += `\n\n${INVOICE_TAG_OPEN}${JSON.stringify(newProject.invoiceData)}${INVOICE_TAG_CLOSE}`;
+      const invoiceDataToSave = newProject.invoices || newProject.invoiceData;
+      if (invoiceDataToSave) {
+          baseDescription += `\n\n${INVOICE_TAG_OPEN}${JSON.stringify(invoiceDataToSave)}${INVOICE_TAG_CLOSE}`;
       }
 
       const payload = {
@@ -397,8 +399,9 @@ const App: React.FC = () => {
         updatedProject.clientEmail
      );
 
-     if (updatedProject.invoiceData) {
-         baseDesc += `\n\n${INVOICE_TAG_OPEN}${JSON.stringify(updatedProject.invoiceData)}${INVOICE_TAG_CLOSE}`;
+     const invoiceDataToSave = updatedProject.invoices || updatedProject.invoiceData;
+     if (invoiceDataToSave) {
+         baseDesc += `\n\n${INVOICE_TAG_OPEN}${JSON.stringify(invoiceDataToSave)}${INVOICE_TAG_CLOSE}`;
      }
 
      const updatePayload = {

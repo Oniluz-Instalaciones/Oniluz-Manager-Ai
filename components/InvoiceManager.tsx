@@ -275,11 +275,10 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
               </div>
             </div>
             <div className="text-right">
-              <h3 className="text-xl font-bold text-slate-900">Oniluz</h3>
-              <p className="text-sm text-slate-500 mt-1">Servicios Integrales</p>
-              <p className="text-sm text-slate-500">CIF: B-12345678</p>
-              <p className="text-sm text-slate-500">Calle Principal 123, Madrid</p>
-              <p className="text-sm text-slate-500">info@oniluz.com</p>
+              <h3 className="text-xl font-bold text-slate-900">Oniluz JAYPE Instalaciones S.L.</h3>
+              <p className="text-sm text-slate-500 mt-1">C/ Don Eduardo Martín, Nº 27</p>
+              <p className="text-sm text-slate-500">45560 Oropesa, Toledo</p>
+              <p className="text-sm text-slate-500">CIF: B26575688</p>
             </div>
           </div>
 
@@ -374,7 +373,7 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
                       />
                     </td>
                     <td className="py-3 text-right text-sm font-bold text-slate-800">
-                      {item.amount.toLocaleString('es-ES', { minimumFractionDigits: 2 })}€
+                      {item.amount.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}€
                     </td>
                     <td className="py-3 text-center opacity-0 group-hover:opacity-100 transition-opacity">
                       <button 
@@ -401,7 +400,7 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
             <div className="w-64 space-y-3">
               <div className="flex justify-between text-sm text-slate-500">
                 <span>Base Imponible</span>
-                <span className="font-medium text-slate-900">{editingInvoice.subtotal.toLocaleString('es-ES', { minimumFractionDigits: 2 })}€</span>
+                <span className="font-medium text-slate-900">{editingInvoice.subtotal.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}€</span>
               </div>
               <div className="flex justify-between items-center text-sm text-slate-500">
                 <div className="flex items-center gap-2">
@@ -417,11 +416,11 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
                     <option value="21">21%</option>
                   </select>
                 </div>
-                <span className="font-medium text-slate-900">{editingInvoice.taxAmount.toLocaleString('es-ES', { minimumFractionDigits: 2 })}€</span>
+                <span className="font-medium text-slate-900">{editingInvoice.taxAmount.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}€</span>
               </div>
               <div className="flex justify-between text-lg font-extrabold text-[#0047AB] pt-4 border-t border-slate-100">
                 <span>Total</span>
-                <span>{editingInvoice.total.toLocaleString('es-ES', { minimumFractionDigits: 2 })}€</span>
+                <span>{editingInvoice.total.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}€</span>
               </div>
             </div>
           </div>
@@ -429,7 +428,7 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate }) =>
           {/* Footer */}
           <div className="mt-12 pt-8 border-t border-slate-100 text-center text-xs text-slate-400">
             <p>Gracias por su confianza.</p>
-            <p className="mt-1">Registro Mercantil de Madrid, Tomo 1234, Folio 56, Hoja M-123456</p>
+            <p className="mt-1">Oniluz JAYPE Instalaciones S.L. - B26575688</p>
           </div>
         </div>
       </div>
