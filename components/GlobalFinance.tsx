@@ -1,9 +1,9 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Project, Transaction } from '../types';
-import { ArrowLeft, TrendingUp, TrendingDown, DollarSign, Calendar, Filter, Download, PieChart as PieIcon, BarChart3, Search, X, User } from 'lucide-react';
+import { ArrowLeft, TrendingUp, TrendingDown, DollarSign, Calendar, Filter, Download, PieChart as PieIcon, BarChart3, Search, X, User, LineChart as LineChartIcon } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, 
-  AreaChart, Area, PieChart, Pie, Legend 
+  AreaChart, Area, PieChart, Pie, Legend, LineChart, Line 
 } from 'recharts';
 
 interface GlobalFinanceProps {
@@ -14,11 +14,12 @@ interface GlobalFinanceProps {
 const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
   // --- State for Filters ---
   const [dateRange, setDateRange] = useState<{ start: string; end: string }>({
-    start: new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0], // Jan 1st of current year
+    start: '2026-01-01', // Default start date as requested
     end: new Date().toISOString().split('T')[0] // Today
   });
   const [selectedProject, setSelectedProject] = useState<string>('ALL');
   const [filterType, setFilterType] = useState<'ALL' | 'income' | 'expense'>('ALL');
+  const [period, setPeriod] = useState<'1D' | '1W' | '1M' | '3M' | '1Y' | 'ALL'>('ALL');
 
   // Scroll ref
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -27,6 +28,52 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
   useEffect(() => {
       scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
   }, [filterType, dateRange, selectedProject]);
+
+  // Handle Period Selection
+  const handlePeriodChange = (newPeriod: '1D' | '1W' | '1M' | '3M' | '1Y' | 'ALL') => {
+      setPeriod(newPeriod);
+      const today = new Date();
+      let start = new Date('2026-01-01'); // Base start date
+      const end = today.toISOString().split('T')[0];
+
+      switch (newPeriod) {
+          case '1D':
+              start = new Date(today);
+              start.setDate(today.getDate() - 1);
+              break;
+          case '1W':
+              start = new Date(today);
+              start.setDate(today.getDate() - 7);
+              break;
+          case '1M':
+              start = new Date(today);
+              start.setMonth(today.getMonth() - 1);
+              break;
+          case '3M':
+              start = new Date(today);
+              start.setMonth(today.getMonth() - 3);
+              break;
+          case '1Y':
+              start = new Date(today);
+              start.setFullYear(today.getFullYear() - 1);
+              break;
+          case 'ALL':
+              start = new Date('2026-01-01');
+              break;
+      }
+      
+      // Ensure start date is not before 2026-01-01 if that's the hard constraint, 
+      // but user might want to see last 1 day even if it's in 2027. 
+      // The request said "starting from 01-01-2026 onwards", implying data before that is irrelevant.
+      if (start < new Date('2026-01-01')) {
+          start = new Date('2026-01-01');
+      }
+
+      setDateRange({
+          start: start.toISOString().split('T')[0],
+          end: end
+      });
+  };
 
   // Helper to format dates as dd-mm-yyyy
   const formatDate = (dateStr: string) => {
@@ -41,6 +88,7 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
   const allTransactions = useMemo(() => {
     return projects.flatMap(p => p.transactions.map(t => ({ 
       ...t, 
+      projectId: p.id, // Force projectId to match parent project to avoid filtering errors
       projectName: p.name,
       projectStatus: p.status 
     })));
@@ -49,14 +97,12 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
   // 2. Apply Filters
   const filteredTransactions = useMemo(() => {
     return allTransactions.filter(t => {
-      const tDate = new Date(t.date);
-      const startDate = dateRange.start ? new Date(dateRange.start) : new Date('2000-01-01');
-      const endDate = dateRange.end ? new Date(dateRange.end) : new Date('2100-01-01');
-      
-      // Fix date comparison to include the end date day
-      endDate.setHours(23, 59, 59, 999);
+      // Robust string comparison for dates (YYYY-MM-DD) to avoid timezone issues
+      const tDateStr = t.date.split('T')[0]; 
+      const startStr = dateRange.start || '2000-01-01';
+      const endStr = dateRange.end || '2100-01-01';
 
-      const matchDate = tDate >= startDate && tDate <= endDate;
+      const matchDate = tDateStr >= startStr && tDateStr <= endStr;
       const matchProject = selectedProject === 'ALL' || t.projectId === selectedProject;
       const matchType = filterType === 'ALL' || t.type === filterType;
 
@@ -65,12 +111,55 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
   }, [allTransactions, dateRange, selectedProject, filterType]);
 
   // 3. Calculate KPI Totals based on Filtered Data
-  const totalIncome = filteredTransactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
-  const totalExpense = filteredTransactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
-  const netProfit = totalIncome - totalExpense;
-  const profitMargin = totalIncome > 0 ? (netProfit / totalIncome) * 100 : 0;
+  const totalIncome = useMemo(() => filteredTransactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0), [filteredTransactions]);
+  const totalExpense = useMemo(() => filteredTransactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0), [filteredTransactions]);
+  const netProfit = useMemo(() => totalIncome - totalExpense, [totalIncome, totalExpense]);
+  
+  // Margen Neto: ((Ingresos - Gastos) / Ingresos) * 100
+  const profitMargin = useMemo(() => {
+      return totalIncome > 0 ? ((totalIncome - totalExpense) / totalIncome) * 100 : 0;
+  }, [totalIncome, totalExpense]);
 
-  // 4. Prepare Chart Data: Evolution over time
+  // Previsión de IVA: 21% sobre el beneficio neto actual
+  const vatNet = useMemo(() => {
+      return netProfit * 0.21;
+  }, [netProfit]);
+
+  // Detección de Pérdidas: Filtra los proyectos donde los gastos sean mayores que los ingresos
+  const lossMakingProjects = useMemo(() => {
+      return projects.filter(p => {
+          const pIncome = p.transactions.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
+          const pExpenses = p.transactions.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
+          // Alert if Expenses > Income (Loss)
+          return pExpenses > pIncome;
+      });
+  }, [projects]);
+
+  // --- NEW KPI: Fixed vs Variable Expenses ---
+  // Categorization logic
+  const fixedCategories = ['Herramientas', 'Maquinaria', 'Alquiler', 'Seguros', 'Suscripciones', 'Personal']; // Added common fixed
+  const variableCategories = ['Material', 'Dietas', 'Combustible', 'Logística', 'Mano de Obra', 'Transporte']; // Added common variable
+
+  const expensesList = filteredTransactions.filter(t => t.type === 'expense');
+  const fixedExpenses = expensesList.filter(t => fixedCategories.includes(t.category) || !variableCategories.includes(t.category)).reduce((s, t) => s + t.amount, 0);
+  // Actually, let's be strict. If it's in variable, it's variable. If in fixed, fixed. 
+  // If neither? Default to Variable for project based? Or Fixed? 
+  // Let's use the user's specific request: "cuánto se va en herramientas/material frente a dietas/combustible"
+  // Group A (Material/Tools/Infra): Material, Herramientas, Maquinaria
+  // Group B (Operational/Logistics): Dietas, Combustible, Logística, Transporte
+  // Let's call them "Materiales y Equipos" vs "Operativos y Logística"
+  
+  const materialToolsExpenses = expensesList.filter(t => ['Material', 'Herramientas', 'Maquinaria'].includes(t.category)).reduce((s, t) => s + t.amount, 0);
+  const operationalExpenses = expensesList.filter(t => ['Dietas', 'Combustible', 'Logística', 'Transporte', 'Mano de Obra'].includes(t.category)).reduce((s, t) => s + t.amount, 0);
+  const otherExpenses = totalExpense - materialToolsExpenses - operationalExpenses;
+
+  const expenseStructureData = [
+      { name: 'Materiales y Equipos', value: materialToolsExpenses, color: '#0047AB' },
+      { name: 'Operativos (Dietas/Combustible)', value: operationalExpenses, color: '#f59e0b' },
+      { name: 'Otros', value: otherExpenses, color: '#94a3b8' }
+  ].filter(d => d.value > 0);
+
+  // 4. Prepare Chart Data: Evolution over time (Smoothed)
   const evolutionData = useMemo(() => {
     const grouped: Record<string, { date: string, income: number, expense: number }> = {};
     
@@ -78,14 +167,31 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
     const sorted = [...filteredTransactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
     sorted.forEach(t => {
-      // Group by Month (YYYY-MM) or Day depending on range? Let's do Month for global view usually
-      const key = t.date.substring(0, 7); // YYYY-MM
+      const key = t.date; // YYYY-MM-DD
       if (!grouped[key]) grouped[key] = { date: key, income: 0, expense: 0 };
       if (t.type === 'income') grouped[key].income += t.amount;
       else grouped[key].expense += t.amount;
     });
 
-    return Object.values(grouped);
+    let rawData = Object.values(grouped).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    // Apply Moving Average Smoothing (Window Size = 3)
+    // This reduces oscillation by averaging current point with neighbors
+    if (rawData.length > 2) {
+        const smoothedData = rawData.map((item, index, arr) => {
+            const start = Math.max(0, index - 1);
+            const end = Math.min(arr.length - 1, index + 1);
+            const window = arr.slice(start, end + 1);
+            
+            const avgIncome = window.reduce((sum, i) => sum + i.income, 0) / window.length;
+            const avgExpense = window.reduce((sum, i) => sum + i.expense, 0) / window.length;
+
+            return { ...item, income: avgIncome, expense: avgExpense };
+        });
+        return smoothedData;
+    }
+
+    return rawData;
   }, [filteredTransactions]);
 
   // 5. Prepare Chart Data: Expense Categories
@@ -100,30 +206,37 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
     return Object.keys(grouped).map(key => ({ name: key, value: grouped[key] })).sort((a, b) => b.value - a.value);
   }, [filteredTransactions]);
 
-  // 6. Per Project Breakdown
+  // 6. Per Project Breakdown (LIFETIME DATA - Ignoring Date Filter for "Rentabilidad por Obra")
   const projectFinancials = useMemo(() => {
       return projects.map(p => {
-          // Calculate using filtered transactions to respect date range
-          // Note: If 'selectedProject' filter is active, only one row will have data > 0 unless we ignore that filter for this table.
-          // Let's respect the date filter but show all projects rows, calculating their sums within that date range.
+          // Use ALL transactions for the project to show true profitability
+          // This fixes the "no data reflected" issue when filters are too strict
+          const pTrans = p.transactions; 
           
-          const pTrans = filteredTransactions.filter(t => t.projectId === p.id);
           const inc = pTrans.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
           const exp = pTrans.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
+          const profit = inc - exp;
+          const margin = inc > 0 ? (profit / inc) * 100 : 0;
           
+          let status: 'profit' | 'loss' | 'warning' = 'profit';
+          if (profit < 0) status = 'loss';
+          else if (margin < 15) status = 'warning'; 
+
           return {
               id: p.id,
               name: p.name,
-              status: p.status,
+              projectStatus: p.status,
               income: inc,
               expense: exp,
-              profit: inc - exp,
-              margin: inc > 0 ? ((inc - exp) / inc) * 100 : 0,
-              hasActivity: pTrans.length > 0
+              profit: profit,
+              margin: margin,
+              status: status,
+              hasActivity: pTrans.length > 0 || p.budget > 0 // Show if it has transactions OR a budget
           };
-      }).filter(p => selectedProject === 'ALL' || p.id === selectedProject) // Show only selected project if filtered
-        .filter(p => p.hasActivity); // Only show projects with activity in this period
-  }, [projects, filteredTransactions, selectedProject]);
+      }).filter(p => selectedProject === 'ALL' || p.id === selectedProject)
+        .filter(p => p.hasActivity) // Show all active projects
+        .sort((a, b) => a.profit - b.profit); 
+  }, [projects, selectedProject]); // Removed filteredTransactions dependency
 
   // Colors for Charts
   const COLORS = ['#0047AB', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
@@ -235,7 +348,7 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
 
       <div className="flex-1 overflow-y-auto p-8 max-w-[1600px] mx-auto w-full space-y-8" ref={scrollContainerRef}>
         
-        {/* KPI Cards */}
+        {/* KPI Cards Row 1: General Financials */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 flex flex-col justify-between h-32 transition-colors relative overflow-hidden">
              <div className="absolute top-0 right-0 p-4 opacity-10">
@@ -263,62 +376,158 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
              </div>
           </div>
 
-          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 flex flex-col justify-between h-32 transition-colors relative overflow-hidden">
+          <div className={`bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 flex flex-col justify-between h-32 transition-all relative overflow-hidden ${netProfit < 0 ? 'animate-pulse ring-2 ring-red-500/50' : ''}`}>
              <div className="absolute top-0 right-0 p-4 opacity-10">
                  <DollarSign className="w-16 h-16 text-blue-500" />
              </div>
-             <p className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider z-10">Beneficio Neto</p>
-             <p className={`text-3xl font-extrabold z-10 ${netProfit >= 0 ? 'text-[#0047AB] dark:text-blue-400' : 'text-orange-600 dark:text-orange-400'}`}>
-                 {netProfit.toLocaleString()}€
-             </p>
+             <p className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider z-10">Margen Operativo Neto</p>
+             <div>
+                <p className={`text-3xl font-extrabold z-10 ${netProfit >= 0 ? 'text-[#0047AB] dark:text-blue-400' : 'text-red-600 dark:text-red-400'}`}>
+                    {netProfit.toLocaleString()}€
+                </p>
+                <p className={`text-xs font-bold mt-1 inline-block px-2 py-0.5 rounded-md ${profitMargin >= 0 ? 'text-green-600 bg-green-50 dark:bg-green-900/20 dark:text-green-400' : 'text-red-500 bg-red-50 dark:bg-red-900/20 dark:text-red-400'}`}>
+                    {profitMargin.toFixed(1)}% de rentabilidad
+                </p>
+             </div>
           </div>
 
-          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 flex flex-col justify-between h-32 transition-colors relative overflow-hidden">
+          <div className={`p-6 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border flex flex-col justify-between h-32 transition-colors relative overflow-hidden ${vatNet > 0 ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-700/50' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700'}`}>
              <div className="absolute top-0 right-0 p-4 opacity-10">
                  <PieIcon className="w-16 h-16 text-purple-500" />
              </div>
-             <p className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider z-10">Rentabilidad Global</p>
+             <p className={`text-xs font-bold uppercase tracking-wider z-10 ${vatNet > 0 ? 'text-amber-700 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400'}`}>
+                 Previsión IVA (Estimado)
+             </p>
              <div>
-                 <p className={`text-3xl font-extrabold z-10 ${profitMargin >= 20 ? 'text-green-600 dark:text-green-400' : profitMargin >= 10 ? 'text-blue-600' : 'text-orange-500'}`}>
-                     {profitMargin.toFixed(1)}%
+                 <p className={`text-2xl font-extrabold z-10 ${vatNet > 0 ? 'text-amber-700 dark:text-amber-400' : 'text-slate-800 dark:text-slate-200'}`}>
+                     {Math.abs(vatNet).toLocaleString()}€
                  </p>
-                 <p className="text-xs text-slate-400 dark:text-slate-500 font-medium mt-1">Margen sobre ingresos</p>
+                 <p className={`text-xs font-medium mt-1 ${vatNet > 0 ? 'text-amber-600 dark:text-amber-500' : 'text-slate-400 dark:text-slate-500'}`}>
+                    {vatNet > 0 ? 'A Pagar (Reservar dinero)' : 'A Devolver (A favor)'}
+                 </p>
              </div>
           </div>
+        </div>
+
+        {/* KPI Cards Row 2: Alerts & Structure */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Loss Making Projects Alert */}
+            <div className={`p-6 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border transition-colors relative overflow-hidden ${lossMakingProjects.length > 0 ? 'bg-red-50 dark:bg-red-900/10 border-red-100 dark:border-red-900/30' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700'}`}>
+                <div className="flex items-start justify-between">
+                    <div>
+                        <p className={`text-xs font-bold uppercase tracking-wider mb-1 ${lossMakingProjects.length > 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400'}`}>
+                            Proyectos en Pérdida (Gastos &gt; Presupuesto)
+                        </p>
+                        <h3 className={`text-3xl font-extrabold ${lossMakingProjects.length > 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-700 dark:text-slate-300'}`}>
+                            {lossMakingProjects.length}
+                        </h3>
+                        {lossMakingProjects.length > 0 && (
+                            <div className="mt-3 space-y-1">
+                                {lossMakingProjects.slice(0, 3).map(p => (
+                                    <div key={p.id} className="text-xs font-medium text-red-700 dark:text-red-300 flex items-center gap-2">
+                                        <X className="w-3 h-3" /> {p.name}
+                                    </div>
+                                ))}
+                                {lossMakingProjects.length > 3 && <div className="text-xs text-red-500 italic">+ {lossMakingProjects.length - 3} más...</div>}
+                            </div>
+                        )}
+                        {lossMakingProjects.length === 0 && <p className="text-sm text-slate-500 mt-2">¡Excelente! Todos los proyectos están dentro del presupuesto.</p>}
+                    </div>
+                    <div className={`p-3 rounded-full ${lossMakingProjects.length > 0 ? 'bg-red-100 dark:bg-red-900/30 text-red-600' : 'bg-slate-100 dark:bg-slate-700 text-slate-400'}`}>
+                        <TrendingDown className="w-6 h-6" />
+                    </div>
+                </div>
+            </div>
+
+            {/* Expense Structure Ratio */}
+            <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 flex flex-col justify-between">
+                <div className="flex justify-between items-start mb-4">
+                    <div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">Estructura de Gastos</p>
+                        <h3 className="text-lg font-bold text-slate-800 dark:text-white mt-1">Material vs Operativo</h3>
+                    </div>
+                    <PieIcon className="w-6 h-6 text-slate-400" />
+                </div>
+                <div className="flex items-center gap-4">
+                    <div className="h-24 w-24 min-w-[6rem]">
+                         <ResponsiveContainer width="100%" height="100%">
+                             <PieChart>
+                                 <Pie 
+                                    data={expenseStructureData} 
+                                    cx="50%" 
+                                    cy="50%" 
+                                    innerRadius={25} 
+                                    outerRadius={40} 
+                                    paddingAngle={2} 
+                                    dataKey="value"
+                                 >
+                                     {expenseStructureData.map((entry, index) => (
+                                         <Cell key={`cell-${index}`} fill={entry.color} />
+                                     ))}
+                                 </Pie>
+                             </PieChart>
+                         </ResponsiveContainer>
+                    </div>
+                    <div className="flex-1 space-y-2">
+                        {expenseStructureData.map((d) => (
+                            <div key={d.name} className="flex justify-between items-center text-xs">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: d.color }}></div>
+                                    <span className="text-slate-600 dark:text-slate-300 font-medium truncate max-w-[120px]">{d.name}</span>
+                                </div>
+                                <span className="font-bold text-slate-800 dark:text-white">{((d.value / totalExpense) * 100).toFixed(0)}%</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
         </div>
 
         {/* Charts Row */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             {/* Evolution Chart */}
             <div className="lg:col-span-2 bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 transition-colors">
-                 <div className="flex items-center justify-between mb-8">
+                 <div className="flex flex-col sm:flex-row items-center justify-between mb-8 gap-4">
                      <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                         <TrendingUp className="w-5 h-5 text-[#0047AB] dark:text-blue-400" /> Evolución de Flujo de Caja
+                         <LineChartIcon className="w-5 h-5 text-[#0047AB] dark:text-blue-400" /> Evolución de Flujo de Caja
                      </h3>
+                     <div className="flex bg-slate-100 dark:bg-slate-700 p-1 rounded-lg overflow-x-auto max-w-full">
+                        {(['1D', '1W', '1M', '3M', '1Y', 'ALL'] as const).map((p) => (
+                            <button
+                                key={p}
+                                onClick={() => handlePeriodChange(p)}
+                                className={`px-3 py-1 text-xs font-bold rounded-md transition-all whitespace-nowrap ${
+                                    period === p 
+                                    ? 'bg-white dark:bg-slate-600 text-[#0047AB] dark:text-blue-400 shadow-sm' 
+                                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+                                }`}
+                            >
+                                {p === '1D' ? '1 Día' : p === '1W' ? '1 Sem' : p === '1M' ? '1 Mes' : p === '3M' ? '3 Meses' : p === '1Y' ? '1 Año' : 'Todo'}
+                            </button>
+                        ))}
+                     </div>
                  </div>
                  <div className="h-[300px] w-full">
                      <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                         <AreaChart data={evolutionData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                             <defs>
-                                 <linearGradient id="colorIncome" x1="0" y1="0" x2="0" y2="1">
-                                     <stop offset="5%" stopColor="#10b981" stopOpacity={0.2}/>
-                                     <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                                 </linearGradient>
-                                 <linearGradient id="colorExpense" x1="0" y1="0" x2="0" y2="1">
-                                     <stop offset="5%" stopColor="#ef4444" stopOpacity={0.2}/>
-                                     <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
-                                 </linearGradient>
-                             </defs>
-                             <XAxis dataKey="date" tick={{fontSize: 10, fill: '#94a3b8'}} axisLine={false} tickLine={false} tickFormatter={(val) => val.split('-').reverse().join('-')} />
-                             <YAxis tick={{fontSize: 10, fill: '#94a3b8'}} axisLine={false} tickLine={false} tickFormatter={(val) => `${val/1000}k`} />
+                         <LineChart data={evolutionData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                             <XAxis 
+                                dataKey="date" 
+                                tick={{fontSize: 10, fill: '#94a3b8'}} 
+                                axisLine={false} 
+                                tickLine={false} 
+                                tickFormatter={(val) => val.split('-').reverse().join('-')} 
+                                minTickGap={30}
+                             />
+                             <YAxis tick={{fontSize: 10, fill: '#94a3b8'}} axisLine={false} tickLine={false} tickFormatter={(val) => `${val/1000}k`} />
                              <Tooltip 
                                 contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'}} 
                                 labelStyle={{color: '#64748b', fontWeight: 'bold'}}
                              />
-                             <Area type="monotone" dataKey="income" name="Ingresos" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#colorIncome)" />
-                             <Area type="monotone" dataKey="expense" name="Gastos" stroke="#ef4444" strokeWidth={2} fillOpacity={1} fill="url(#colorExpense)" />
-                         </AreaChart>
+                             <Legend verticalAlign="top" height={36}/>
+                             <Line type="basis" dataKey="income" name="Ingresos" stroke="#10b981" strokeWidth={3} dot={{r: 4}} activeDot={{r: 6}} />
+                             <Line type="basis" dataKey="expense" name="Gastos" stroke="#ef4444" strokeWidth={3} dot={{r: 4}} activeDot={{r: 6}} />
+                         </LineChart>
                      </ResponsiveContainer>
                  </div>
             </div>
@@ -352,13 +561,13 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
             </div>
         </div>
 
-        {/* Breakdown by Project Table */}
+        {/* Breakdown by Project Table (Replaces Transaction List) */}
         <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 overflow-hidden transition-colors">
            <div className="p-8 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center">
              <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                 <BarChart3 className="w-5 h-5 text-[#0047AB] dark:text-blue-400" /> Desglose: Finanzas por Obra
+                 <BarChart3 className="w-5 h-5 text-[#0047AB] dark:text-blue-400" /> Rentabilidad por Obra
              </h3>
-             <span className="text-xs text-slate-400 font-medium hidden sm:block">Basado en periodo seleccionado</span>
+             <span className="text-xs text-slate-400 font-medium hidden sm:block">Ordenado por menor beneficio</span>
            </div>
            <div className="overflow-x-auto">
                <table className="w-full text-left text-sm">
@@ -375,26 +584,37 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
                    <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
                        {projectFinancials.map(p => (
                            <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
-                               <td className="px-6 py-4 font-bold text-slate-800 dark:text-white truncate max-w-[200px]">{p.name}</td>
+                               <td className="px-6 py-4 font-bold text-slate-800 dark:text-white truncate max-w-[200px]">
+                                   <div className="flex items-center gap-2">
+                                       {p.status === 'loss' ? (
+                                           <TrendingDown className="w-4 h-4 text-red-500" />
+                                       ) : p.status === 'warning' ? (
+                                           <TrendingUp className="w-4 h-4 text-amber-500" />
+                                       ) : (
+                                           <TrendingUp className="w-4 h-4 text-green-500" />
+                                       )}
+                                       {p.name}
+                                   </div>
+                               </td>
                                <td className="px-6 py-4 text-center">
                                    <span className={`text-[10px] px-2 py-1 rounded-full uppercase font-bold ${
-                                       p.status === 'En Curso' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
-                                       p.status === 'Completado' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
+                                       p.projectStatus === 'En Curso' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
+                                       p.projectStatus === 'Completado' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
                                        'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
                                    }`}>
-                                       {p.status}
+                                       {p.projectStatus}
                                    </span>
                                </td>
                                <td className="px-6 py-4 text-right text-green-600 dark:text-green-400 font-mono font-medium">{p.income.toLocaleString()}€</td>
                                <td className="px-6 py-4 text-right text-red-500 dark:text-red-400 font-mono font-medium">{p.expense.toLocaleString()}€</td>
-                               <td className={`px-6 py-4 text-right font-mono font-bold ${p.profit >= 0 ? 'text-[#0047AB] dark:text-blue-400' : 'text-orange-500'}`}>
+                               <td className={`px-6 py-4 text-right font-mono font-bold ${p.profit >= 0 ? 'text-[#0047AB] dark:text-blue-400' : 'text-red-500'}`}>
                                    {p.profit.toLocaleString()}€
                                </td>
                                <td className="px-6 py-4 text-right">
                                    <div className="flex items-center justify-end gap-2">
                                        <div className="w-16 h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
                                            <div 
-                                              className={`h-full ${p.margin >= 20 ? 'bg-green-500' : p.margin >= 10 ? 'bg-blue-500' : 'bg-orange-500'}`} 
+                                              className={`h-full ${p.status === 'profit' ? 'bg-green-500' : p.status === 'warning' ? 'bg-amber-500' : 'bg-red-500'}`} 
                                               style={{width: `${Math.min(Math.max(p.margin, 0), 100)}%`}}
                                            ></div>
                                        </div>
@@ -412,52 +632,6 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
                        )}
                    </tbody>
                </table>
-           </div>
-        </div>
-
-        {/* Detailed Transactions List (Filtered) */}
-        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 overflow-hidden transition-colors">
-           <div className="p-8 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center">
-             <h3 className="text-lg font-bold text-slate-900 dark:text-white">Listado de Movimientos Filtrados</h3>
-             <span className="bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold px-3 py-1 rounded-full">
-                 {filteredTransactions.length} registros
-             </span>
-           </div>
-           <div className="divide-y divide-slate-100 dark:divide-slate-700">
-             {filteredTransactions.slice(0, 50).map(t => (
-               <div key={t.id} className="p-6 flex flex-col sm:flex-row sm:items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
-                  <div className="flex items-start gap-4 mb-2 sm:mb-0">
-                    <div className={`p-2.5 rounded-xl mt-0.5 ${t.type === 'income' ? 'bg-green-50 dark:bg-green-900/20 text-green-600' : 'bg-red-50 dark:bg-red-900/20 text-red-500'}`}>
-                      {t.type === 'income' ? <TrendingUp className="w-5 h-5" /> : <TrendingDown className="w-5 h-5" />}
-                    </div>
-                    <div>
-                      <p className="font-bold text-slate-900 dark:text-white text-base">{t.description}</p>
-                      <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 mt-0.5 font-medium">
-                          <span>{formatDate(t.date)}</span>
-                          <span className="text-slate-300 dark:text-slate-600">•</span>
-                          <span className="text-[#0047AB] dark:text-blue-400 font-bold">{t.projectName}</span>
-                          {t.userName && (
-                              <span className="flex items-center gap-1 text-[10px] bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded-full ml-2">
-                                  <User className="w-2.5 h-2.5" /> {t.userName}
-                              </span>
-                          )}
-                      </div>
-                    </div>
-                  </div>
-                  <div className={`font-bold text-lg text-right ${t.type === 'income' ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}>
-                    {t.type === 'income' ? '+' : '-'}{t.amount.toLocaleString()}€
-                    <span className="block text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide mt-1">{t.category}</span>
-                  </div>
-               </div>
-             ))}
-             {filteredTransactions.length === 0 && (
-               <div className="p-12 text-center text-slate-400 dark:text-slate-500 font-medium">No se encontraron movimientos.</div>
-             )}
-             {filteredTransactions.length > 50 && (
-                 <div className="p-4 text-center text-xs text-slate-400 border-t border-slate-100 dark:border-slate-700">
-                     Mostrando los primeros 50 movimientos. Exporta a CSV para ver todo.
-                 </div>
-             )}
            </div>
         </div>
 

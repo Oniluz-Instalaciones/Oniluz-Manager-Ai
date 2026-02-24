@@ -90,6 +90,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
   // NOTE: We update totalBudget calculation here to also be robust (sum accepted budgets if project budget is 0)
   const totalProjects = filteredProjects.length;
   const inProgressCount = filteredProjects.filter(p => p.status === ProjectStatus.IN_PROGRESS).length;
+  const completedCount = filteredProjects.filter(p => p.status === ProjectStatus.COMPLETED).length;
   
   const totalBudget = filteredProjects.reduce((sum, p) => {
       const activeBudgets = p.budgets?.filter(b => b.status === 'Accepted').reduce((s, b) => s + b.total, 0) || 0;
@@ -432,12 +433,17 @@ const ProjectList: React.FC<ProjectListProps> = ({
               <div className="text-3xl font-bold text-[#0047AB]">{inProgressCount}</div>
           </button>
           
-          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100 dark:border-slate-700 cursor-default">
-              <div className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Presupuesto {typeFilter !== 'ALL' ? 'Dpto.' : 'Total'}</div>
-              <div className="text-3xl font-bold text-slate-800 dark:text-white">
-                {(totalBudget/1000).toFixed(1)}k€
-              </div>
-          </div>
+          <button 
+              onClick={() => { setStatusFilter(ProjectStatus.COMPLETED); setShowIncidentsOnly(false); }}
+              className={`p-6 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border transition-all text-left group ${
+                  statusFilter === ProjectStatus.COMPLETED 
+                  ? 'bg-white dark:bg-slate-800 border-green-500 ring-1 ring-green-200' 
+                  : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-500'
+              }`}
+          >
+              <div className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Finalizados</div>
+              <div className="text-3xl font-bold text-green-600 dark:text-green-400">{completedCount}</div>
+          </button>
           
           <button 
               onClick={() => { setStatusFilter('ALL'); setShowIncidentsOnly(true); }}

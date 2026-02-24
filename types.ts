@@ -153,3 +153,21 @@ export interface Project {
   invoiceData?: Invoice[]; // Legacy/Embedded storage for invoices
   documents: ProjectDocument[];
 }
+
+export interface FinancialKPIs {
+  netMargin: number;
+  totalRevenue: number;
+  totalExpenses: number;
+  estimatedVAT: number; // Cálculo de IVA 21%
+  fixedExpensesRatio: number;
+  variableExpensesRatio: number;
+}
+
+export interface ProjectProfitability {
+  projectId: string;
+  projectName: string;
+  revenue: number;
+  expenses: number;
+  margin: number;
+  status: 'profit' | 'loss' | 'warning';
+}

@@ -1,5 +1,8 @@
 import { Project, ProjectStatus, Priority } from './types';
 
+export const INVOICE_TAG_OPEN = '[INVOICE_JSON]';
+export const INVOICE_TAG_CLOSE = '[/INVOICE_JSON]';
+
 export const PRICE_DATABASE = [
   { name: 'Cable RV-K 3G1.5', unit: 'm', price: 0.85, category: 'Material' },
   { name: 'Cable RV-K 3G2.5', unit: 'm', price: 1.20, category: 'Material' },

@@ -4,6 +4,7 @@ import { Plus, Trash2, Printer, Save, Edit3, FileText, Calculator, Download, Che
 import { supabase } from '../lib/supabase';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { INVOICE_TAG_OPEN, INVOICE_TAG_CLOSE } from '../constants';
 
 interface InvoiceManagerProps {
   project: Project;
@@ -142,7 +143,56 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
     return { subtotal: safeSubtotal, taxAmount, total };
   };
 
-  const handleCreateInvoice = () => {
+  const getNextInvoiceNumber = async (): Promise<string> => {
+    try {
+      // 1. Fetch all projects
+      const { data: projects, error } = await supabase
+        .from('projects')
+        .select('description');
+      
+      if (error) throw error;
+
+      let maxNumber = 0;
+      const currentYear = new Date().getFullYear();
+
+      // 2. Iterate and parse
+      projects?.forEach(p => {
+        if (p.description && p.description.includes(INVOICE_TAG_OPEN)) {
+           try {
+             const startIndex = p.description.indexOf(INVOICE_TAG_OPEN);
+             const endIndex = p.description.indexOf(INVOICE_TAG_CLOSE);
+             if (startIndex !== -1 && endIndex !== -1) {
+               const jsonStr = p.description.substring(startIndex + INVOICE_TAG_OPEN.length, endIndex);
+               const projectInvoices: Invoice[] = JSON.parse(jsonStr);
+               
+               projectInvoices.forEach(inv => {
+                 // Format: INV-YYYY-XXX
+                 const parts = inv.number.split('-');
+                 if (parts.length === 3) {
+                   const year = parseInt(parts[1]);
+                   const num = parseInt(parts[2]);
+                   if (year === currentYear && !isNaN(num)) {
+                     if (num > maxNumber) maxNumber = num;
+                   }
+                 }
+               });
+             }
+           } catch (e) {
+             console.error("Error parsing invoices for number generation", e);
+           }
+        }
+      });
+
+      return `INV-${currentYear}-${(maxNumber + 1).toString().padStart(3, '0')}`;
+
+    } catch (error) {
+      console.error("Error fetching projects for invoice number:", error);
+      // Fallback to local length if fetch fails (e.g. offline or no table)
+      return `INV-${new Date().getFullYear()}-${(invoices.length + 1).toString().padStart(3, '0')}`;
+    }
+  };
+
+  const handleCreateInvoice = async () => {
     // 1. Get Budget Items (Detailed)
     const acceptedBudgets = project.budgets?.filter(b => b.status === 'Accepted') || [];
     let budgetItems: InvoiceItem[] = [];
@@ -201,10 +251,12 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
 
     const { subtotal, taxAmount, total } = calculateTotals(newItems, 21);
 
+    const nextInvoiceNumber = await getNextInvoiceNumber();
+
     const newInvoice: Invoice = {
       id: crypto.randomUUID(),
       projectId: project.id,
-      number: `INV-${new Date().getFullYear()}-${(invoices.length + 1).toString().padStart(3, '0')}`,
+      number: nextInvoiceNumber,
       date: new Date().toISOString().split('T')[0],
       clientName: 'VALIDA SOLUTIONS SL',
       clientAddress: 'Polígono Industrial Montfulla 21 - Can Culebra, 17162, Bescano (Girona)', 
