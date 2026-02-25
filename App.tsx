@@ -4,6 +4,7 @@ import { PRICE_DATABASE } from './constants';
 import ProjectList from './components/ProjectList';
 import ProjectDetail from './components/ProjectDetail';
 import GlobalFinance from './components/GlobalFinance';
+import InternalFinance from './components/InternalFinance';
 import PriceDatabase from './components/PriceDatabase';
 import ProjectCalendar from './components/ProjectCalendar';
 import Login from './components/Login';
@@ -119,6 +120,7 @@ const App: React.FC = () => {
 
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [showGlobalFinance, setShowGlobalFinance] = useState(false);
+  const [showInternalFinance, setShowInternalFinance] = useState(false);
   const [showPriceDb, setShowPriceDb] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
 
@@ -152,6 +154,7 @@ const App: React.FC = () => {
         if (!newSession) {
           setSelectedProjectId(null);
           setShowGlobalFinance(false);
+          setShowInternalFinance(false);
           setShowPriceDb(false);
           setShowCalendar(false);
           setProjects([]); 
@@ -605,6 +608,15 @@ const App: React.FC = () => {
       );
   }
 
+  if (showInternalFinance) {
+      return (
+          <InternalFinance 
+            projects={projects}
+            onBack={() => setShowInternalFinance(false)}
+          />
+      );
+  }
+
   if (showCalendar) {
       return (
           <ProjectCalendar 
@@ -634,6 +646,7 @@ const App: React.FC = () => {
       onAddProject={handleAddProject}
       onUpdateProject={handleUpdateProject}
       onOpenGlobalFinance={() => setShowGlobalFinance(true)}
+      onOpenInternalFinance={() => setShowInternalFinance(true)}
       onOpenPriceDb={() => setShowPriceDb(true)}
       onOpenCalendar={() => setShowCalendar(true)}
       isDarkMode={darkMode}

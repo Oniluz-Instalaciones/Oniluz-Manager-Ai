@@ -86,12 +86,17 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
 
   // 1. Flatten all transactions with project context
   const allTransactions = useMemo(() => {
-    return projects.flatMap(p => p.transactions.map(t => ({ 
-      ...t, 
-      projectId: p.id, // Force projectId to match parent project to avoid filtering errors
-      projectName: p.name,
-      projectStatus: p.status 
-    })));
+    return projects.flatMap(p => p.transactions.map(t => {
+      // Find related document if any
+      const relatedDoc = t.relatedDocumentId ? p.documents.find(d => d.id === t.relatedDocumentId) : undefined;
+      return { 
+        ...t, 
+        projectId: p.id, // Force projectId to match parent project to avoid filtering errors
+        projectName: p.name,
+        projectStatus: p.status,
+        relatedDocument: relatedDoc
+      };
+    }));
   }, [projects]);
 
   // 2. Apply Filters
@@ -266,8 +271,48 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
     document.body.removeChild(link);
   };
 
+  // State for viewing document
+  const [viewingDoc, setViewingDoc] = useState<{ url: string, type: 'image' | 'pdf' } | null>(null);
+
   return (
     <div className="min-h-screen bg-slate-100 dark:bg-slate-900 flex flex-col font-sans transition-colors duration-300">
+      {/* Document Viewer Modal */}
+      {viewingDoc && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm" onClick={() => setViewingDoc(null)}>
+          <div className="relative max-w-4xl w-full max-h-[90vh] bg-white dark:bg-slate-800 rounded-2xl overflow-hidden shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="p-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center">
+              <h3 className="font-bold text-slate-900 dark:text-white">Vista Previa del Documento</h3>
+              <button onClick={() => setViewingDoc(null)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors">
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto p-4 bg-slate-100 dark:bg-slate-900 flex items-center justify-center">
+              {viewingDoc.type === 'image' ? (
+                <img src={viewingDoc.url} alt="Document" className="max-w-full max-h-full object-contain rounded-lg shadow-sm" />
+              ) : (
+                <iframe src={viewingDoc.url} className="w-full h-[60vh] rounded-lg border border-slate-200 dark:border-slate-700" title="PDF Viewer" />
+              )}
+            </div>
+            <div className="p-4 border-t border-slate-100 dark:border-slate-700 flex justify-end gap-2 bg-white dark:bg-slate-800">
+                <a 
+                  href={viewingDoc.url} 
+                  download={`documento.${viewingDoc.type === 'pdf' ? 'pdf' : 'png'}`}
+                  className="flex items-center gap-2 px-4 py-2 bg-[#0047AB] hover:bg-blue-700 text-white rounded-lg font-bold text-sm transition-colors"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                    <Download className="w-4 h-4" /> Descargar
+                </a>
+                <button 
+                  onClick={() => setViewingDoc(null)}
+                  className="px-4 py-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 rounded-lg font-bold text-sm transition-colors"
+                >
+                    Cerrar
+                </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="bg-white dark:bg-slate-800 shadow-sm px-8 py-6 flex items-center justify-between border-b border-slate-100 dark:border-slate-700 transition-colors sticky top-0 z-30">
         <div className="flex items-center">
@@ -632,6 +677,75 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
                        )}
                    </tbody>
                </table>
+           </div>
+        </div>
+
+        {/* Detailed Transactions List (Filtered) with Thumbnails */}
+        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 overflow-hidden transition-colors">
+           <div className="p-8 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center">
+             <h3 className="text-lg font-bold text-slate-900 dark:text-white">Listado de Movimientos Filtrados</h3>
+             <span className="bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold px-3 py-1 rounded-full">
+                 {filteredTransactions.length} registros
+             </span>
+           </div>
+           <div className="divide-y divide-slate-100 dark:divide-slate-700">
+             {filteredTransactions.slice(0, 50).map(t => (
+               <div key={t.id} className="p-6 flex flex-col sm:flex-row sm:items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors group">
+                  <div className="flex items-start gap-4 mb-2 sm:mb-0 w-full sm:w-auto">
+                    {/* Thumbnail / Icon */}
+                    <div 
+                        className={`relative w-12 h-12 rounded-xl flex items-center justify-center shrink-0 overflow-hidden border ${t.relatedDocument ? 'cursor-pointer hover:opacity-80 border-slate-200 dark:border-slate-600' : 'border-transparent'} ${t.type === 'income' ? 'bg-green-50 dark:bg-green-900/20 text-green-600' : 'bg-red-50 dark:bg-red-900/20 text-red-500'}`}
+                        onClick={() => t.relatedDocument && setViewingDoc({ url: t.relatedDocument.data, type: t.relatedDocument.type })}
+                    >
+                      {t.relatedDocument && t.relatedDocument.type === 'image' ? (
+                          <img src={t.relatedDocument.data} alt="Ticket" className="w-full h-full object-cover" />
+                      ) : (
+                          t.type === 'income' ? <TrendingUp className="w-5 h-5" /> : <TrendingDown className="w-5 h-5" />
+                      )}
+                      
+                      {/* Overlay icon for documents */}
+                      {t.relatedDocument && (
+                          <div className="absolute inset-0 bg-black/10 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                              <Search className="w-4 h-4 text-white drop-shadow-md" />
+                          </div>
+                      )}
+                    </div>
+
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-slate-900 dark:text-white text-base truncate pr-4">{t.description}</p>
+                      <div className="flex flex-wrap items-center gap-2 text-sm text-slate-500 dark:text-slate-400 mt-0.5 font-medium">
+                          <span>{formatDate(t.date)}</span>
+                          <span className="text-slate-300 dark:text-slate-600 hidden sm:inline">•</span>
+                          <span className="text-[#0047AB] dark:text-blue-400 font-bold truncate max-w-[150px]">{t.projectName}</span>
+                          {t.userName && (
+                              <span className="flex items-center gap-1 text-[10px] bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded-full ml-2 whitespace-nowrap">
+                                  <User className="w-2.5 h-2.5" /> {t.userName}
+                              </span>
+                          )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className={`font-bold text-lg text-right whitespace-nowrap pl-4 ${t.type === 'income' ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}>
+                    {t.type === 'income' ? '+' : '-'}{t.amount.toLocaleString()}€
+                    <span className="block text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide mt-1">{t.category}</span>
+                  </div>
+               </div>
+             ))}
+             {filteredTransactions.length === 0 && (
+               <div className="p-12 text-center text-slate-400 dark:text-slate-500 font-medium">
+                   No se encontraron movimientos en este periodo.
+                   {selectedProject !== 'ALL' && (
+                       <p className="text-xs mt-2 text-slate-400">
+                           Prueba a ampliar el rango de fechas para ver el historial completo de esta obra.
+                       </p>
+                   )}
+               </div>
+             )}
+             {filteredTransactions.length > 50 && (
+                 <div className="p-4 text-center text-xs text-slate-400 border-t border-slate-100 dark:border-slate-700">
+                     Mostrando los primeros 50 movimientos. Exporta a CSV para ver todo.
+                 </div>
+             )}
            </div>
         </div>
 

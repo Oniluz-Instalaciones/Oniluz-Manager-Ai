@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Project, ProjectStatus, Transaction, ProjectDocument, ProjectType, PvData, Material, ElevatorData } from '../types';
-import { Plus, Search, Building2, MapPin, Camera, PieChart, Database, Upload, FileText, Menu, Moon, Sun, ChevronRight, X, Zap, Sun as SunIcon, Battery, Calendar, HardHat, Sparkles, LogOut, Ruler, Layers, Navigation } from 'lucide-react';
+import { Plus, Search, Building2, MapPin, Camera, PieChart, Database, Upload, FileText, Menu, Moon, Sun, ChevronRight, X, Zap, Sun as SunIcon, Battery, Calendar, HardHat, Sparkles, LogOut, Ruler, Layers, Navigation, Briefcase } from 'lucide-react';
 import ScannerModal from './ScannerModal';
 import GlobalAssistant from './GlobalAssistant';
 import { calculateDrivingDistance } from '../services/geminiService';
@@ -31,6 +31,7 @@ interface ProjectListProps {
   onAddProject: (p: Project) => void;
   onUpdateProject: (p: Project) => void;
   onOpenGlobalFinance: () => void;
+  onOpenInternalFinance: () => void;
   onOpenPriceDb: () => void;
   onOpenCalendar: () => void;
   isDarkMode: boolean;
@@ -41,7 +42,7 @@ interface ProjectListProps {
 
 const ProjectList: React.FC<ProjectListProps> = ({ 
   projects, onSelectProject, onAddProject, onUpdateProject, 
-  onOpenGlobalFinance, onOpenPriceDb, onOpenCalendar, isDarkMode, onToggleDarkMode, onLogout, currentUserName
+  onOpenGlobalFinance, onOpenInternalFinance, onOpenPriceDb, onOpenCalendar, isDarkMode, onToggleDarkMode, onLogout, currentUserName
 }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalType, setModalType] = useState<ProjectType>('General'); // Track which type we are creating
@@ -314,6 +315,18 @@ const ProjectList: React.FC<ProjectListProps> = ({
                                               <PieChart className="w-5 h-5" />
                                           </div>
                                           <span className="font-semibold">Finanzas Globales</span>
+                                      </div>
+                                      <ChevronRight className="w-4 h-4 text-slate-300 dark:text-slate-600 group-hover:text-slate-500" />
+                                  </button>
+                                  <button 
+                                      onClick={() => { onOpenInternalFinance(); setIsMenuOpen(false); }}
+                                      className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700/50 text-slate-700 dark:text-slate-200 transition-colors group"
+                                  >
+                                      <div className="flex items-center gap-3">
+                                          <div className="bg-indigo-100 dark:bg-indigo-900/30 p-2 rounded-lg text-indigo-600 dark:text-indigo-400">
+                                              <Briefcase className="w-5 h-5" />
+                                          </div>
+                                          <span className="font-semibold">Finanzas Internas (CFO)</span>
                                       </div>
                                       <ChevronRight className="w-4 h-4 text-slate-300 dark:text-slate-600 group-hover:text-slate-500" />
                                   </button>

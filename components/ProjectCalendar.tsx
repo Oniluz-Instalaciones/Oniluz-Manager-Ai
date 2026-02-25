@@ -88,14 +88,39 @@ const ProjectCalendar: React.FC<ProjectCalendarProps> = ({ projects, onBack }) =
 
     const renderMonth = (monthIndex: number) => {
         const daysInMonth = getDaysInMonth(monthIndex, currentYear);
+        const firstDayOfMonth = new Date(currentYear, monthIndex, 1).getDay(); // 0 = Sunday, 1 = Monday, ...
+        
+        // Adjust for Monday start (Spanish calendar)
+        // Standard JS: 0=Sun, 1=Mon, 2=Tue...
+        // We want: 0=Mon, 1=Tue... 6=Sun
+        const startDayOffset = firstDayOfMonth === 0 ? 6 : firstDayOfMonth - 1;
+
         const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+        const emptyDays = Array.from({ length: startDayOffset }, (_, i) => i);
+
+        const weekDays = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
 
         return (
             <div key={monthIndex} className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 overflow-hidden flex flex-col h-full">
                 <div className="bg-slate-50 dark:bg-slate-700/50 p-3 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center">
                     <h3 className="font-bold text-slate-800 dark:text-white capitalize text-sm">{months[monthIndex]}</h3>
                 </div>
-                <div className="p-1 grid grid-cols-7 gap-px bg-slate-100 dark:bg-slate-700 flex-1">
+                
+                {/* Weekday Headers */}
+                <div className="grid grid-cols-7 bg-slate-50 dark:bg-slate-700/30 border-b border-slate-100 dark:border-slate-700">
+                    {weekDays.map(d => (
+                        <div key={d} className="text-center py-1 text-[10px] font-bold text-slate-400 dark:text-slate-500">
+                            {d}
+                        </div>
+                    ))}
+                </div>
+
+                <div className="p-1 grid grid-cols-7 gap-px bg-slate-100 dark:bg-slate-700 flex-1 auto-rows-fr">
+                    {/* Empty cells for days before the 1st */}
+                    {emptyDays.map(i => (
+                        <div key={`empty-${i}`} className="bg-slate-50/50 dark:bg-slate-800/50 min-h-[60px]"></div>
+                    ))}
+
                     {days.map(day => {
                         const date = new Date(currentYear, monthIndex, day);
                         const activeProjects = getProjectsForDate(date);

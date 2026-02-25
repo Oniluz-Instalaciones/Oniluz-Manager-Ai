@@ -43,6 +43,7 @@ export interface Transaction {
   date: string;
   description: string;
   userName?: string; // New field for the user who created it
+  relatedDocumentId?: string; // Link to a ProjectDocument (ticket/invoice image)
 }
 
 export interface Material {
@@ -170,4 +171,52 @@ export interface ProjectProfitability {
   expenses: number;
   margin: number;
   status: 'profit' | 'loss' | 'warning';
+}
+
+// --- Internal Finance Types ---
+
+export interface FixedExpense {
+  id: string;
+  name: string;
+  amount: number;
+  frequency: 'Monthly' | 'Quarterly' | 'Yearly';
+  category: 'Rent' | 'Utilities' | 'Insurance' | 'Software' | 'Other';
+  nextDueDate?: string;
+}
+
+export interface Employee {
+  id: string;
+  name: string;
+  role: 'Technician' | 'Admin' | 'Manager';
+  grossSalary: number; // Annual
+  socialSecurityCost: number; // Annual (Company cost)
+  contractHours: number; // Annual hours
+  holidays: number; // Days per year
+}
+
+export interface Asset {
+  id: string;
+  name: string;
+  type: 'Vehicle' | 'Tool' | 'Equipment';
+  purchaseDate: string;
+  cost: number;
+  usefulLifeYears: number;
+  residualValue: number;
+}
+
+export interface Tax {
+  id: string;
+  name: string;
+  model: '303' | '111' | '202';
+  amount: number;
+  dueDate: string;
+  status: 'Pending' | 'Paid';
+}
+
+export interface InternalFinancialState {
+  cashBalance: number; // Current money in bank
+  fixedExpenses: FixedExpense[];
+  employees: Employee[];
+  assets: Asset[];
+  taxes: Tax[];
 }
