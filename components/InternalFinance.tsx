@@ -47,11 +47,19 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
 
     // Tax Modal State
     const [isTaxModalOpen, setIsTaxModalOpen] = useState(false);
+    const [isCalculatingTax, setIsCalculatingTax] = useState(false);
     const [newTax, setNewTax] = useState({
         name: '',
         amount: 0,
         model: '303', // 303, 111, 202
         dueDate: new Date().toISOString().split('T')[0]
+    });
+
+    const [isManagementExpenseModalOpen, setIsManagementExpenseModalOpen] = useState(false);
+    const [newManagementExpense, setNewManagementExpense] = useState({
+        name: 'Cuota Mensual Gestoría',
+        amount: 150,
+        frequency: 'Monthly'
     });
 
     // --- DATA FETCHING ---
@@ -61,25 +69,32 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
 
     const fetchLedgerData = async () => {
         setLoading(true);
+        
+        // Helper for silent fetching
+        const safeFetch = async (table: string) => {
+            try {
+                const { data, error } = await supabase.from(table).select('*');
+                if (error) {
+                    // console.warn(`Silent error fetching ${table}:`, error.message);
+                    return [];
+                }
+                return data || [];
+            } catch (e) {
+                return [];
+            }
+        };
+
         try {
-            const { data: ledgerData, error: ledgerError } = await supabase
-                .from('internal_ledger')
-                .select('*');
-
-            const { data: staffData, error: staffError } = await supabase
-                .from('company_staff')
-                .select('*');
-
-            const { data: assetsData, error: assetsError } = await supabase
-                .from('company_assets')
-                .select('*');
-
-            if (ledgerError) console.error('Error fetching ledger:', ledgerError);
-            if (staffError) console.error('Error fetching staff:', staffError);
-            if (assetsError) console.error('Error fetching assets:', assetsError);
+            // Parallel fetch for performance
+            const [ledgerData, staffData, assetsData, taxesData] = await Promise.all([
+                safeFetch('internal_ledger'),
+                safeFetch('company_staff'),
+                safeFetch('company_assets'),
+                safeFetch('company_taxes')
+            ]);
 
             const newState: InternalFinancialState = {
-                cashBalance: 45000, // TODO: Fetch from a 'CASH' record or calculate
+                cashBalance: 0, 
                 fixedExpenses: [],
                 employees: [],
                 assets: [],
@@ -89,62 +104,56 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
             if (ledgerData) {
                 ledgerData.forEach((row: any) => {
                     if (row.record_type === 'EXPENSE') {
-                        // Check if it is a Tax
-                        if (row.details && row.details.category === 'Tax') {
-                             newState.taxes.push({
-                                id: row.id,
-                                name: row.name,
-                                model: row.details.model || '303',
-                                amount: row.amount,
-                                dueDate: row.details.nextDueDate || row.created_at, // Fallback
-                                status: row.details.status || 'Pending'
-                            });
-                        } else {
-                            // It is a regular Fixed Expense
-                            newState.fixedExpenses.push({
-                                id: row.id,
-                                name: row.name,
-                                amount: row.amount,
-                                frequency: row.details.frequency,
-                                category: row.details.category,
-                                nextDueDate: row.details.nextDueDate
-                            });
-                        }
+                        newState.fixedExpenses.push({
+                            id: row.id,
+                            name: row.name,
+                            amount: row.amount,
+                            frequency: row.details?.frequency || 'Monthly',
+                            category: row.details?.category || 'Other',
+                            nextDueDate: row.details?.nextDueDate
+                        });
                     }
                 });
             }
 
             if (staffData) {
-                staffData.forEach((emp: any) => {
-                    newState.employees.push({
-                        id: emp.id,
-                        name: emp.name,
-                        role: emp.role,
-                        grossSalary: emp.gross_salary_monthly,
-                        socialSecurityCost: emp.social_security_cost_monthly,
-                        contractHours: emp.contract_hours_yearly || 1760,
-                        holidays: emp.holidays_days || 30
-                    });
-                });
+                newState.employees = staffData.map((row: any) => ({
+                    id: row.id,
+                    name: row.name,
+                    role: row.role,
+                    grossSalary: row.gross_salary_monthly,
+                    socialSecurityCost: row.social_security_cost_monthly,
+                    contractHours: row.contract_hours_yearly,
+                    holidays: row.holidays_days
+                }));
             }
 
             if (assetsData) {
-                assetsData.forEach((asset: any) => {
-                    newState.assets.push({
-                        id: asset.id,
-                        name: asset.name,
-                        type: asset.type,
-                        purchaseDate: asset.purchase_date,
-                        cost: asset.cost,
-                        usefulLifeYears: asset.useful_life_years,
-                        residualValue: asset.residual_value || 0
-                    });
-                });
+                newState.assets = assetsData.map((row: any) => ({
+                    id: row.id,
+                    name: row.name,
+                    type: row.type,
+                    purchaseDate: row.purchase_date,
+                    cost: row.cost,
+                    usefulLifeYears: row.useful_life_years,
+                    residualValue: row.residual_value
+                }));
+            }
+
+            if (taxesData) {
+                newState.taxes = taxesData.map((row: any) => ({
+                    id: row.id,
+                    name: row.name,
+                    model: row.model,
+                    amount: row.amount,
+                    dueDate: row.due_date,
+                    status: row.status
+                }));
             }
 
             setState(newState);
-        } catch (err) {
-            console.error("Failed to load internal finance data", err);
+        } catch (error) {
+            console.error("Critical error in finance dashboard:", error);
         } finally {
             setLoading(false);
         }
@@ -233,26 +242,207 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
         }
     };
 
+    // --- TAX CALCULATION HELPER ---
+    const calculateEstimatedTax = async () => {
+        if (!newTax.model || !newTax.dueDate) {
+            alert("Por favor, selecciona un modelo y una fecha límite primero.");
+            return;
+        }
+
+        setIsCalculatingTax(true);
+        console.log("--- INICIO CÁLCULO IMPUESTOS ---");
+        
+        // Simulate calculation delay for better UX
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        // DIAGNOSTIC CHECK
+        const diagnosticInfo = {
+            projectsCount: projects?.length || 0,
+            fixedExpensesCount: state.fixedExpenses.length,
+            employeesCount: state.employees.length,
+            assetsCount: state.assets.length
+        };
+        console.log("Diagnóstico de Datos:", diagnosticInfo);
+
+        const dueDate = new Date(newTax.dueDate);
+        const dueMonth = dueDate.getMonth(); // 0-11
+        const dueYear = dueDate.getFullYear();
+        
+        // ROBUST QUARTER LOGIC
+        let startMonth, endMonth, taxYear;
+        let quarterName = "";
+        
+        if (dueMonth >= 0 && dueMonth <= 2) { 
+            startMonth = 9; endMonth = 11; taxYear = dueYear - 1; 
+            quarterName = "4T (Oct-Dic)";
+        } else if (dueMonth >= 3 && dueMonth <= 5) { 
+            startMonth = 0; endMonth = 2; taxYear = dueYear; 
+            quarterName = "1T (Ene-Mar)";
+        } else if (dueMonth >= 6 && dueMonth <= 8) { 
+            startMonth = 3; endMonth = 5; taxYear = dueYear; 
+            quarterName = "2T (Abr-Jun)";
+        } else { 
+            startMonth = 6; endMonth = 8; taxYear = dueYear; 
+            quarterName = "3T (Jul-Sep)";
+        }
+
+        console.log(`Periodo Fiscal: ${quarterName} ${taxYear}`);
+
+        // Filter Transactions for the Period
+        const safeProjects = projects || [];
+        const allTransactions = safeProjects.flatMap(p => p.transactions || []);
+        
+        // DEBUG: Check first transaction date format
+        if (allTransactions.length > 0) {
+            console.log("Formato fecha primera transacción:", allTransactions[0].date, "Parsed:", new Date(allTransactions[0].date));
+        }
+        
+        const periodTransactions = allTransactions.filter(t => {
+            if (!t.date) return false;
+            
+            // Try parsing date
+            let tDate = new Date(t.date);
+            
+            // Fallback for DD/MM/YYYY format if ISO fails
+            if (isNaN(tDate.getTime()) && t.date.includes('/')) {
+                const parts = t.date.split('/');
+                if (parts.length === 3) {
+                    // Assume DD/MM/YYYY
+                    tDate = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
+                }
+            }
+
+            if (isNaN(tDate.getTime())) {
+                // console.warn("Fecha inválida en transacción:", t);
+                return false; 
+            }
+            
+            return tDate.getFullYear() === taxYear && tDate.getMonth() >= startMonth && tDate.getMonth() <= endMonth;
+        });
+
+        console.log(`Transacciones en el periodo (${quarterName}): ${periodTransactions.length}`);
+
+        let estimatedAmount = 0;
+        let msg = "";
+
+        if (newTax.model === '303') {
+            // VAT (IVA) Calculation
+            
+            // Check Data Availability for 303
+            if (periodTransactions.length === 0 && state.fixedExpenses.length === 0) {
+                 alert(`AVISO: No hay datos para calcular el IVA del ${quarterName} ${taxYear}.\n\n- Transacciones en Proyectos: 0\n- Gastos Fijos (Ledger): ${state.fixedExpenses.length}\n\nAsegúrate de tener proyectos con movimientos en esas fechas o gastos fijos registrados.`);
+            }
+
+            // IVA Repercutido (Ingresos)
+            const incomeTransactions = periodTransactions.filter(t => t.type === 'income' || t.type === 'Income');
+            const outputVAT = incomeTransactions.reduce((sum, t) => {
+                const amt = Number(t.amount) || 0;
+                return sum + (amt - (amt / 1.21));
+            }, 0);
+
+            // IVA Soportado (Gastos Variables de Proyectos)
+            const expenseTransactions = periodTransactions.filter(t => t.type === 'expense' || t.type === 'Expense');
+            const inputVAT = expenseTransactions.reduce((sum, t) => {
+                const amt = Number(t.amount) || 0;
+                return sum + (amt - (amt / 1.21));
+            }, 0);
+            
+            // IVA Soportado (Gastos Fijos / Estructura)
+            const fixedExpensesVAT = state.fixedExpenses.reduce((sum, exp) => {
+                 let monthlyAmount = 0;
+                 const amt = Number(exp.amount) || 0;
+                 if (exp.frequency === 'Monthly') monthlyAmount = amt;
+                 else if (exp.frequency === 'Quarterly') monthlyAmount = amt / 3;
+                 else if (exp.frequency === 'Yearly') monthlyAmount = amt / 12;
+                 
+                 const quarterlyTotal = monthlyAmount * 3;
+                 return sum + (quarterlyTotal - (quarterlyTotal / 1.21));
+            }, 0);
+
+            estimatedAmount = outputVAT - (inputVAT + fixedExpensesVAT);
+            
+            msg = `Cálculo IVA (${quarterName} ${taxYear}):\n\n` +
+                  `+ IVA Repercutido (Ventas): ${formatCurrency(outputVAT)}\n` +
+                  `   (${incomeTransactions.length} ingresos en periodo)\n` +
+                  `- IVA Soportado (Gastos Proy.): ${formatCurrency(inputVAT)}\n` +
+                  `   (${expenseTransactions.length} gastos en periodo)\n` +
+                  `- IVA Soportado (Estructura): ${formatCurrency(fixedExpensesVAT)}\n` +
+                  `   (Estimación basada en ${state.fixedExpenses.length} gastos fijos)\n` +
+                  `--------------------------------\n` +
+                  `RESULTADO: ${formatCurrency(estimatedAmount)}`;
+
+        } else if (newTax.model === '111') {
+            // IRPF Withholdings
+            
+            // Check Data Availability for 111
+            if (state.employees.length === 0) {
+                alert("ERROR: No hay empleados registrados en la base de datos.\n\nEl Modelo 111 se calcula sobre las nóminas. Ve a la pestaña 'RRHH y Costes' y añade empleados, o ejecuta el script SQL de 'Seeds'.");
+            }
+
+            const monthlyIRPF = state.employees.reduce((sum, emp) => sum + (emp.grossSalary * 0.15), 0); // 15% estimate
+            estimatedAmount = monthlyIRPF * 3;
+            
+            msg = `Cálculo IRPF 111 (${quarterName} ${taxYear}):\n\n` +
+                  `Empleados Activos: ${state.employees.length}\n` +
+                  `Nóminas Mensuales (Total): ${formatCurrency(monthlyIRPF / 0.15)} (aprox)\n` +
+                  `Retención Estimada (15%): ${formatCurrency(monthlyIRPF)}\n` +
+                  `x 3 Meses: ${formatCurrency(estimatedAmount)}`;
+
+        } else if (newTax.model === '202') {
+             // Corporate Tax
+             const totalIncome = periodTransactions
+                .filter(t => t.type === 'income' || t.type === 'Income')
+                .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+                
+             const totalExpenses = periodTransactions
+                .filter(t => t.type === 'expense' || t.type === 'Expense')
+                .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+                
+             const fixedExpensesTotal = state.fixedExpenses.reduce((sum, exp) => {
+                 let monthlyAmount = 0;
+                 const amt = Number(exp.amount) || 0;
+                 if (exp.frequency === 'Monthly') monthlyAmount = amt;
+                 else if (exp.frequency === 'Quarterly') monthlyAmount = amt / 3;
+                 else if (exp.frequency === 'Yearly') monthlyAmount = amt / 12;
+                 return sum + (monthlyAmount * 3);
+            }, 0);
+            
+            const netProfit = totalIncome - (totalExpenses + fixedExpensesTotal);
+            estimatedAmount = netProfit > 0 ? netProfit * 0.18 : 0;
+            
+            msg = `Cálculo IS 202 (${quarterName} ${taxYear}):\n\n` +
+                  `Ingresos Periodo: ${formatCurrency(totalIncome)}\n` +
+                  `Gastos Periodo: ${formatCurrency(totalExpenses + fixedExpensesTotal)}\n` +
+                  `Beneficio Neto: ${formatCurrency(netProfit)}\n` +
+                  `Pago a cuenta (18%): ${formatCurrency(estimatedAmount)}`;
+        }
+
+        console.log("Resultado Final:", estimatedAmount);
+
+        const amountToPay = Math.max(0, estimatedAmount);
+        setNewTax(prev => ({ ...prev, amount: parseFloat(amountToPay.toFixed(2)) }));
+        setIsCalculatingTax(false);
+        
+        if (estimatedAmount < 0) {
+            alert(`${msg}\n\nRESULTADO NEGATIVO (${formatCurrency(estimatedAmount)}).\nSale "A Compensar" o "A Devolver".\nEl importe a pagar se ha establecido en 0€.`);
+        } else {
+            alert(msg);
+        }
+    };
+
     const handleAddTax = async () => {
         if (!newTax.name || !newTax.amount) {
             alert("Por favor, rellena todos los campos.");
             return;
         }
 
-        const newExp = {
-            record_type: 'EXPENSE',
+        const { data, error } = await supabase.from('company_taxes').insert([{
             name: newTax.name,
+            model: newTax.model,
             amount: newTax.amount,
-            details: {
-                frequency: 'Quarterly',
-                category: 'Tax',
-                model: newTax.model,
-                nextDueDate: newTax.dueDate,
-                status: 'Pending'
-            }
-        };
-
-        const { data, error } = await supabase.from('internal_ledger').insert([newExp]).select();
+            due_date: newTax.dueDate,
+            status: 'Pending'
+        }]).select();
         
         if (!error && data) {
             fetchLedgerData();
@@ -263,111 +453,31 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
         }
     };
 
-    const handleAddManagementExpense = async () => {
-        const name = prompt("Concepto (ej. Cuota Gestoría):", "Cuota Mensual Gestoría");
-        const amount = Number(prompt("Importe Mensual:", "150"));
-        
-        if (name && amount) {
+    const handleAddManagementExpense = () => {
+        setIsManagementExpenseModalOpen(true);
+    };
+
+    const handleSaveManagementExpense = async () => {
+        if (newManagementExpense.name && newManagementExpense.amount > 0) {
              const newExp = {
                 record_type: 'EXPENSE',
-                name,
-                amount,
+                name: newManagementExpense.name,
+                amount: newManagementExpense.amount,
                 details: {
-                    frequency: 'Monthly',
+                    frequency: newManagementExpense.frequency,
                     category: 'Professional Services',
                     nextDueDate: new Date().toISOString().split('T')[0]
                 }
             };
 
-            const { data, error } = await supabase.from('internal_ledger').insert([newExp]).select();
-            if (!error) fetchLedgerData();
-        }
-    };
-
-    const seedDemoData = async () => {
-        // Check if tables are empty (or at least one of them to avoid duplicates)
-        if (state.employees.length > 0 || state.assets.length > 0 || state.fixedExpenses.length > 0) {
-            if (!confirm("Ya existen datos. ¿Quieres añadir los datos de ejemplo de todas formas?")) return;
-        }
-
-        setLoading(true);
-        try {
-            // 1. Insert Employee
-            await supabase.from('company_staff').insert([{
-                name: 'Técnico Especialista [DEMO]',
-                role: 'Technician',
-                gross_salary_monthly: 1650,
-                social_security_cost_monthly: 550,
-                contract_hours_yearly: 1760,
-                holidays_days: 30
-            }]);
-
-            // 2. Insert Asset
-            await supabase.from('company_assets').insert([{
-                name: 'Furgoneta Ford Transit [DEMO]',
-                type: 'Vehicle',
-                purchase_date: new Date().toISOString().split('T')[0],
-                cost: 18000,
-                useful_life_years: 10,
-                residual_value: 0
-            }]);
-
-            // 3. Insert Tax
-            await supabase.from('internal_ledger').insert([{
-                record_type: 'EXPENSE',
-                name: 'IVA 1T (Estimado) [DEMO]',
-                amount: 3000,
-                details: {
-                    frequency: 'Quarterly',
-                    category: 'Tax',
-                    model: '303',
-                    nextDueDate: new Date(new Date().getFullYear(), 3, 20).toISOString().split('T')[0], // April 20th
-                    status: 'Pending'
-                }
-            }]);
-
-            // 4. Insert Management Expense (Optional but good for demo)
-            await supabase.from('internal_ledger').insert([{
-                record_type: 'EXPENSE',
-                name: 'Gestoría Mensual [DEMO]',
-                amount: 150,
-                details: {
-                    frequency: 'Monthly',
-                    category: 'Professional Services',
-                    nextDueDate: new Date().toISOString().split('T')[0]
-                }
-            }]);
-
-            await fetchLedgerData();
-            alert("Datos de ejemplo cargados correctamente.");
-
-        } catch (error) {
-            console.error("Error seeding demo data:", error);
-            alert("Error al cargar datos de ejemplo.");
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleClearDemoData = async () => {
-        if (!confirm("¿Estás seguro de eliminar TODOS los datos de ejemplo (marcados con [DEMO])?")) return;
-
-        setLoading(true);
-        try {
-            // Delete from all tables where name contains [DEMO]
-            // Note: Supabase 'ilike' is case-insensitive like
-            await supabase.from('company_staff').delete().ilike('name', '%[DEMO]%');
-            await supabase.from('company_assets').delete().ilike('name', '%[DEMO]%');
-            // Taxes are now in internal_ledger, so the next line covers them too
-            await supabase.from('internal_ledger').delete().ilike('name', '%[DEMO]%');
-
-            await fetchLedgerData();
-            alert("Datos de ejemplo eliminados.");
-        } catch (error) {
-            console.error("Error clearing demo data:", error);
-            alert("Error al eliminar datos de ejemplo.");
-        } finally {
-            setLoading(false);
+            const { error } = await supabase.from('internal_ledger').insert([newExp]);
+            if (!error) {
+                fetchLedgerData();
+                setIsManagementExpenseModalOpen(false);
+                setNewManagementExpense({ name: 'Cuota Mensual Gestoría', amount: 150, frequency: 'Monthly' });
+            } else {
+                alert("Error al guardar gasto: " + error.message);
+            }
         }
     };
 
@@ -566,16 +676,6 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
                             <div className="text-lg font-bold text-indigo-700 dark:text-indigo-300">{formatCurrency(state.cashBalance)}</div>
                         </div>
                     </div>
-                    {/* Demo Buttons */}
-                    <div className="flex gap-2">
-                        <button onClick={seedDemoData} className="text-xs font-bold text-slate-500 hover:text-indigo-600 px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors" title="Cargar datos de ejemplo">
-                            <span className="hidden md:inline">Cargar Demo</span>
-                            <span className="md:hidden">Demo</span>
-                        </button>
-                        <button onClick={handleClearDemoData} className="text-xs font-bold text-slate-400 hover:text-red-600 px-3 py-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors" title="Limpiar datos de ejemplo">
-                            <Trash2 className="w-4 h-4" />
-                        </button>
-                    </div>
                 </div>
             </div>
 
@@ -680,8 +780,8 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
                                             <div className="text-xl font-extrabold text-slate-800 dark:text-white">{formatCurrency(monthlyBurnRate)}</div>
                                         </div>
                                     </div>
-                                    <div className="h-72 w-full">
-                                        <ResponsiveContainer width="100%" height="100%">
+                                    <div className="h-72 w-full relative">
+                                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={200}>
                                             <ComposedChart data={breakEvenData} layout="vertical" margin={{ top: 20, right: 30, left: 40, bottom: 5 }}>
                                                 <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={true} stroke="#e2e8f0" />
                                                 <XAxis type="number" tickFormatter={(val) => `${val/1000}k€`} stroke="#94a3b8" fontSize={12} />
@@ -768,30 +868,36 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 pt-8 border-t border-slate-100 dark:border-slate-700">
                                 <div>
                                     <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6">Distribución de Costes Estructurales</h3>
-                                    <div className="h-64 w-full">
-                                        <ResponsiveContainer width="100%" height="100%">
-                                            <PieChart>
-                                                <Pie
-                                                    data={[
-                                                        { name: 'Gastos Fijos', value: monthlyFixedExpenses },
-                                                        { name: 'Nóminas', value: monthlyPayrollCost },
-                                                        { name: 'Amortización', value: monthlyAmortization }
-                                                    ]}
-                                                    cx="50%"
-                                                    cy="50%"
-                                                    innerRadius={60}
-                                                    outerRadius={80}
-                                                    paddingAngle={5}
-                                                    dataKey="value"
-                                                >
-                                                    {COLORS.map((entry, index) => (
-                                                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                                    ))}
-                                                </Pie>
-                                                <Tooltip formatter={(val: number) => formatCurrency(val)} contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 4px 15px rgba(0,0,0,0.1)'}} />
-                                                <Legend verticalAlign="bottom" height={36}/>
-                                            </PieChart>
-                                        </ResponsiveContainer>
+                                    <div className="h-64 w-full relative">
+                                        {(monthlyFixedExpenses + monthlyPayrollCost + monthlyAmortization) > 0 ? (
+                                            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={200}>
+                                                <PieChart>
+                                                    <Pie
+                                                        data={[
+                                                            { name: 'Gastos Fijos', value: monthlyFixedExpenses },
+                                                            { name: 'Nóminas', value: monthlyPayrollCost },
+                                                            { name: 'Amortización', value: monthlyAmortization }
+                                                        ]}
+                                                        cx="50%"
+                                                        cy="50%"
+                                                        innerRadius={60}
+                                                        outerRadius={80}
+                                                        paddingAngle={5}
+                                                        dataKey="value"
+                                                    >
+                                                        {COLORS.map((entry, index) => (
+                                                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                                        ))}
+                                                    </Pie>
+                                                    <Tooltip formatter={(val: number) => formatCurrency(val)} contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 4px 15px rgba(0,0,0,0.1)'}} />
+                                                    <Legend verticalAlign="bottom" height={36}/>
+                                                </PieChart>
+                                            </ResponsiveContainer>
+                                        ) : (
+                                            <div className="flex items-center justify-center h-full text-slate-400 text-sm">
+                                                No hay datos de costes para mostrar.
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                                 <div>
@@ -916,6 +1022,67 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
                         </div>
                     )}
 
+                    {/* ASSETS TAB */}
+                    {activeTab === 'assets' && (
+                        <div>
+                            <div className="flex justify-between items-center mb-6">
+                                <h3 className="text-lg font-bold text-slate-900 dark:text-white">Inventario de Activos</h3>
+                                <button onClick={() => setIsAssetModalOpen(true)} className="flex items-center gap-2 text-sm font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 px-3 py-1.5 rounded-lg transition-colors">
+                                    <Plus className="w-4 h-4" /> Registrar Activo
+                                </button>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                {state.assets.length === 0 ? (
+                                    <div className="col-span-full text-center py-12 text-slate-400 text-sm bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-dashed border-slate-200 dark:border-slate-700">
+                                        No hay activos registrados.
+                                    </div>
+                                ) : (
+                                    state.assets.map(asset => (
+                                        <div key={asset.id} className="bg-slate-50 dark:bg-slate-700/30 rounded-xl p-6 border border-slate-200 dark:border-slate-700 relative group">
+                                            <button 
+                                                onClick={() => handleDeleteAsset(asset.id)}
+                                                className="absolute top-4 right-4 text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                                            >
+                                                <Trash2 className="w-4 h-4" />
+                                            </button>
+                                            <div className="flex items-center gap-3 mb-4">
+                                                <div className="bg-emerald-100 dark:bg-emerald-900/40 p-2 rounded-lg text-emerald-600 dark:text-emerald-400">
+                                                    {asset.type === 'Vehicle' ? <Truck className="w-5 h-5" /> : <Briefcase className="w-5 h-5" />}
+                                                </div>
+                                                <div>
+                                                    <div className="font-bold text-slate-900 dark:text-white">{asset.name}</div>
+                                                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                                                        {asset.type === 'Vehicle' ? 'Vehículo' : asset.type === 'Tool' ? 'Herramienta' : 'Equipo'}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div className="space-y-2 text-sm">
+                                                <div className="flex justify-between">
+                                                    <span className="text-slate-500 dark:text-slate-400">Valor Compra:</span>
+                                                    <span className="font-mono font-medium text-slate-700 dark:text-slate-300">{formatCurrency(asset.cost)}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                    <span className="text-slate-500 dark:text-slate-400">Fecha Compra:</span>
+                                                    <span className="font-mono font-medium text-slate-700 dark:text-slate-300">{formatDate(asset.purchaseDate)}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                    <span className="text-slate-500 dark:text-slate-400">Vida Útil:</span>
+                                                    <span className="font-mono font-medium text-slate-700 dark:text-slate-300">{asset.usefulLifeYears} años</span>
+                                                </div>
+                                                <div className="pt-2 mt-2 border-t border-slate-200 dark:border-slate-600 flex justify-between font-bold">
+                                                    <span className="text-slate-700 dark:text-slate-200">Amortización Mensual:</span>
+                                                    <span className="text-emerald-600 dark:text-emerald-400">
+                                                        {formatCurrency((asset.cost - asset.residualValue) / (asset.usefulLifeYears * 12))}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    )}
+
                     {/* TAXES TAB */}
                     {activeTab === 'taxes' && (
                         <div className="space-y-8">
@@ -969,7 +1136,7 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
                                                         <div className="font-mono font-bold text-slate-900 dark:text-white">{formatCurrency(tax.amount)}</div>
                                                         <button onClick={async () => {
                                                             if (!confirm("¿Eliminar este impuesto?")) return;
-                                                            await supabase.from('internal_ledger').delete().eq('id', tax.id);
+                                                            await supabase.from('company_taxes').delete().eq('id', tax.id);
                                                             fetchLedgerData();
                                                         }} className="text-slate-400 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
                                                     </div>
@@ -1123,12 +1290,25 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Importe Estimado (€)</label>
-                                    <input 
-                                        type="number" 
-                                        className="w-full px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-                                        value={newTax.amount}
-                                        onChange={e => setNewTax({...newTax, amount: Number(e.target.value)})}
-                                    />
+                                    <div className="flex gap-2">
+                                        <input 
+                                            type="number" 
+                                            className="w-full px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                                            value={newTax.amount}
+                                            onChange={e => setNewTax({...newTax, amount: Number(e.target.value)})}
+                                        />
+                                        <button 
+                                            onClick={calculateEstimatedTax}
+                                            disabled={isCalculatingTax}
+                                            className={`p-2 rounded-lg transition-all relative ${isCalculatingTax ? 'bg-indigo-50 cursor-not-allowed' : 'bg-indigo-100 dark:bg-indigo-900/40 hover:bg-indigo-200 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300'}`}
+                                            title="Calcular automáticamente según transacciones"
+                                        >
+                                            {isCalculatingTax && (
+                                                <span className="absolute inset-0 rounded-lg bg-indigo-400 opacity-75 animate-ping"></span>
+                                            )}
+                                            <Calculator className={`w-5 h-5 relative z-10 ${isCalculatingTax ? 'text-indigo-500' : ''}`} />
+                                        </button>
+                                    </div>
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Fecha Límite</label>
@@ -1218,6 +1398,59 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
                         <div className="p-6 bg-slate-50 dark:bg-slate-700/50 flex justify-end gap-3">
                             <button onClick={() => setIsAssetModalOpen(false)} className="px-4 py-2 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-lg font-medium transition-colors">Cancelar</button>
                             <button onClick={handleAddAsset} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors shadow-lg shadow-indigo-500/30">Registrar Activo</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Management Expense Modal */}
+            {isManagementExpenseModalOpen && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+                        <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center">
+                            <h3 className="text-lg font-bold text-slate-900 dark:text-white">Añadir Gasto de Gestoría</h3>
+                            <button onClick={() => setIsManagementExpenseModalOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                                <Trash2 className="w-5 h-5 rotate-45" />
+                            </button>
+                        </div>
+                        <div className="p-6 space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Concepto</label>
+                                <input 
+                                    type="text" 
+                                    className="w-full px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                                    value={newManagementExpense.name}
+                                    onChange={e => setNewManagementExpense({...newManagementExpense, name: e.target.value})}
+                                    placeholder="Ej: Cuota Mensual Gestoría"
+                                />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Importe (€)</label>
+                                    <input 
+                                        type="number" 
+                                        className="w-full px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                                        value={newManagementExpense.amount}
+                                        onChange={e => setNewManagementExpense({...newManagementExpense, amount: Number(e.target.value)})}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Frecuencia</label>
+                                    <select 
+                                        className="w-full px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                                        value={newManagementExpense.frequency}
+                                        onChange={e => setNewManagementExpense({...newManagementExpense, frequency: e.target.value})}
+                                    >
+                                        <option value="Monthly">Mensual</option>
+                                        <option value="Quarterly">Trimestral</option>
+                                        <option value="Yearly">Anual</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="p-6 bg-slate-50 dark:bg-slate-700/50 flex justify-end gap-3">
+                            <button onClick={() => setIsManagementExpenseModalOpen(false)} className="px-4 py-2 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-lg font-medium transition-colors">Cancelar</button>
+                            <button onClick={handleSaveManagementExpense} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors shadow-lg shadow-indigo-500/30">Guardar Gasto</button>
                         </div>
                     </div>
                 </div>

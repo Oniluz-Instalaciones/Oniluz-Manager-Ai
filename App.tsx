@@ -8,9 +8,9 @@ import InternalFinance from './components/InternalFinance';
 import PriceDatabase from './components/PriceDatabase';
 import ProjectCalendar from './components/ProjectCalendar';
 import Login from './components/Login';
-import { supabase } from './lib/supabase'; // Kept for direct DB calls, auth moved to service
+import { supabase, isSupabaseConfigured } from './lib/supabase'; // Kept for direct DB calls, auth moved to service
 import { getCurrentSession, onAuthStateChange, signOut } from './services/authService';
-import { Loader2 } from 'lucide-react';
+import { Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 
 // --- Helpers for Schema Compatibility ---
 // Tags to identify embedded data in description
@@ -110,6 +110,7 @@ const App: React.FC = () => {
   // Application State
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   // Price Database is now fetched from Supabase, not local storage
   const [priceDatabase, setPriceDatabase] = useState<PriceItem[]>([]);
@@ -175,8 +176,16 @@ const App: React.FC = () => {
   const fetchProjects = async () => {
     if (!session) return;
     
+    // Reset error state before fetching
+    setFetchError(null);
+    
     try {
       setIsLoading(true);
+
+      if (!isSupabaseConfigured) {
+          throw new Error("La conexión a Supabase no está configurada. Faltan las variables de entorno.");
+      }
+
       const { data, error } = await supabase
         .from('projects')
         .select(`
@@ -239,8 +248,10 @@ const App: React.FC = () => {
         });
         setProjects(formattedProjects);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error fetching projects from Supabase:", err);
+      // Set user-friendly error message
+      setFetchError(err.message || "Error de conexión con la base de datos.");
     } finally {
       setIsLoading(false);
     }
@@ -409,8 +420,11 @@ const App: React.FC = () => {
 
      const updatePayload = {
          name: updatedProject.name,
+         client: updatedProject.client,
+         location: updatedProject.location,
          status: updatedProject.status,
          progress: updatedProject.progress,
+         start_date: updatedProject.startDate,
          end_date: updatedProject.endDate || null,
          description: baseDesc,
          budget: updatedProject.budget || 0,
@@ -573,6 +587,29 @@ const App: React.FC = () => {
 
   if (!session) {
     return <Login />;
+  }
+
+  // --- ERROR STATE ---
+  if (fetchError) {
+      return (
+          <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900 p-4">
+              <div className="bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-xl max-w-md w-full text-center border border-red-100 dark:border-red-900/30">
+                  <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-6 text-red-600 dark:text-red-400">
+                      <AlertCircle className="w-8 h-8" />
+                  </div>
+                  <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Error de Conexión</h2>
+                  <p className="text-slate-500 dark:text-slate-400 mb-6 text-sm leading-relaxed">
+                      {fetchError}
+                  </p>
+                  <button 
+                      onClick={() => fetchProjects()}
+                      className="w-full py-3 bg-[#0047AB] hover:bg-blue-700 text-white rounded-xl font-bold transition-all shadow-lg shadow-blue-900/20 flex items-center justify-center gap-2"
+                  >
+                      <RefreshCw className="w-4 h-4" /> Reintentar
+                  </button>
+              </div>
+          </div>
+      );
   }
 
   if (isLoading && projects.length === 0) {

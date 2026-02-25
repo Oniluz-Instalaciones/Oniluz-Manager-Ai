@@ -3,7 +3,8 @@ import { Project, Transaction, Material, Incident, ProjectStatus, Priority, Pric
 import { 
   ArrowLeft, Plus, Trash2, AlertTriangle, CheckCircle, 
   TrendingUp, TrendingDown, Package, FileText, Settings, BrainCircuit, X, Receipt, Paperclip, ChevronDown, Building2, Calendar, RotateCcw, Edit3,
-  Hammer, Coffee, User, Wallet, BarChart3, Save, Loader2, Fuel, Car, HelpCircle, Phone, Mail, Sun as SunIcon, Zap, MapPin, Ruler, FileCheck
+  Hammer, Coffee, User, Wallet, BarChart3, Save, Loader2, Fuel, Car, HelpCircle, Phone, Mail, Sun as SunIcon, Zap, MapPin, Ruler, FileCheck,
+  Clock, Activity, CheckSquare, AlertCircle, Users, AlertOctagon
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { analyzeProjectStatus } from '../services/geminiService';
@@ -64,6 +65,22 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
   const [transactionType, setTransactionType] = useState<'income' | 'expense'>('expense');
   
   const [history, setHistory] = useState<Project[]>([]);
+  
+  // Local state for Settings form to allow manual save
+  const [settingsForm, setSettingsForm] = useState<Project | null>(null);
+
+  useEffect(() => {
+      if (activeTab === 'settings' && project) {
+          setSettingsForm(project);
+      }
+  }, [activeTab, project]);
+
+  const handleSaveSettings = () => {
+      if (settingsForm) {
+          updateProjectWithHistory(settingsForm);
+          alert("Cambios guardados correctamente.");
+      }
+  };
 
   const updateProjectWithHistory = (newProjectState: Project) => {
       setHistory(prev => [...prev, project]);
@@ -498,89 +515,279 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
       <div className="flex-1 overflow-y-auto p-6 sm:p-8 max-w-7xl mx-auto w-full" ref={scrollContainerRef}>
         {/* OVERVIEW TAB */}
         {activeTab === 'overview' && (
-          <div className="space-y-8">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 transition-colors">
-                <h3 className="text-slate-400 dark:text-slate-500 text-xs font-bold uppercase tracking-wider">Presupuesto</h3>
-                <p className="text-3xl font-bold text-slate-900 dark:text-white mt-2">{displayBudget.toLocaleString()}€</p>
+          <div className="space-y-6">
+            {/* ROW 1: KPIs Principales */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+              {/* Presupuesto */}
+              <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700">
+                <div className="flex justify-between items-start mb-2">
+                    <h3 className="text-slate-400 dark:text-slate-500 text-[10px] font-bold uppercase tracking-wider">Presupuesto</h3>
+                    <Wallet className="w-4 h-4 text-slate-300 dark:text-slate-600" />
+                </div>
+                <p className="text-2xl font-bold text-slate-900 dark:text-white">{displayBudget.toLocaleString()}€</p>
                 {activeBudgetsTotal > 0 && activeBudgetsTotal !== project.budget && (
-                    <span className="text-[10px] text-slate-400 italic">Basado en presupuestos aceptados</span>
+                    <span className="text-[10px] text-slate-400 italic block mt-1">Basado en presupuestos</span>
                 )}
               </div>
-              <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 transition-colors">
-                <h3 className="text-slate-400 dark:text-slate-500 text-xs font-bold uppercase tracking-wider">Margen Actual</h3>
-                <p className={`text-3xl font-bold mt-2 ${profit >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+
+              {/* Costes Acumulados (Nuevo) */}
+              <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700">
+                <div className="flex justify-between items-start mb-2">
+                    <h3 className="text-slate-400 dark:text-slate-500 text-[10px] font-bold uppercase tracking-wider">Costes Acumulados</h3>
+                    <TrendingDown className="w-4 h-4 text-slate-300 dark:text-slate-600" />
+                </div>
+                <p className="text-2xl font-bold text-slate-900 dark:text-white">
+                    {project.transactions?.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0).toLocaleString()}€
+                </p>
+              </div>
+
+              {/* Margen Actual */}
+              <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700">
+                <div className="flex justify-between items-start mb-2">
+                    <h3 className="text-slate-400 dark:text-slate-500 text-[10px] font-bold uppercase tracking-wider">Margen Actual</h3>
+                    <TrendingUp className="w-4 h-4 text-slate-300 dark:text-slate-600" />
+                </div>
+                <p className={`text-2xl font-bold ${profit >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                   {profit.toLocaleString()}€
                 </p>
               </div>
-              <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 transition-colors">
-                <h3 className="text-slate-400 dark:text-slate-500 text-xs font-bold uppercase tracking-wider">Incidencias Abiertas</h3>
-                <p className="text-3xl font-bold text-red-600 dark:text-red-400 mt-2">
-                  {project.incidents.filter(i => i.status === 'Open').length}
+
+              {/* Progreso de Tiempo (Nuevo) */}
+              <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700">
+                <div className="flex justify-between items-start mb-2">
+                    <h3 className="text-slate-400 dark:text-slate-500 text-[10px] font-bold uppercase tracking-wider">Tiempo Transcurrido</h3>
+                    <Clock className="w-4 h-4 text-slate-300 dark:text-slate-600" />
+                </div>
+                {(() => {
+                    const start = new Date(project.startDate).getTime();
+                    const end = project.endDate ? new Date(project.endDate).getTime() : new Date().getTime() + 1000 * 60 * 60 * 24 * 30; // Default 30 days if no end date
+                    const now = new Date().getTime();
+                    const total = end - start;
+                    const elapsed = now - start;
+                    const percent = Math.min(100, Math.max(0, (elapsed / total) * 100));
+                    const isOverdue = now > end;
+
+                    return (
+                        <div>
+                            <div className="flex justify-between items-end mb-1">
+                                <span className={`text-2xl font-bold ${isOverdue ? 'text-red-600' : 'text-slate-900 dark:text-white'}`}>
+                                    {percent.toFixed(0)}%
+                                </span>
+                                {isOverdue && <span className="text-[10px] font-bold text-red-500 uppercase bg-red-50 px-1.5 py-0.5 rounded">Vencido</span>}
+                            </div>
+                            <div className="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-1.5 overflow-hidden">
+                                <div 
+                                    className={`h-1.5 rounded-full ${isOverdue ? 'bg-red-500' : 'bg-[#0047AB] dark:bg-blue-500'}`} 
+                                    style={{ width: `${percent}%` }}
+                                ></div>
+                            </div>
+                        </div>
+                    );
+                })()}
+              </div>
+
+              {/* Incidencias */}
+              <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700">
+                <div className="flex justify-between items-start mb-2">
+                    <h3 className="text-slate-400 dark:text-slate-500 text-[10px] font-bold uppercase tracking-wider">Incidencias</h3>
+                    <AlertTriangle className="w-4 h-4 text-slate-300 dark:text-slate-600" />
+                </div>
+                <p className="text-2xl font-bold text-red-600 dark:text-red-400">
+                  {project.incidents?.filter(i => i.status === 'Open').length || 0}
                 </p>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              <div className="bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 transition-colors">
-                <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
-                    <FileText className="w-5 h-5 text-[#0047AB] dark:text-blue-400" /> Detalles del Proyecto
-                </h3>
-                <div className="space-y-4 text-sm">
-                  <div className="flex justify-between py-3 border-b border-slate-50 dark:border-slate-700">
-                    <span className="text-slate-500 dark:text-slate-400 font-medium">Ubicación</span>
-                    <span className="font-semibold text-slate-900 dark:text-white">{project.location}</span>
-                  </div>
-                  <div className="flex justify-between py-3 border-b border-slate-50 dark:border-slate-700">
-                    <span className="text-slate-500 dark:text-slate-400 font-medium">Fecha Inicio</span>
-                    <span className="font-semibold text-slate-900 dark:text-white">{formatDate(project.startDate)}</span>
-                  </div>
+            {/* ROW 2: Cuerpo Principal */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              
+              {/* COLUMNA IZQUIERDA (2/3) */}
+              <div className="lg:col-span-2 space-y-6">
+                
+                {/* Detalles del Proyecto (Reestructurado) */}
+                <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700">
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2 uppercase tracking-wide">
+                        <FileText className="w-4 h-4 text-[#0047AB] dark:text-blue-400" /> Ficha Técnica
+                    </h3>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
+                        <div className="space-y-4">
+                            <div className="flex items-start gap-3">
+                                <div className="p-2 bg-slate-50 dark:bg-slate-700/50 rounded-lg text-slate-400">
+                                    <MapPin className="w-4 h-4" />
+                                </div>
+                                <div>
+                                    <span className="text-xs text-slate-500 dark:text-slate-400 block mb-0.5">Ubicación</span>
+                                    <span className="font-medium text-slate-900 dark:text-white">{project.location}</span>
+                                </div>
+                            </div>
+                            
+                            <div className="flex items-start gap-3">
+                                <div className="p-2 bg-slate-50 dark:bg-slate-700/50 rounded-lg text-slate-400">
+                                    <Calendar className="w-4 h-4" />
+                                </div>
+                                <div>
+                                    <span className="text-xs text-slate-500 dark:text-slate-400 block mb-0.5">Fechas Clave</span>
+                                    <div className="flex items-center gap-2 text-slate-900 dark:text-white font-medium">
+                                        <span>{formatDate(project.startDate)}</span>
+                                        <span className="text-slate-300">→</span>
+                                        <span className={project.endDate && new Date() > new Date(project.endDate) ? 'text-red-600' : ''}>
+                                            {project.endDate ? formatDate(project.endDate) : 'Sin definir'}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
 
-                  {project.endDate && (
-                      <div className="flex justify-between py-3 border-b border-slate-50 dark:border-slate-700 bg-blue-50/50 dark:bg-blue-900/10 px-3 -mx-3 rounded-lg border-l-4 border-l-[#0047AB] dark:border-l-blue-500">
-                          <div className="flex flex-col">
-                              <span className="text-[#0047AB] dark:text-blue-400 font-bold text-sm flex items-center gap-1.5">
-                                  <Calendar className="w-3.5 h-3.5" />
-                                  Fecha Fin Estimada
-                              </span>
-                              {project.budgets?.some(b => b.status === 'Accepted') && (
-                                  <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wide mt-0.5">Basado en Presupuesto Aceptado</span>
-                              )}
-                          </div>
-                          <span className="font-bold text-lg text-slate-900 dark:text-white">{formatDate(project.endDate)}</span>
-                      </div>
-                  )}
+                        <div className="space-y-4">
+                             <div className="flex items-start gap-3">
+                                <div className="p-2 bg-slate-50 dark:bg-slate-700/50 rounded-lg text-slate-400">
+                                    <FileCheck className="w-4 h-4" />
+                                </div>
+                                <div>
+                                    <span className="text-xs text-slate-500 dark:text-slate-400 block mb-0.5">Descripción</span>
+                                    <p className="text-slate-700 dark:text-slate-300 leading-relaxed text-xs line-clamp-3">
+                                        {project.description || "Sin descripción detallada."}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
 
-                  <div className="mt-6">
-                    <span className="text-slate-500 dark:text-slate-400 block mb-2 font-medium">Descripción</span>
-                    <p className="text-slate-700 dark:text-slate-300 leading-relaxed bg-slate-50 dark:bg-slate-700/50 p-4 rounded-xl border border-slate-100 dark:border-slate-700">{project.description}</p>
-                  </div>
+                {/* Resumen Operativo (Nuevo) */}
+                <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700">
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2 uppercase tracking-wide">
+                        <Activity className="w-4 h-4 text-[#0047AB] dark:text-blue-400" /> Resumen Operativo
+                    </h3>
+                    
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        {/* Estado del Stock */}
+                        <div className="p-4 bg-slate-50 dark:bg-slate-700/30 rounded-xl border border-slate-100 dark:border-slate-700">
+                            <div className="flex items-center gap-2 mb-2 text-slate-500 dark:text-slate-400">
+                                <Package className="w-3.5 h-3.5" />
+                                <span className="text-xs font-bold uppercase">Stock</span>
+                            </div>
+                            <div className="text-sm font-medium text-slate-900 dark:text-white">
+                                {project.materials?.length || 0} ítems registrados
+                            </div>
+                            <div className="text-xs text-slate-500 mt-1">
+                                {project.materials?.filter(m => m.quantity <= (m.minStock || 0)).length > 0 ? (
+                                    <span className="text-amber-600 font-bold flex items-center gap-1">
+                                        <AlertCircle className="w-3 h-3" /> {project.materials.filter(m => m.quantity <= (m.minStock || 0)).length} bajo mínimos
+                                    </span>
+                                ) : (
+                                    <span className="text-green-600 flex items-center gap-1">
+                                        <CheckCircle className="w-3 h-3" /> Niveles óptimos
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Personal Asignado */}
+                        <div className="p-4 bg-slate-50 dark:bg-slate-700/30 rounded-xl border border-slate-100 dark:border-slate-700">
+                            <div className="flex items-center gap-2 mb-2 text-slate-500 dark:text-slate-400">
+                                <Users className="w-3.5 h-3.5" />
+                                <span className="text-xs font-bold uppercase">Equipo</span>
+                            </div>
+                            <div className="text-sm font-medium text-slate-900 dark:text-white">
+                                {(() => {
+                                    const users = Array.from(new Set(project.transactions?.map(t => t.userName).filter((name): name is string => !!name))) || [];
+                                    return users.length > 0 ? (
+                                        <div className="flex flex-wrap gap-1">
+                                            {users.slice(0, 3).map(u => (
+                                                <span key={u} className="bg-white dark:bg-slate-600 px-1.5 py-0.5 rounded text-[10px] border border-slate-200 dark:border-slate-500 shadow-sm">
+                                                    {u.split(' ')[0]}
+                                                </span>
+                                            ))}
+                                            {users.length > 3 && <span className="text-xs text-slate-400">+{users.length - 3}</span>}
+                                        </div>
+                                    ) : (
+                                        <span className="text-slate-400 italic text-xs">Sin asignar</span>
+                                    );
+                                })()}
+                            </div>
+                        </div>
+
+                        {/* Alertas Rápidas */}
+                        <div className={`p-4 rounded-xl border ${project.incidents?.some(i => i.status === 'Open') ? 'bg-red-50 dark:bg-red-900/10 border-red-100 dark:border-red-900/30' : 'bg-green-50 dark:bg-green-900/10 border-green-100 dark:border-green-900/30'}`}>
+                            <div className={`flex items-center gap-2 mb-2 ${project.incidents?.some(i => i.status === 'Open') ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
+                                <AlertOctagon className="w-3.5 h-3.5" />
+                                <span className="text-xs font-bold uppercase">Estado</span>
+                            </div>
+                            <div className={`text-sm font-bold ${project.incidents?.some(i => i.status === 'Open') ? 'text-red-700 dark:text-red-300' : 'text-green-700 dark:text-green-300'}`}>
+                                {project.incidents?.some(i => i.status === 'Open') ? 'Requiere Atención' : 'Todo en Orden'}
+                            </div>
+                            <div className="text-xs mt-1 opacity-80">
+                                {project.incidents?.filter(i => i.status === 'Open').length} incidencias abiertas
+                            </div>
+                        </div>
+                    </div>
                 </div>
               </div>
 
-              <div className="bg-gradient-to-br from-[#0047AB]/5 to-blue-50 dark:from-slate-800 dark:to-slate-800/50 p-8 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,71,171,0.1)] border border-blue-100/50 dark:border-slate-700 transition-colors">
-                <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-lg font-bold text-[#0047AB] dark:text-blue-400 flex items-center">
-                    <BrainCircuit className="w-6 h-6 mr-2" /> Asistente IA
-                  </h3>
-                  <button 
-                    onClick={handleRunAnalysis}
-                    disabled={isAnalyzing}
-                    className="text-xs bg-[#0047AB] text-white px-4 py-2 rounded-lg hover:bg-[#003380] disabled:opacity-50 transition-colors font-semibold shadow-md shadow-blue-900/10"
-                  >
-                    {isAnalyzing ? 'Analizando...' : 'Analizar Proyecto'}
-                  </button>
+              {/* COLUMNA DERECHA (1/3) */}
+              <div className="lg:col-span-1 space-y-6">
+                
+                {/* Asistente IA (Compacto) */}
+                <div className="bg-gradient-to-br from-[#0047AB] to-indigo-600 p-6 rounded-2xl shadow-lg shadow-indigo-500/20 text-white relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                        <BrainCircuit className="w-24 h-24" />
+                    </div>
+                    
+                    <div className="relative z-10">
+                        <h3 className="text-lg font-bold mb-1 flex items-center gap-2">
+                            <BrainCircuit className="w-5 h-5" /> Asistente IA
+                        </h3>
+                        <p className="text-indigo-100 text-xs mb-4 opacity-90">
+                            Análisis predictivo y recomendaciones estratégicas.
+                        </p>
+                        
+                        <button 
+                            onClick={handleRunAnalysis}
+                            disabled={isAnalyzing}
+                            className="w-full bg-white text-[#0047AB] py-2.5 rounded-xl font-bold text-sm hover:bg-indigo-50 disabled:opacity-50 transition-all shadow-md flex items-center justify-center gap-2"
+                        >
+                            {isAnalyzing ? (
+                                <>
+                                    <Loader2 className="w-4 h-4 animate-spin" /> Analizando...
+                                </>
+                            ) : (
+                                <>
+                                    <Zap className="w-4 h-4 fill-current" /> Analizar Proyecto
+                                </>
+                            )}
+                        </button>
+                    </div>
+
+                    {aiAnalysis && (
+                        <div className="mt-4 pt-4 border-t border-white/20 relative z-10">
+                            <div className="bg-white/10 backdrop-blur-md p-3 rounded-lg text-xs leading-relaxed max-h-60 overflow-y-auto custom-scrollbar">
+                                {aiAnalysis}
+                            </div>
+                        </div>
+                    )}
                 </div>
-                {aiAnalysis ? (
-                  <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm p-5 rounded-xl text-sm text-slate-800 dark:text-slate-200 leading-relaxed whitespace-pre-line border border-white dark:border-slate-600 shadow-sm">
-                    {aiAnalysis}
-                  </div>
-                ) : (
-                  <p className="text-sm text-slate-600 dark:text-slate-400 bg-white/50 dark:bg-slate-900/50 p-4 rounded-xl border border-white/50 dark:border-slate-700/50">
-                    Utiliza la IA para analizar el estado financiero, stock crítico e incidencias y obtener recomendaciones estratégicas para mejorar la rentabilidad de la obra.
-                  </p>
-                )}
+
+                {/* Próximos Hitos (Placeholder) */}
+                <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 opacity-60">
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2 uppercase tracking-wide">
+                        <CheckSquare className="w-4 h-4 text-slate-400" /> Próximos Hitos
+                    </h3>
+                    <div className="space-y-3">
+                        <div className="flex items-center gap-3 text-sm text-slate-500">
+                            <div className="w-2 h-2 rounded-full bg-slate-300"></div>
+                            <span>Revisión de material (Pendiente)</span>
+                        </div>
+                        <div className="flex items-center gap-3 text-sm text-slate-500">
+                            <div className="w-2 h-2 rounded-full bg-slate-300"></div>
+                            <span>Certificación Fase 1 (Pendiente)</span>
+                        </div>
+                    </div>
+                </div>
+
               </div>
+
             </div>
           </div>
         )}
@@ -594,8 +801,8 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                 <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 flex flex-col items-center">
                     <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-2 w-full text-left uppercase tracking-wider">Desglose Financiero</h3>
                     {financialData.length > 0 ? (
-                        <div className="h-[200px] w-full min-h-[200px] min-w-0">
-                          <ResponsiveContainer width="100%" height="100%">
+                        <div className="h-[200px] w-full min-h-[200px] min-w-0 relative">
+                          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={200}>
                             <PieChart>
                               <Pie data={financialData} cx="50%" cy="50%" innerRadius={40} outerRadius={60} paddingAngle={5} dataKey="value" stroke="none">
                                 {financialData.map((entry, index) => (
@@ -979,22 +1186,31 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
         )}
 
          {/* SETTINGS TAB */}
-         {activeTab === 'settings' && (
+         {activeTab === 'settings' && settingsForm && (
            <div className="max-w-3xl mx-auto space-y-8">
               
               {/* General Settings */}
               <div className="bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 transition-colors">
-                 <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6 flex items-center gap-2">
-                    <Settings className="w-5 h-5 text-[#0047AB] dark:text-blue-400" /> Datos Generales
-                 </h3>
+                 <div className="flex justify-between items-center mb-6">
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                        <Settings className="w-5 h-5 text-[#0047AB] dark:text-blue-400" /> Datos Generales
+                    </h3>
+                    <button 
+                        onClick={handleSaveSettings}
+                        className="bg-[#0047AB] hover:bg-[#003380] text-white px-4 py-2 rounded-lg text-sm font-bold shadow-md transition-all flex items-center gap-2"
+                    >
+                        <Save className="w-4 h-4" /> Guardar Cambios
+                    </button>
+                 </div>
+                 
                  <div className="space-y-6">
                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                          <div>
                              <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-2">Nombre del Proyecto</label>
                              <input 
                                  type="text" 
-                                 value={project.name}
-                                 onChange={(e) => updateProjectWithHistory({ ...project, name: e.target.value })}
+                                 value={settingsForm.name}
+                                 onChange={(e) => setSettingsForm({ ...settingsForm, name: e.target.value })}
                                  className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white font-bold transition-all"
                              />
                          </div>
@@ -1002,8 +1218,8 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                              <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-2">Cliente</label>
                              <input 
                                  type="text" 
-                                 value={project.client}
-                                 onChange={(e) => updateProjectWithHistory({ ...project, client: e.target.value })}
+                                 value={settingsForm.client}
+                                 onChange={(e) => setSettingsForm({ ...settingsForm, client: e.target.value })}
                                  className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white font-medium transition-all"
                              />
                          </div>
@@ -1014,8 +1230,8 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                              <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-2">Teléfono Cliente</label>
                              <input 
                                  type="tel" 
-                                 value={project.clientPhone || ''}
-                                 onChange={(e) => updateProjectWithHistory({ ...project, clientPhone: e.target.value })}
+                                 value={settingsForm.clientPhone || ''}
+                                 onChange={(e) => setSettingsForm({ ...settingsForm, clientPhone: e.target.value })}
                                  className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white font-medium transition-all"
                                  placeholder="Sin teléfono"
                              />
@@ -1024,8 +1240,8 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                              <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-2">Email Cliente</label>
                              <input 
                                  type="email" 
-                                 value={project.clientEmail || ''}
-                                 onChange={(e) => updateProjectWithHistory({ ...project, clientEmail: e.target.value })}
+                                 value={settingsForm.clientEmail || ''}
+                                 onChange={(e) => setSettingsForm({ ...settingsForm, clientEmail: e.target.value })}
                                  className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white font-medium transition-all"
                                  placeholder="Sin email"
                              />
@@ -1036,8 +1252,8 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                          <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-2">Ubicación</label>
                          <input 
                              type="text" 
-                             value={project.location}
-                             onChange={(e) => updateProjectWithHistory({ ...project, location: e.target.value })}
+                             value={settingsForm.location}
+                             onChange={(e) => setSettingsForm({ ...settingsForm, location: e.target.value })}
                              className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white font-medium transition-all"
                          />
                      </div>
@@ -1047,8 +1263,8 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                              <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-2">Fecha Inicio</label>
                              <input 
                                  type="date" 
-                                 value={project.startDate}
-                                 onChange={(e) => updateProjectWithHistory({ ...project, startDate: e.target.value })}
+                                 value={settingsForm.startDate}
+                                 onChange={(e) => setSettingsForm({ ...settingsForm, startDate: e.target.value })}
                                  className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white font-medium transition-all"
                              />
                          </div>
@@ -1056,8 +1272,8 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                              <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-2">Fecha Fin (Estimada)</label>
                              <input 
                                  type="date" 
-                                 value={project.endDate || ''}
-                                 onChange={(e) => updateProjectWithHistory({ ...project, endDate: e.target.value })}
+                                 value={settingsForm.endDate || ''}
+                                 onChange={(e) => setSettingsForm({ ...settingsForm, endDate: e.target.value })}
                                  className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white font-medium transition-all"
                              />
                          </div>
@@ -1066,7 +1282,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
               </div>
 
               {/* Photovoltaic Specific Settings */}
-              {project.type === 'Photovoltaic' && (
+              {settingsForm.type === 'Photovoltaic' && (
                   <div className="bg-amber-50 dark:bg-amber-900/10 p-8 rounded-2xl shadow-[0_4px_20px_-4px_rgba(245,158,11,0.1)] border border-amber-100 dark:border-amber-800/50 transition-colors">
                       <h3 className="text-lg font-bold text-amber-700 dark:text-amber-500 mb-6 flex items-center gap-2">
                           <SunIcon className="w-5 h-5" /> Datos Técnicos FV
@@ -1078,8 +1294,11 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                                   <input 
                                       type="number" 
                                       step="0.1"
-                                      value={project.pvData?.peakPower || 0}
-                                      onChange={(e) => updatePvField('peakPower', Number(e.target.value))}
+                                      value={settingsForm.pvData?.peakPower || 0}
+                                      onChange={(e) => setSettingsForm({
+                                          ...settingsForm,
+                                          pvData: { ...settingsForm.pvData!, peakPower: Number(e.target.value) }
+                                      })}
                                       className="w-full p-3 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-800 rounded-xl outline-none focus:ring-2 focus:ring-amber-500 text-slate-900 dark:text-white font-medium"
                                   />
                               </div>
@@ -1087,8 +1306,11 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                                   <label className="text-xs font-bold text-amber-700/70 dark:text-amber-400 uppercase tracking-wide block mb-2">Nº Módulos</label>
                                   <input 
                                       type="number" 
-                                      value={project.pvData?.modulesCount || 0}
-                                      onChange={(e) => updatePvField('modulesCount', Number(e.target.value))}
+                                      value={settingsForm.pvData?.modulesCount || 0}
+                                      onChange={(e) => setSettingsForm({
+                                          ...settingsForm,
+                                          pvData: { ...settingsForm.pvData!, modulesCount: Number(e.target.value) }
+                                      })}
                                       className="w-full p-3 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-800 rounded-xl outline-none focus:ring-2 focus:ring-amber-500 text-slate-900 dark:text-white font-medium"
                                   />
                               </div>
@@ -1097,8 +1319,11 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                               <label className="text-xs font-bold text-amber-700/70 dark:text-amber-400 uppercase tracking-wide block mb-2">Modelo Inversor</label>
                               <input 
                                   type="text" 
-                                  value={project.pvData?.inverterModel || ''}
-                                  onChange={(e) => updatePvField('inverterModel', e.target.value)}
+                                  value={settingsForm.pvData?.inverterModel || ''}
+                                  onChange={(e) => setSettingsForm({
+                                      ...settingsForm,
+                                      pvData: { ...settingsForm.pvData!, inverterModel: e.target.value }
+                                  })}
                                   className="w-full p-3 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-800 rounded-xl outline-none focus:ring-2 focus:ring-amber-500 text-slate-900 dark:text-white font-medium"
                               />
                           </div>
@@ -1106,8 +1331,11 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                               <div>
                                   <label className="text-xs font-bold text-amber-700/70 dark:text-amber-400 uppercase tracking-wide block mb-2">Tipo Instalación</label>
                                   <select 
-                                      value={project.pvData?.installationType || 'Residential'}
-                                      onChange={(e) => updatePvField('installationType', e.target.value)}
+                                      value={settingsForm.pvData?.installationType || 'Residential'}
+                                      onChange={(e) => setSettingsForm({
+                                          ...settingsForm,
+                                          pvData: { ...settingsForm.pvData!, installationType: e.target.value as any }
+                                      })}
                                       className="w-full p-3 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-800 rounded-xl outline-none focus:ring-2 focus:ring-amber-500 text-slate-900 dark:text-white font-medium cursor-pointer"
                                   >
                                       <option value="Residential">Residencial</option>
@@ -1119,18 +1347,24 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                                   <label className="flex items-center gap-2 cursor-pointer select-none">
                                       <input 
                                           type="checkbox" 
-                                          checked={project.pvData?.hasBattery || false}
-                                          onChange={(e) => updatePvField('hasBattery', e.target.checked)}
+                                          checked={settingsForm.pvData?.hasBattery || false}
+                                          onChange={(e) => setSettingsForm({
+                                              ...settingsForm,
+                                              pvData: { ...settingsForm.pvData!, hasBattery: e.target.checked }
+                                          })}
                                           className="w-5 h-5 text-amber-500 rounded focus:ring-amber-500 border-amber-300" 
                                       />
                                       <span className="text-sm font-bold text-slate-700 dark:text-slate-300">Incluye Batería</span>
                                   </label>
-                                  {project.pvData?.hasBattery && (
+                                  {settingsForm.pvData?.hasBattery && (
                                       <input 
                                           type="number" 
                                           placeholder="Capacidad (kWh)"
-                                          value={project.pvData?.batteryCapacity || ''}
-                                          onChange={(e) => updatePvField('batteryCapacity', Number(e.target.value))}
+                                          value={settingsForm.pvData?.batteryCapacity || ''}
+                                          onChange={(e) => setSettingsForm({
+                                              ...settingsForm,
+                                              pvData: { ...settingsForm.pvData!, batteryCapacity: Number(e.target.value) }
+                                          })}
                                           className="flex-1 p-2 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-800 rounded-lg outline-none focus:ring-2 focus:ring-amber-500 text-sm"
                                       />
                                   )}

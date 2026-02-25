@@ -494,8 +494,8 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
                     <PieIcon className="w-6 h-6 text-slate-400" />
                 </div>
                 <div className="flex items-center gap-4">
-                    <div className="h-24 w-24 min-w-[6rem]">
-                         <ResponsiveContainer width="100%" height="100%">
+                    <div className="h-24 w-24 min-w-[6rem] relative">
+                         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={200}>
                              <PieChart>
                                  <Pie 
                                     data={expenseStructureData} 
@@ -552,8 +552,8 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
                         ))}
                      </div>
                  </div>
-                 <div className="h-[300px] w-full">
-                     <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+                 <div className="h-[300px] w-full relative">
+                     <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={200}>
                          <LineChart data={evolutionData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                              <XAxis 
@@ -582,8 +582,8 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
                 <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
                      <PieIcon className="w-5 h-5 text-[#0047AB] dark:text-blue-400" /> Distribución de Gastos
                 </h3>
-                <div className="h-[300px] w-full">
-                     <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+                <div className="h-[300px] w-full relative">
+                     <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={200}>
                          <PieChart>
                              <Pie 
                                 data={categoryData} 
