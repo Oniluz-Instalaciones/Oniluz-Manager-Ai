@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { ArrowLeft, Building2, Users, Truck, Wallet, TrendingDown, TrendingUp, AlertTriangle, Briefcase, Calculator, Plus, Trash2, Save, Calendar, CheckCircle2, Target } from 'lucide-react';
+import { ArrowLeft, Building2, Users, Truck, Wallet, TrendingDown, TrendingUp, AlertTriangle, Briefcase, Calculator, Plus, Trash2, Save, Calendar, CheckCircle2, Target, Edit, X, PieChart as PieIcon } from 'lucide-react';
 import { Project } from '../types';
 import { FixedExpense, Employee, Asset, Tax, InternalFinancialState } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid, ReferenceLine, ComposedChart, Line } from 'recharts';
@@ -44,6 +44,7 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
         cost: 0,
         usefulLifeYears: 5
     });
+    const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
 
     // Tax Modal State
     const [isTaxModalOpen, setIsTaxModalOpen] = useState(false);
@@ -61,6 +62,9 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
         amount: 150,
         frequency: 'Monthly'
     });
+
+    const [showStructuralDetails, setShowStructuralDetails] = useState(false);
+    const [showVatDetails, setShowVatDetails] = useState(false);
 
     // --- DATA FETCHING ---
     useEffect(() => {
@@ -224,22 +228,53 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
             return;
         }
 
-        const { data, error } = await supabase.from('company_assets').insert([{
-            name: newAsset.name,
-            type: newAsset.type,
-            purchase_date: newAsset.purchaseDate,
-            cost: newAsset.cost,
-            useful_life_years: newAsset.usefulLifeYears,
-            residual_value: 0 // Default for now
-        }]).select();
+        if (editingAssetId) {
+            const { error } = await supabase.from('company_assets').update({
+                name: newAsset.name,
+                type: newAsset.type,
+                purchase_date: newAsset.purchaseDate,
+                cost: newAsset.cost,
+                useful_life_years: newAsset.usefulLifeYears
+            }).eq('id', editingAssetId);
 
-        if (!error && data) {
-            fetchLedgerData();
-            setIsAssetModalOpen(false);
-            setNewAsset({ name: '', type: 'Equipment', purchaseDate: new Date().toISOString().split('T')[0], cost: 0, usefulLifeYears: 5 });
+            if (!error) {
+                fetchLedgerData();
+                setIsAssetModalOpen(false);
+                setEditingAssetId(null);
+                setNewAsset({ name: '', type: 'Equipment', purchaseDate: new Date().toISOString().split('T')[0], cost: 0, usefulLifeYears: 5 });
+            } else {
+                alert("Error al actualizar activo: " + error?.message);
+            }
         } else {
-            alert("Error al guardar activo: " + error?.message);
+            const { data, error } = await supabase.from('company_assets').insert([{
+                name: newAsset.name,
+                type: newAsset.type,
+                purchase_date: newAsset.purchaseDate,
+                cost: newAsset.cost,
+                useful_life_years: newAsset.usefulLifeYears,
+                residual_value: 0 // Default for now
+            }]).select();
+
+            if (!error && data) {
+                fetchLedgerData();
+                setIsAssetModalOpen(false);
+                setNewAsset({ name: '', type: 'Equipment', purchaseDate: new Date().toISOString().split('T')[0], cost: 0, usefulLifeYears: 5 });
+            } else {
+                alert("Error al guardar activo: " + error?.message);
+            }
         }
+    };
+
+    const handleEditAsset = (asset: Asset) => {
+        setNewAsset({
+            name: asset.name,
+            type: asset.type,
+            purchaseDate: asset.purchaseDate,
+            cost: asset.cost,
+            usefulLifeYears: asset.usefulLifeYears
+        });
+        setEditingAssetId(asset.id);
+        setIsAssetModalOpen(true);
     };
 
     // --- TAX CALCULATION HELPER ---
@@ -506,6 +541,81 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
 
     // --- CALCULATIONS (The CFO Brain) ---
 
+    // 0. Current Quarter VAT Forecast
+    const currentQuarterVat = useMemo(() => {
+        const now = new Date();
+        const currentYear = now.getFullYear();
+        const currentMonth = now.getMonth(); // 0-11
+        const quarterIndex = Math.floor(currentMonth / 3);
+        const startMonth = quarterIndex * 3;
+        const endMonth = startMonth + 2;
+        
+        const startDate = new Date(currentYear, startMonth, 1);
+        const endDate = new Date(currentYear, endMonth + 1, 0); // Last day of quarter
+
+        // 1. VAT Income (Output VAT) from Invoices
+        let vatIncome = 0;
+        let invoiceCount = 0;
+        projects.forEach(p => {
+            if (p.invoices) {
+                p.invoices.forEach(inv => {
+                    const invDate = new Date(inv.date);
+                    if (invDate >= startDate && invDate <= endDate && (inv.status === 'Paid' || inv.status === 'Sent')) {
+                        vatIncome += (inv.taxAmount || 0);
+                        invoiceCount++;
+                    }
+                });
+            }
+        });
+
+        // 2. VAT Expense (Input VAT) from Project Expenses
+        let vatExpenseProjects = 0;
+        let expenseCount = 0;
+        projects.forEach(p => {
+            if (p.transactions) {
+                p.transactions.forEach(t => {
+                    if (t.type === 'expense') {
+                        const tDate = new Date(t.date);
+                        if (tDate >= startDate && tDate <= endDate) {
+                            // Estimate VAT if not explicit (assuming 21% included in gross amount for simplicity, or calculate from base if available)
+                            // Ideally transaction should have taxAmount. If not, we estimate: Amount - (Amount / 1.21)
+                            const tax = t.amount - (t.amount / 1.21);
+                            vatExpenseProjects += tax;
+                            expenseCount++;
+                        }
+                    }
+                });
+            }
+        });
+
+        // 3. VAT Expense (Input VAT) from Fixed Expenses (Prorated)
+        // We assume fixed expenses have VAT.
+        const vatExpenseFixed = state.fixedExpenses.reduce((sum, exp) => {
+             let monthlyAmount = 0;
+             if (exp.frequency === 'Monthly') monthlyAmount = exp.amount;
+             else if (exp.frequency === 'Quarterly') monthlyAmount = exp.amount / 3;
+             else if (exp.frequency === 'Yearly') monthlyAmount = exp.amount / 12;
+             
+             const quarterlyTotal = monthlyAmount * 3;
+             // Estimate VAT (21%)
+             return sum + (quarterlyTotal - (quarterlyTotal / 1.21));
+        }, 0);
+
+        const totalVatExpense = vatExpenseProjects + vatExpenseFixed;
+        const netVat = vatIncome - totalVatExpense;
+
+        return {
+            income: vatIncome,
+            expense: totalVatExpense,
+            expenseProjects: vatExpenseProjects,
+            expenseFixed: vatExpenseFixed,
+            net: netVat,
+            quarterName: `Q${quarterIndex + 1} ${currentYear}`,
+            invoiceCount,
+            expenseCount
+        };
+    }, [projects, state.fixedExpenses]);
+
     // 1. Monthly Fixed Expenses (Normalized)
     const monthlyFixedExpenses = useMemo(() => {
         return state.fixedExpenses.reduce((sum, exp) => {
@@ -682,7 +792,7 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
             <div className="max-w-7xl mx-auto p-8 pb-24 space-y-8">
                 
                 {/* KPI CARDS (Management Cards) */}
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
                     {/* Runway */}
                     <div className={`p-6 rounded-2xl border shadow-sm transition-all hover:shadow-md ${runwayMonths < 3 ? 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700'}`}>
                         <div className="flex justify-between items-start mb-4">
@@ -702,11 +812,15 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
                     </div>
 
                     {/* Monthly Burn Rate */}
-                    <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm transition-all hover:shadow-md">
+                    <div 
+                        className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm transition-all hover:shadow-md cursor-pointer relative"
+                        onClick={() => setShowStructuralDetails(!showStructuralDetails)}
+                    >
                         <div className="flex justify-between items-start mb-4">
                             <div className="p-3 bg-orange-50 dark:bg-orange-900/20 rounded-xl">
                                 <TrendingDown className="w-6 h-6 text-orange-500" />
                             </div>
+                            <span className="bg-slate-100 dark:bg-slate-700 rounded-full w-5 h-5 flex items-center justify-center text-[10px] text-slate-500 font-bold">?</span>
                         </div>
                         <div className="text-3xl font-extrabold text-slate-900 dark:text-white mb-1">
                             {formatCurrency(monthlyBurnRate)}
@@ -714,6 +828,73 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
                         <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">
                             Gasto Estructural Mensual (Burn Rate)
                         </div>
+
+                        {/* Structural Breakdown Dropdown */}
+                        {showStructuralDetails && (
+                            <div 
+                                className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-100 dark:border-slate-700 p-4 z-50 animate-in fade-in zoom-in-95 duration-200 w-[300px] md:w-full"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                <div className="flex justify-between items-center mb-3">
+                                    <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">Desglose Mensual</h4>
+                                    <button onClick={() => setShowStructuralDetails(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                                        <X className="w-3 h-3" />
+                                    </button>
+                                </div>
+                                <div className="space-y-2">
+                                    <div className="flex justify-between items-center p-2 bg-slate-50 dark:bg-slate-700/30 rounded-lg">
+                                        <div className="flex items-center gap-2">
+                                            <Wallet className="w-3 h-3 text-slate-500" />
+                                            <div>
+                                                <p className="text-xs font-bold text-slate-700 dark:text-slate-300">Gastos Fijos</p>
+                                                <p className="text-[10px] text-slate-500">{state.fixedExpenses.length} conceptos</p>
+                                            </div>
+                                        </div>
+                                        <p className="font-mono font-bold text-slate-700 dark:text-slate-300">{formatCurrency(monthlyFixedExpenses)}</p>
+                                    </div>
+                                    
+                                    <div className="flex justify-between items-center p-2 bg-slate-50 dark:bg-slate-700/30 rounded-lg">
+                                        <div className="flex items-center gap-2">
+                                            <Users className="w-3 h-3 text-blue-500" />
+                                            <div>
+                                                <p className="text-xs font-bold text-slate-700 dark:text-slate-300">Nóminas + SS</p>
+                                                <p className="text-[10px] text-slate-500">{state.employees.length} empleados</p>
+                                            </div>
+                                        </div>
+                                        <p className="font-mono font-bold text-slate-700 dark:text-slate-300">{formatCurrency(monthlyPayrollCost)}</p>
+                                    </div>
+
+                                    <div className="flex justify-between items-center p-2 bg-slate-50 dark:bg-slate-700/30 rounded-lg">
+                                        <div className="flex items-center gap-2">
+                                            <Truck className="w-3 h-3 text-emerald-500" />
+                                            <div>
+                                                <p className="text-xs font-bold text-slate-700 dark:text-slate-300">Amortización</p>
+                                                <p className="text-[10px] text-slate-500">{state.assets.length} activos</p>
+                                            </div>
+                                        </div>
+                                        <p className="font-mono font-bold text-slate-700 dark:text-slate-300">{formatCurrency(monthlyAmortization)}</p>
+                                    </div>
+
+                                    <div className="flex justify-between items-center p-2 bg-slate-50 dark:bg-slate-700/30 rounded-lg">
+                                        <div className="flex items-center gap-2">
+                                            <Calculator className="w-3 h-3 text-orange-500" />
+                                            <div>
+                                                <p className="text-xs font-bold text-slate-700 dark:text-slate-300">Impuestos (Prov.)</p>
+                                                <p className="text-[10px] text-slate-500">Estimación mensual</p>
+                                            </div>
+                                        </div>
+                                        <p className="font-mono font-bold text-slate-700 dark:text-slate-300">{formatCurrency(monthlyTaxProvision)}</p>
+                                    </div>
+
+                                    <div className="pt-2 border-t border-slate-200 dark:border-slate-600 flex justify-between items-center mt-2">
+                                        <p className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase">Total Mensual</p>
+                                        <p className="font-bold text-indigo-600 dark:text-indigo-400 text-sm">
+                                            {formatCurrency(monthlyBurnRate)}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     {/* Real Hourly Cost */}
@@ -744,6 +925,91 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
                         <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">
                             Valor Activos Depreciables
                         </div>
+                    </div>
+
+                    {/* VAT Forecast Card */}
+                    <div 
+                        className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm transition-all hover:shadow-md cursor-pointer relative"
+                        onClick={() => setShowVatDetails(!showVatDetails)}
+                    >
+                        <div className="flex justify-between items-start mb-4">
+                            <div className={`p-3 rounded-xl ${currentQuarterVat.net > 0 ? 'bg-red-50 dark:bg-red-900/20' : 'bg-emerald-50 dark:bg-emerald-900/20'}`}>
+                                <PieIcon className={`w-6 h-6 ${currentQuarterVat.net > 0 ? 'text-red-500' : 'text-emerald-500'}`} />
+                            </div>
+                            <span className="bg-slate-100 dark:bg-slate-700 rounded-full w-5 h-5 flex items-center justify-center text-[10px] text-slate-500 font-bold">?</span>
+                        </div>
+                        <div className={`text-3xl font-extrabold mb-1 ${currentQuarterVat.net > 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                            {formatCurrency(Math.abs(currentQuarterVat.net))}
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                                Previsión IVA ({currentQuarterVat.quarterName})
+                            </div>
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${currentQuarterVat.net > 0 ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'}`}>
+                                {currentQuarterVat.net > 0 ? 'A PAGAR' : 'A DEVOLVER'}
+                            </span>
+                        </div>
+
+                        {/* VAT Breakdown Dropdown */}
+                        {showVatDetails && (
+                            <div 
+                                className="absolute top-full right-0 mt-2 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-100 dark:border-slate-700 p-4 z-50 animate-in fade-in zoom-in-95 duration-200 w-[300px] md:w-full"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                <div className="flex justify-between items-center mb-3">
+                                    <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">Desglose IVA {currentQuarterVat.quarterName}</h4>
+                                    <button onClick={() => setShowVatDetails(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                                        <X className="w-3 h-3" />
+                                    </button>
+                                </div>
+                                <div className="space-y-2">
+                                    <div className="flex justify-between items-center p-2 bg-slate-50 dark:bg-slate-700/30 rounded-lg">
+                                        <div className="flex items-center gap-2">
+                                            <TrendingUp className="w-3 h-3 text-slate-500" />
+                                            <div>
+                                                <p className="text-xs font-bold text-slate-700 dark:text-slate-300">IVA Repercutido</p>
+                                                <p className="text-[10px] text-slate-500">{currentQuarterVat.invoiceCount} facturas</p>
+                                            </div>
+                                        </div>
+                                        <p className="font-mono font-bold text-slate-700 dark:text-slate-300">+{formatCurrency(currentQuarterVat.income)}</p>
+                                    </div>
+                                    
+                                    <div className="flex justify-between items-center p-2 bg-slate-50 dark:bg-slate-700/30 rounded-lg">
+                                        <div className="flex items-center gap-2">
+                                            <TrendingDown className="w-3 h-3 text-slate-500" />
+                                            <div>
+                                                <p className="text-xs font-bold text-slate-700 dark:text-slate-300">IVA Soportado (Proy.)</p>
+                                                <p className="text-[10px] text-slate-500">{currentQuarterVat.expenseCount} gastos</p>
+                                            </div>
+                                        </div>
+                                        <p className="font-mono font-bold text-slate-700 dark:text-slate-300">-{formatCurrency(currentQuarterVat.expenseProjects)}</p>
+                                    </div>
+
+                                    <div className="flex justify-between items-center p-2 bg-slate-50 dark:bg-slate-700/30 rounded-lg">
+                                        <div className="flex items-center gap-2">
+                                            <Building2 className="w-3 h-3 text-slate-500" />
+                                            <div>
+                                                <p className="text-xs font-bold text-slate-700 dark:text-slate-300">IVA Soportado (Est.)</p>
+                                                <p className="text-[10px] text-slate-500">Gastos Fijos</p>
+                                            </div>
+                                        </div>
+                                        <p className="font-mono font-bold text-slate-700 dark:text-slate-300">-{formatCurrency(currentQuarterVat.expenseFixed)}</p>
+                                    </div>
+
+                                    <div className="pt-2 border-t border-slate-200 dark:border-slate-600 flex justify-between items-center mt-2">
+                                        <p className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase">Resultado Neto</p>
+                                        <div className="text-right">
+                                            <p className={`font-bold text-sm ${currentQuarterVat.net > 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                                                {formatCurrency(Math.abs(currentQuarterVat.net))}
+                                            </p>
+                                            <p className={`text-[10px] font-bold ${currentQuarterVat.net > 0 ? 'text-red-500' : 'text-emerald-500'}`}>
+                                                {currentQuarterVat.net > 0 ? 'A PAGAR' : 'A DEVOLVER'}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
 
@@ -952,6 +1218,7 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                                        {/* Manual Fixed Expenses */}
                                         {state.fixedExpenses.map(exp => {
                                             const monthlyVal = exp.frequency === 'Monthly' ? exp.amount : exp.frequency === 'Quarterly' ? exp.amount / 3 : exp.amount / 12;
                                             return (
@@ -965,6 +1232,31 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
                                                     <td className="px-6 py-4 text-right font-mono font-bold text-slate-900 dark:text-white">{formatCurrency(monthlyVal)}</td>
                                                     <td className="px-6 py-4 text-right">
                                                         <button onClick={() => handleDelete(exp.id)} className="text-red-400 hover:text-red-600 transition-colors"><Trash2 className="w-4 h-4" /></button>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+
+                                        {/* Automatic Asset Amortizations */}
+                                        {state.assets.map(asset => {
+                                            const monthlyVal = (asset.cost - asset.residualValue) / (asset.usefulLifeYears * 12);
+                                            if (monthlyVal <= 0) return null;
+                                            return (
+                                                <tr key={`asset-${asset.id}`} className="bg-emerald-50/30 dark:bg-emerald-900/10 hover:bg-emerald-50/50 dark:hover:bg-emerald-900/20">
+                                                    <td className="px-6 py-4 font-medium text-slate-900 dark:text-white flex items-center gap-2">
+                                                        <Truck className="w-4 h-4 text-emerald-500" />
+                                                        <span className="truncate">Amortización: {asset.name}</span>
+                                                    </td>
+                                                    <td className="px-6 py-4">
+                                                        <span className="px-2 py-1 rounded-md bg-emerald-100 dark:bg-emerald-900/40 text-xs font-bold text-emerald-700 dark:text-emerald-400">Amortización</span>
+                                                    </td>
+                                                    <td className="px-6 py-4 text-slate-500 dark:text-slate-400">Mensual (Auto)</td>
+                                                    <td className="px-6 py-4 text-right font-mono text-slate-700 dark:text-slate-300">{formatCurrency(monthlyVal)}</td>
+                                                    <td className="px-6 py-4 text-right font-mono font-bold text-slate-900 dark:text-white">{formatCurrency(monthlyVal)}</td>
+                                                    <td className="px-6 py-4 text-right">
+                                                        <button onClick={() => setActiveTab('assets')} className="text-emerald-500 hover:text-emerald-700 text-xs font-bold hover:underline">
+                                                            Ver Activo
+                                                        </button>
                                                     </td>
                                                 </tr>
                                             );
@@ -1027,7 +1319,11 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
                         <div>
                             <div className="flex justify-between items-center mb-6">
                                 <h3 className="text-lg font-bold text-slate-900 dark:text-white">Inventario de Activos</h3>
-                                <button onClick={() => setIsAssetModalOpen(true)} className="flex items-center gap-2 text-sm font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 px-3 py-1.5 rounded-lg transition-colors">
+                                <button onClick={() => {
+                                    setNewAsset({ name: '', type: 'Equipment', purchaseDate: new Date().toISOString().split('T')[0], cost: 0, usefulLifeYears: 5 });
+                                    setEditingAssetId(null);
+                                    setIsAssetModalOpen(true);
+                                }} className="flex items-center gap-2 text-sm font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 px-3 py-1.5 rounded-lg transition-colors">
                                     <Plus className="w-4 h-4" /> Registrar Activo
                                 </button>
                             </div>
@@ -1039,12 +1335,20 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
                                 ) : (
                                     state.assets.map(asset => (
                                         <div key={asset.id} className="bg-slate-50 dark:bg-slate-700/30 rounded-xl p-6 border border-slate-200 dark:border-slate-700 relative group">
-                                            <button 
-                                                onClick={() => handleDeleteAsset(asset.id)}
-                                                className="absolute top-4 right-4 text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                                            >
-                                                <Trash2 className="w-4 h-4" />
-                                            </button>
+                                            <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <button 
+                                                    onClick={() => handleEditAsset(asset)}
+                                                    className="text-slate-400 hover:text-indigo-500"
+                                                >
+                                                    <Edit className="w-4 h-4" />
+                                                </button>
+                                                <button 
+                                                    onClick={() => handleDeleteAsset(asset.id)}
+                                                    className="text-slate-400 hover:text-red-500"
+                                                >
+                                                    <Trash2 className="w-4 h-4" />
+                                                </button>
+                                            </div>
                                             <div className="flex items-center gap-3 mb-4">
                                                 <div className="bg-emerald-100 dark:bg-emerald-900/40 p-2 rounded-lg text-emerald-600 dark:text-emerald-400">
                                                     {asset.type === 'Vehicle' ? <Truck className="w-5 h-5" /> : <Briefcase className="w-5 h-5" />}
@@ -1334,7 +1638,7 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
                 <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
                     <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
                         <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center">
-                            <h3 className="text-lg font-bold text-slate-900 dark:text-white">Registrar Activo</h3>
+                            <h3 className="text-lg font-bold text-slate-900 dark:text-white">{editingAssetId ? 'Editar Activo' : 'Registrar Activo'}</h3>
                             <button onClick={() => setIsAssetModalOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
                                 <Trash2 className="w-5 h-5 rotate-45" />
                             </button>
@@ -1397,7 +1701,7 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
                         </div>
                         <div className="p-6 bg-slate-50 dark:bg-slate-700/50 flex justify-end gap-3">
                             <button onClick={() => setIsAssetModalOpen(false)} className="px-4 py-2 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-lg font-medium transition-colors">Cancelar</button>
-                            <button onClick={handleAddAsset} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors shadow-lg shadow-indigo-500/30">Registrar Activo</button>
+                            <button onClick={handleAddAsset} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors shadow-lg shadow-indigo-500/30">{editingAssetId ? 'Guardar Cambios' : 'Registrar Activo'}</button>
                         </div>
                     </div>
                 </div>

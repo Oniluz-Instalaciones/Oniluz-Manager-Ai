@@ -383,7 +383,22 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                 updatedBudgets = [currentBudget, ...budgets];
             }
 
-            onUpdate({ ...project, budgets: updatedBudgets });
+            // AUTOMATION: Update Project Status & Progress
+            // If project is in Planning, move to In Progress (30%)
+            let newStatus = project.status;
+            let newProgress = project.progress;
+
+            if (project.status === 'Planning') {
+                newStatus = 'In Progress';
+                newProgress = Math.max(project.progress || 0, 50);
+            }
+
+            onUpdate({ 
+                ...project, 
+                budgets: updatedBudgets,
+                status: newStatus,
+                progress: newProgress
+            });
             setView('list');
 
         } catch (error: any) {

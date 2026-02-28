@@ -116,7 +116,30 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
   }, [allTransactions, dateRange, selectedProject, filterType]);
 
   // 3. Calculate KPI Totals based on Filtered Data
-  const totalIncome = useMemo(() => filteredTransactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0), [filteredTransactions]);
+  const totalIncome = useMemo(() => {
+      // Calculate income from Invoices (Draft/Sent/Paid) to ensure accuracy with billing
+      let income = 0;
+      projects.forEach(p => {
+          if (selectedProject !== 'ALL' && p.id !== selectedProject) return;
+          
+          if (p.invoices) {
+              p.invoices.forEach(inv => {
+                  // Include Draft, Sent, Paid
+                  if (inv.status === 'Draft' || inv.status === 'Sent' || inv.status === 'Paid') {
+                      // Check date
+                      const invDate = inv.date;
+                      const startStr = dateRange.start || '2000-01-01';
+                      const endStr = dateRange.end || '2100-01-01';
+                      if (invDate >= startStr && invDate <= endStr) {
+                          income += inv.total; // Use Gross Total
+                      }
+                  }
+              });
+          }
+      });
+      return income;
+  }, [projects, selectedProject, dateRange]);
+
   const totalExpense = useMemo(() => filteredTransactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0), [filteredTransactions]);
   const netProfit = useMemo(() => totalIncome - totalExpense, [totalIncome, totalExpense]);
   
@@ -125,10 +148,56 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
       return totalIncome > 0 ? ((totalIncome - totalExpense) / totalIncome) * 100 : 0;
   }, [totalIncome, totalExpense]);
 
-  // Previsión de IVA: 21% sobre el beneficio neto actual
-  const vatNet = useMemo(() => {
-      return netProfit * 0.21;
-  }, [netProfit]);
+  // Previsión de IVA:
+  // Income VAT: Sum of taxAmount from actual invoices
+  // Expense VAT: Calculated based on expense category rates
+  
+  const vatIncome = useMemo(() => {
+      let totalInvoiceVat = 0;
+
+      projects.forEach(p => {
+          if (selectedProject !== 'ALL' && p.id !== selectedProject) return;
+
+          if (p.invoices && p.invoices.length > 0) {
+              p.invoices.forEach(inv => {
+                  // Include Draft, Sent, Paid
+                  if (inv.status === 'Draft' || inv.status === 'Sent' || inv.status === 'Paid') {
+                      const invDate = inv.date;
+                      const startStr = dateRange.start || '2000-01-01';
+                      const endStr = dateRange.end || '2100-01-01';
+                      
+                      if (invDate >= startStr && invDate <= endStr) {
+                          totalInvoiceVat += inv.taxAmount;
+                      }
+                  }
+              });
+          }
+      });
+      
+      return totalInvoiceVat; 
+  }, [projects, selectedProject, dateRange]);
+
+  const vatExpense = useMemo(() => {
+    return filteredTransactions
+        .filter(t => t.type === 'expense')
+        .reduce((sum, t) => {
+            let rate = 0.21; // Default 21%
+            
+            if (t.category === 'Dietas' || t.category === 'Transporte') rate = 0.10;
+            if (t.category === 'Seguros' || t.category === 'Personal') rate = 0;
+            
+            // Calculate VAT amount from the GROSS amount
+            // Base = Amount / (1 + rate)
+            // VAT = Amount - Base
+            const base = t.amount / (1 + rate);
+            const vat = t.amount - base;
+            
+            return sum + vat;
+        }, 0);
+  }, [filteredTransactions]);
+  const vatNet = useMemo(() => vatIncome - vatExpense, [vatIncome, vatExpense]);
+
+  const [showVatDetails, setShowVatDetails] = useState(false);
 
   // Detección de Pérdidas: Filtra los proyectos donde los gastos sean mayores que los ingresos
   const lossMakingProjects = useMemo(() => {
@@ -401,7 +470,7 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
              </div>
              <p className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider z-10">Ingresos Totales</p>
              <div>
-                <p className="text-3xl font-extrabold text-slate-900 dark:text-white z-10">{totalIncome.toLocaleString()}€</p>
+                <p className="text-3xl font-extrabold text-slate-900 dark:text-white z-10">{totalIncome.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}</p>
                 <p className="text-xs text-green-600 dark:text-green-400 font-bold mt-1 bg-green-50 dark:bg-green-900/20 inline-block px-2 py-0.5 rounded-md">
                     {filteredTransactions.filter(t => t.type === 'income').length} movimientos
                 </p>
@@ -412,9 +481,9 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
              <div className="absolute top-0 right-0 p-4 opacity-10">
                  <TrendingDown className="w-16 h-16 text-red-500" />
              </div>
-             <p className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider z-10">Gastos Totales</p>
+             <p className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider z-10">Gastos Proyectos</p>
              <div>
-                <p className="text-3xl font-extrabold text-slate-900 dark:text-white z-10">{totalExpense.toLocaleString()}€</p>
+                <p className="text-3xl font-extrabold text-slate-900 dark:text-white z-10">{totalExpense.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}</p>
                 <p className="text-xs text-red-500 dark:text-red-400 font-bold mt-1 bg-red-50 dark:bg-red-900/20 inline-block px-2 py-0.5 rounded-md">
                     {filteredTransactions.filter(t => t.type === 'expense').length} movimientos
                 </p>
@@ -428,7 +497,7 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
              <p className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider z-10">Margen Operativo Neto</p>
              <div>
                 <p className={`text-3xl font-extrabold z-10 ${netProfit >= 0 ? 'text-[#0047AB] dark:text-blue-400' : 'text-red-600 dark:text-red-400'}`}>
-                    {netProfit.toLocaleString()}€
+                    {netProfit.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}
                 </p>
                 <p className={`text-xs font-bold mt-1 inline-block px-2 py-0.5 rounded-md ${profitMargin >= 0 ? 'text-green-600 bg-green-50 dark:bg-green-900/20 dark:text-green-400' : 'text-red-500 bg-red-50 dark:bg-red-900/20 dark:text-red-400'}`}>
                     {profitMargin.toFixed(1)}% de rentabilidad
@@ -436,12 +505,16 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
              </div>
           </div>
 
-          <div className={`p-6 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border flex flex-col justify-between h-32 transition-colors relative overflow-hidden ${vatNet > 0 ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-700/50' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700'}`}>
-             <div className="absolute top-0 right-0 p-4 opacity-10">
+          <div 
+              className={`p-6 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border flex flex-col justify-between h-32 transition-colors relative overflow-visible cursor-pointer hover:shadow-md ${vatNet > 0 ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-700/50' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700'}`}
+              onClick={() => setShowVatDetails(!showVatDetails)}
+          >
+             <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
                  <PieIcon className="w-16 h-16 text-purple-500" />
              </div>
-             <p className={`text-xs font-bold uppercase tracking-wider z-10 ${vatNet > 0 ? 'text-amber-700 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400'}`}>
+             <p className={`text-xs font-bold uppercase tracking-wider z-10 flex items-center gap-1 ${vatNet > 0 ? 'text-amber-700 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400'}`}>
                  Previsión IVA (Estimado)
+                 <span className="bg-slate-200 dark:bg-slate-700 rounded-full w-4 h-4 flex items-center justify-center text-[10px] ml-1">?</span>
              </p>
              <div>
                  <p className={`text-2xl font-extrabold z-10 ${vatNet > 0 ? 'text-amber-700 dark:text-amber-400' : 'text-slate-800 dark:text-slate-200'}`}>
@@ -451,6 +524,48 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
                     {vatNet > 0 ? 'A Pagar (Reservar dinero)' : 'A Devolver (A favor)'}
                  </p>
              </div>
+
+             {/* VAT Breakdown Dropdown */}
+             {showVatDetails && (
+                <div 
+                    className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-100 dark:border-slate-700 p-4 z-50 animate-in fade-in zoom-in-95 duration-200"
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <div className="flex justify-between items-center mb-3">
+                        <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">Desglose IVA</h4>
+                        <button onClick={() => setShowVatDetails(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                            <X className="w-3 h-3" />
+                        </button>
+                    </div>
+                    <div className="space-y-3">
+                        <div className="flex justify-between items-center p-2 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                            <div>
+                                <p className="text-xs font-bold text-green-700 dark:text-green-400 uppercase">IVA Repercutido</p>
+                                <p className="text-[10px] text-green-600 dark:text-green-500">Basado en facturas emitidas</p>
+                            </div>
+                            <p className="font-bold text-green-700 dark:text-green-400">+{vatIncome.toLocaleString()}€</p>
+                        </div>
+                        
+                        <div className="flex justify-between items-center p-2 bg-red-50 dark:bg-red-900/20 rounded-lg">
+                            <div>
+                                <p className="text-xs font-bold text-red-700 dark:text-red-400 uppercase">IVA Soportado</p>
+                                <p className="text-[10px] text-red-600 dark:text-red-500">Estimado s/categoría (21%, 10%, 0%)</p>
+                            </div>
+                            <p className="font-bold text-red-700 dark:text-red-400">-{vatExpense.toLocaleString()}€</p>
+                        </div>
+
+                        <div className="pt-2 border-t border-slate-100 dark:border-slate-700 flex justify-between items-center">
+                            <p className="text-xs font-bold text-slate-700 dark:text-slate-300">A Pagar / Devolver</p>
+                            <p className={`font-bold ${vatNet > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                {Math.abs(vatNet).toLocaleString()}€ {vatNet > 0 ? '(A Pagar)' : '(A Devolver)'}
+                            </p>
+                        </div>
+                    </div>
+                    <div className="mt-3 text-[10px] text-slate-400 italic bg-slate-50 dark:bg-slate-900/50 p-2 rounded">
+                        * Cálculo estimado. Repercutido basado en facturas reales. Soportado estimado según categoría de gasto.
+                    </div>
+                </div>
+             )}
           </div>
         </div>
 

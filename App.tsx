@@ -312,8 +312,8 @@ const App: React.FC = () => {
            name: newProject.name,
            client: newProject.client,
            location: newProject.location,
-           status: newProject.status,
-           progress: newProject.progress || 0,
+           status: newProject.status || 'Planning', // Default to Planning
+           progress: newProject.progress || 25,     // Default to 25%
            start_date: newProject.startDate || null, 
            end_date: newProject.endDate || null,   
            description: baseDescription,
@@ -562,6 +562,33 @@ const App: React.FC = () => {
       setSelectedProjectId(null);
       fetchProjects(); 
   };
+
+  // --- ONE-TIME DATA FIX: Fuenlabrada Invoice Number ---
+  const hasFixedFuenlabrada = React.useRef(false);
+
+  useEffect(() => {
+    if (projects.length > 0 && !hasFixedFuenlabrada.current) {
+      const fuenlabradaProject = projects.find(p => p.name.toLowerCase().includes('fuenlabrada'));
+      
+      if (fuenlabradaProject && fuenlabradaProject.invoices && fuenlabradaProject.invoices.length > 0) {
+        const targetInvoice = fuenlabradaProject.invoices[0];
+        const targetNumber = 'INV-2026-002';
+
+        // Check if it needs update (and avoid infinite loop if already correct)
+        if (targetInvoice.number !== targetNumber) {
+          console.log("Applying fix: Updating Fuenlabrada invoice number to", targetNumber);
+          
+          const updatedInvoices = fuenlabradaProject.invoices.map((inv, index) => 
+            index === 0 ? { ...inv, number: targetNumber } : inv
+          );
+          
+          const updatedProject = { ...fuenlabradaProject, invoices: updatedInvoices };
+          handleUpdateProject(updatedProject);
+          hasFixedFuenlabrada.current = true;
+        }
+      }
+    }
+  }, [projects]);
 
   // --- Render ---
 

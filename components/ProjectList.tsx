@@ -195,7 +195,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
       clientEmail: (formData.get('clientEmail') as string) || '',
       location: (formData.get('location') as string) || '',
       status: ProjectStatus.PLANNING,
-      progress: 0,
+      progress: 25, // Initial progress 25%
       startDate: (formData.get('startDate') as string) || new Date().toISOString().split('T')[0],
       endDate: (formData.get('endDate') as string) || '',
       budget: 0, // Initial budget is 0, to be defined in details
@@ -503,7 +503,38 @@ const ProjectList: React.FC<ProjectListProps> = ({
              const displayBudget = project.budget > 0 ? project.budget : activeBudgetsTotal;
 
              const expenses = project.transactions.filter(t => t.type === 'expense').reduce((a, b) => a + b.amount, 0);
-             const budgetProgress = displayBudget > 0 ? (expenses / displayBudget) * 100 : 0;
+             
+             // Budget Execution: 
+             // If project is Completed or Paid -> 100%
+             // Else -> Expenses / Budget
+             const isPaid = project.invoices?.some(i => i.status === 'Paid');
+             const isCompleted = project.status === 'Completed';
+             
+             let budgetProgress = 0;
+             if (isPaid || isCompleted) {
+                 budgetProgress = 100;
+             } else {
+                 budgetProgress = displayBudget > 0 ? (expenses / displayBudget) * 100 : 0;
+             }
+
+             // --- ROBUST PROGRESS CALCULATION ---
+             // Instead of relying solely on stored project.progress, we calculate it dynamically
+             // based on the existence of artifacts (Budgets, Invoices) to ensure consistency.
+             const calculateRobustProgress = () => {
+                 // 1. Check for Paid Invoices (Completion)
+                 if (project.invoices?.some(i => i.status === 'Paid')) return 100;
+                 
+                 // 2. Check for Any Invoices (Draft/Sent)
+                 if (project.invoices?.some(i => i.status === 'Draft' || i.status === 'Sent')) return 75;
+                 
+                 // 3. Check for Budgets (Created/Accepted)
+                 if (project.budgets && project.budgets.length > 0) return 50;
+                 
+                 // 4. Default (Planning/Created)
+                 return 25;
+             };
+
+             const displayProgress = calculateRobustProgress();
 
              return (
             <div 
@@ -514,11 +545,11 @@ const ProjectList: React.FC<ProjectListProps> = ({
               <div className="p-7 flex-1">
                 <div className="flex justify-between items-start mb-5">
                   <span className={`px-3 py-1 rounded-full text-[11px] font-bold tracking-wide uppercase ${
-                    project.status === ProjectStatus.IN_PROGRESS ? 'bg-green-50 text-green-700 border border-green-100 dark:bg-green-900/20 dark:text-green-400 dark:border-green-800' :
-                    project.status === ProjectStatus.COMPLETED ? 'bg-blue-50 text-blue-700 border border-blue-100 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800' :
+                    displayProgress === 100 ? 'bg-blue-50 text-blue-700 border border-blue-100 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800' :
+                    displayProgress >= 50 ? 'bg-green-50 text-green-700 border border-green-100 dark:bg-green-900/20 dark:text-green-400 dark:border-green-800' :
                     'bg-slate-100 text-slate-600 border border-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:border-slate-600'
                   }`}>
-                    {project.status}
+                    {displayProgress === 100 ? 'Completado' : displayProgress >= 50 ? 'En Curso' : 'Planificación'}
                   </span>
                   
                   {/* Project Type Badge */}
@@ -582,12 +613,12 @@ const ProjectList: React.FC<ProjectListProps> = ({
                           <span className="text-slate-500 dark:text-slate-400 font-medium flex items-center gap-1.5">
                             <HardHat className="w-3.5 h-3.5" /> Avance de Obra
                           </span>
-                          <span className="font-bold text-[#0047AB] dark:text-blue-400">{project.progress}%</span>
+                          <span className="font-bold text-[#0047AB] dark:text-blue-400">{displayProgress}%</span>
                       </div>
                       <div className="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
                         <div 
                           className="h-2 rounded-full bg-gradient-to-r from-[#0047AB] to-blue-400 transition-all duration-1000 ease-out"
-                          style={{ width: `${project.progress}%` }}
+                          style={{ width: `${displayProgress}%` }}
                         ></div>
                       </div>
                   </div>

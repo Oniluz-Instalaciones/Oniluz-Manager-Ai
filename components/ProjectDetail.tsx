@@ -621,6 +621,18 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                                     <span className="font-medium text-slate-900 dark:text-white">{project.location}</span>
                                 </div>
                             </div>
+
+                            <div className="flex items-start gap-3">
+                                <div className="p-2 bg-slate-50 dark:bg-slate-700/50 rounded-lg text-slate-400">
+                                    <Car className="w-4 h-4" />
+                                </div>
+                                <div>
+                                    <span className="text-xs text-slate-500 dark:text-slate-400 block mb-0.5">Distancia desde Base</span>
+                                    <span className="font-medium text-slate-900 dark:text-white">
+                                        {project.elevatorData?.distanceFromBase || 0} km
+                                    </span>
+                                </div>
+                            </div>
                             
                             <div className="flex items-start gap-3">
                                 <div className="p-2 bg-slate-50 dark:bg-slate-700/50 rounded-lg text-slate-400">
@@ -692,10 +704,10 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                             </div>
                             <div className="text-sm font-medium text-slate-900 dark:text-white">
                                 {(() => {
-                                    const users = Array.from(new Set(project.transactions?.map(t => t.userName).filter((name): name is string => !!name))) || [];
+                                    const users = Array.from(new Set(project.transactions?.map(t => t.userName).filter((name): name is string => !!name) || []));
                                     return users.length > 0 ? (
                                         <div className="flex flex-wrap gap-1">
-                                            {users.slice(0, 3).map(u => (
+                                            {users.slice(0, 3).map((u: string) => (
                                                 <span key={u} className="bg-white dark:bg-slate-600 px-1.5 py-0.5 rounded text-[10px] border border-slate-200 dark:border-slate-500 shadow-sm">
                                                     {u.split(' ')[0]}
                                                 </span>

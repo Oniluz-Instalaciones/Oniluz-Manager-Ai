@@ -145,18 +145,40 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
 
   const getNextInvoiceNumber = async (): Promise<string> => {
     try {
-      // 1. Fetch all projects
-      const { data: projects, error } = await supabase
+      // 1. Fetch all projects from DB
+      const { data: dbProjects, error } = await supabase
         .from('projects')
-        .select('description');
+        .select('id, description');
       
       if (error) throw error;
 
       let maxNumber = 0;
       const currentYear = new Date().getFullYear();
 
-      // 2. Iterate and parse
-      projects?.forEach(p => {
+      // Helper to parse invoice numbers
+      const processInvoiceList = (list: Invoice[]) => {
+        list.forEach(inv => {
+            if (!inv.number) return;
+            // Normalize: Remove # and extra spaces
+            const cleanNum = inv.number.replace(/^#/, '').trim();
+            const parts = cleanNum.split('-');
+            
+            // Expected format: INV-YYYY-XXX
+            if (parts.length === 3) {
+                const year = parseInt(parts[1]);
+                const num = parseInt(parts[2]);
+                
+                if (year === currentYear && !isNaN(num)) {
+                    if (num > maxNumber) maxNumber = num;
+                }
+            }
+        });
+      };
+
+      // 2. Iterate DB projects (excluding current one to avoid stale data)
+      dbProjects?.forEach(p => {
+        if (p.id === project.id) return; // Skip current project, use local state instead
+
         if (p.description && p.description.includes(INVOICE_TAG_OPEN)) {
            try {
              const startIndex = p.description.indexOf(INVOICE_TAG_OPEN);
@@ -164,18 +186,7 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
              if (startIndex !== -1 && endIndex !== -1) {
                const jsonStr = p.description.substring(startIndex + INVOICE_TAG_OPEN.length, endIndex);
                const projectInvoices: Invoice[] = JSON.parse(jsonStr);
-               
-               projectInvoices.forEach(inv => {
-                 // Format: INV-YYYY-XXX
-                 const parts = inv.number.split('-');
-                 if (parts.length === 3) {
-                   const year = parseInt(parts[1]);
-                   const num = parseInt(parts[2]);
-                   if (year === currentYear && !isNaN(num)) {
-                     if (num > maxNumber) maxNumber = num;
-                   }
-                 }
-               });
+               processInvoiceList(projectInvoices);
              }
            } catch (e) {
              console.error("Error parsing invoices for number generation", e);
@@ -183,11 +194,14 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
         }
       });
 
+      // 3. Process current project from LOCAL STATE (most up to date)
+      processInvoiceList(invoices);
+
       return `INV-${currentYear}-${(maxNumber + 1).toString().padStart(3, '0')}`;
 
     } catch (error) {
       console.error("Error fetching projects for invoice number:", error);
-      // Fallback to local length if fetch fails (e.g. offline or no table)
+      // Fallback to local length if fetch fails
       return `INV-${new Date().getFullYear()}-${(invoices.length + 1).toString().padStart(3, '0')}`;
     }
   };
@@ -299,7 +313,30 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
       setInvoices(updatedInvoices);
       
       // Propagate to parent
-      const updatedProject = { ...project, invoices: updatedInvoices };
+      let updatedProject = { ...project, invoices: updatedInvoices };
+
+      // AUTOMATION: Update Project Status & Progress
+      // Invoice Created -> Completed (90%)
+      // Invoice Paid -> Completed (100%)
+      
+      let newStatus = project.status;
+      let newProgress = project.progress || 0;
+
+      if (editingInvoice.status === 'Paid') {
+          newStatus = 'Completed';
+          newProgress = 100;
+      } else {
+          // Draft or Sent
+          if (newStatus !== 'Completed') newStatus = 'Completed';
+          if (newProgress < 75) newProgress = 75;
+      }
+
+      updatedProject = {
+          ...updatedProject,
+          status: newStatus,
+          progress: newProgress
+      };
+
       onUpdate(updatedProject);
       
       // Attempt to save to Supabase "invoices" table if it exists, otherwise this is just local for the session
@@ -464,9 +501,24 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
       <div className="bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 max-w-4xl mx-auto">
         {/* Header Actions */}
         <div className="flex justify-between items-center mb-8 no-print">
-          <h2 className="text-2xl font-bold text-slate-800 dark:text-white">
-            {editingInvoice.id ? 'Editar Factura' : 'Nueva Factura'}
-          </h2>
+          <div className="flex items-center gap-4">
+            <h2 className="text-2xl font-bold text-slate-800 dark:text-white">
+                {editingInvoice.id ? 'Editar Factura' : 'Nueva Factura'}
+            </h2>
+            <select
+                value={editingInvoice.status}
+                onChange={(e) => updateInvoiceField('status', e.target.value)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide border outline-none cursor-pointer transition-colors ${
+                    editingInvoice.status === 'Paid' ? 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-900' :
+                    editingInvoice.status === 'Sent' ? 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-900' :
+                    'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:border-slate-600'
+                }`}
+            >
+                <option value="Draft">Borrador</option>
+                <option value="Sent">Enviada</option>
+                <option value="Paid">Pagada</option>
+            </select>
+          </div>
           <div className="flex gap-2">
             {editingInvoice.id && (
                 <button 
@@ -498,8 +550,13 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
           <div className="flex justify-between items-start mb-12">
             <div>
               <h1 className="text-3xl font-extrabold text-[#0047AB] uppercase tracking-wider mb-2">FACTURA</h1>
-              <div className="text-sm text-slate-500 font-mono">
-                #{editingInvoice.number}
+              <div className="flex items-center gap-1 text-sm text-slate-500 font-mono">
+                <span>#</span>
+                <input 
+                    value={editingInvoice.number}
+                    onChange={(e) => updateInvoiceField('number', e.target.value)}
+                    className="bg-transparent border-b border-transparent hover:border-slate-300 focus:border-[#0047AB] outline-none w-32 transition-colors font-mono text-slate-700"
+                />
               </div>
             </div>
             <div className="text-right">
