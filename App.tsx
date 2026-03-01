@@ -5,6 +5,7 @@ import ProjectList from './components/ProjectList';
 import ProjectDetail from './components/ProjectDetail';
 import GlobalFinance from './components/GlobalFinance';
 import InternalFinance from './components/InternalFinance';
+import StockManager from './components/StockManager';
 import PriceDatabase from './components/PriceDatabase';
 import ProjectCalendar from './components/ProjectCalendar';
 import Login from './components/Login';
@@ -122,6 +123,7 @@ const App: React.FC = () => {
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [showGlobalFinance, setShowGlobalFinance] = useState(false);
   const [showInternalFinance, setShowInternalFinance] = useState(false);
+  const [showStockManager, setShowStockManager] = useState(false);
   const [showPriceDb, setShowPriceDb] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
 
@@ -156,6 +158,7 @@ const App: React.FC = () => {
           setSelectedProjectId(null);
           setShowGlobalFinance(false);
           setShowInternalFinance(false);
+          setShowStockManager(false);
           setShowPriceDb(false);
           setShowCalendar(false);
           setProjects([]); 
@@ -681,6 +684,15 @@ const App: React.FC = () => {
       );
   }
 
+  if (showStockManager) {
+      return (
+          <StockManager 
+            projects={projects}
+            onBack={() => setShowStockManager(false)}
+          />
+      );
+  }
+
   if (showCalendar) {
       return (
           <ProjectCalendar 
@@ -711,6 +723,7 @@ const App: React.FC = () => {
       onUpdateProject={handleUpdateProject}
       onOpenGlobalFinance={() => setShowGlobalFinance(true)}
       onOpenInternalFinance={() => setShowInternalFinance(true)}
+      onOpenStockManager={() => setShowStockManager(true)}
       onOpenPriceDb={() => setShowPriceDb(true)}
       onOpenCalendar={() => setShowCalendar(true)}
       isDarkMode={darkMode}

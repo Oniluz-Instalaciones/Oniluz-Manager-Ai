@@ -32,6 +32,7 @@ interface ProjectListProps {
   onUpdateProject: (p: Project) => void;
   onOpenGlobalFinance: () => void;
   onOpenInternalFinance: () => void;
+  onOpenStockManager: () => void;
   onOpenPriceDb: () => void;
   onOpenCalendar: () => void;
   isDarkMode: boolean;
@@ -42,7 +43,7 @@ interface ProjectListProps {
 
 const ProjectList: React.FC<ProjectListProps> = ({ 
   projects, onSelectProject, onAddProject, onUpdateProject, 
-  onOpenGlobalFinance, onOpenInternalFinance, onOpenPriceDb, onOpenCalendar, isDarkMode, onToggleDarkMode, onLogout, currentUserName
+  onOpenGlobalFinance, onOpenInternalFinance, onOpenStockManager, onOpenPriceDb, onOpenCalendar, isDarkMode, onToggleDarkMode, onLogout, currentUserName
 }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalType, setModalType] = useState<ProjectType>('General'); // Track which type we are creating
@@ -248,7 +249,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
             <p className="text-slate-500 dark:text-slate-400 mt-2 text-lg font-medium">Gestión integral de obras</p>
           </div>
           
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap justify-center md:justify-end">
               {/* AI Assistant Button */}
               <button 
                   onClick={() => setIsAssistantOpen(true)}
@@ -257,6 +258,16 @@ const ProjectList: React.FC<ProjectListProps> = ({
               >
                   <Sparkles className="w-5 h-5" />
                   <span className="font-bold text-sm hidden sm:inline group-hover:text-[#003380] dark:group-hover:text-blue-300">Asistente</span>
+              </button>
+
+              {/* Calendar Button (Moved from Menu) */}
+              <button 
+                  onClick={onOpenCalendar}
+                  className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-indigo-600 dark:text-indigo-400 p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-all shadow-sm hover:shadow-md flex items-center gap-2 group"
+                  title="Calendario de Obras"
+              >
+                  <Calendar className="w-5 h-5" />
+                  <span className="font-bold text-sm hidden sm:inline group-hover:text-indigo-800 dark:group-hover:text-indigo-300">Calendario</span>
               </button>
 
               {/* New Project Buttons */}
@@ -295,18 +306,6 @@ const ProjectList: React.FC<ProjectListProps> = ({
                               <div className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">Herramientas</div>
                               <div className="space-y-1">
                                   <button 
-                                      onClick={() => { onOpenCalendar(); setIsMenuOpen(false); }}
-                                      className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700/50 text-slate-700 dark:text-slate-200 transition-colors group"
-                                  >
-                                      <div className="flex items-center gap-3">
-                                          <div className="bg-indigo-100 dark:bg-indigo-900/30 p-2 rounded-lg text-indigo-600 dark:text-indigo-400">
-                                              <Calendar className="w-5 h-5" />
-                                          </div>
-                                          <span className="font-semibold">Calendario Obras</span>
-                                      </div>
-                                      <ChevronRight className="w-4 h-4 text-slate-300 dark:text-slate-600 group-hover:text-slate-500" />
-                                  </button>
-                                  <button 
                                       onClick={() => { onOpenGlobalFinance(); setIsMenuOpen(false); }}
                                       className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700/50 text-slate-700 dark:text-slate-200 transition-colors group"
                                   >
@@ -327,6 +326,18 @@ const ProjectList: React.FC<ProjectListProps> = ({
                                               <Briefcase className="w-5 h-5" />
                                           </div>
                                           <span className="font-semibold">Finanzas Internas (CFO)</span>
+                                      </div>
+                                      <ChevronRight className="w-4 h-4 text-slate-300 dark:text-slate-600 group-hover:text-slate-500" />
+                                  </button>
+                                  <button 
+                                      onClick={() => { onOpenStockManager(); setIsMenuOpen(false); }}
+                                      className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700/50 text-slate-700 dark:text-slate-200 transition-colors group"
+                                  >
+                                      <div className="flex items-center gap-3">
+                                          <div className="bg-orange-100 dark:bg-orange-900/30 p-2 rounded-lg text-orange-600 dark:text-orange-400">
+                                              <Layers className="w-5 h-5" />
+                                          </div>
+                                          <span className="font-semibold">Gestión de Stock</span>
                                       </div>
                                       <ChevronRight className="w-4 h-4 text-slate-300 dark:text-slate-600 group-hover:text-slate-500" />
                                   </button>

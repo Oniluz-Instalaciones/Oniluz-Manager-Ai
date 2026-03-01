@@ -905,10 +905,10 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
                             </div>
                         </div>
                         <div className="text-3xl font-extrabold text-slate-900 dark:text-white mb-1">
-                            {formatCurrency(hourlyCostAnalysis.avgCost)}
+                            {formatCurrency(hourlyCostAnalysis.avgCost * 8)}
                         </div>
                         <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-                            Coste Hora Real (Promedio Técnico)
+                            Coste Jornada Laboral (Promedio Técnico)
                         </div>
                     </div>
 
@@ -1167,28 +1167,28 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
                                     </div>
                                 </div>
                                 <div>
-                                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6">Análisis de Coste Hora</h3>
+                                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6">Análisis de Coste Jornada Laboral</h3>
                                     <div className="space-y-4">
                                         {hourlyCostAnalysis.details.map((detail, idx) => (
                                             <div key={idx} className="p-4 bg-slate-50 dark:bg-slate-700/30 rounded-xl border border-slate-100 dark:border-slate-700">
                                                 <div className="flex justify-between items-center mb-2">
                                                     <span className="font-bold text-slate-800 dark:text-white">{detail.name}</span>
-                                                    <span className="text-lg font-extrabold text-indigo-600 dark:text-indigo-400">{formatCurrency(detail.totalCost)} /h</span>
+                                                    <span className="text-lg font-extrabold text-indigo-600 dark:text-indigo-400">{formatCurrency(detail.totalCost * 8)} /día</span>
                                                 </div>
                                                 <div className="w-full bg-slate-200 dark:bg-slate-600 rounded-full h-2 overflow-hidden flex">
                                                     <div className="bg-blue-500 h-full" style={{ width: `${(detail.directCost / detail.totalCost) * 100}%` }} title="Coste Directo (Salario)"></div>
                                                     <div className="bg-orange-400 h-full" style={{ width: `${(detail.overheadCost / detail.totalCost) * 100}%` }} title="Coste Indirecto (Estructura)"></div>
                                                 </div>
                                                 <div className="flex justify-between text-[10px] mt-1 text-slate-500 dark:text-slate-400 font-medium uppercase">
-                                                    <span>Directo: {formatCurrency(detail.directCost)}</span>
-                                                    <span>Indirecto: {formatCurrency(detail.overheadCost)}</span>
+                                                    <span>Directo: {formatCurrency(detail.directCost * 8)}</span>
+                                                    <span>Indirecto: {formatCurrency(detail.overheadCost * 8)}</span>
                                                 </div>
                                             </div>
                                         ))}
                                     </div>
                                     <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-800">
                                         <p className="text-xs text-blue-800 dark:text-blue-300">
-                                            <strong>Nota CFO:</strong> Para ser rentable, tu precio de venta por hora debería ser al menos un <strong>30-40% superior</strong> al coste real ({formatCurrency(hourlyCostAnalysis.avgCost * 1.4)}).
+                                            <strong>Nota CFO:</strong> Para ser rentable, tu precio de venta por jornada debería ser al menos un <strong>30-40% superior</strong> al coste real ({formatCurrency(hourlyCostAnalysis.avgCost * 8 * 1.4)}).
                                         </p>
                                     </div>
                                 </div>
@@ -1205,8 +1205,8 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
                                     <Plus className="w-4 h-4" /> Añadir Gasto
                                 </button>
                             </div>
-                            <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700">
-                                <table className="w-full text-left text-sm">
+                            <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700 overflow-x-auto">
+                                <table className="w-full min-w-[600px] text-left text-sm">
                                     <thead className="bg-slate-50 dark:bg-slate-700/50 text-slate-500 dark:text-slate-400 uppercase text-xs font-bold">
                                         <tr>
                                             <th className="px-6 py-4">Concepto</th>
@@ -1493,11 +1493,11 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
             {/* Employee Modal */}
             {isEmployeeModalOpen && (
                 <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-                    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-                        <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center">
+                    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-md overflow-hidden max-h-[90vh] overflow-y-auto">
+                        <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center sticky top-0 bg-white dark:bg-slate-800 z-10">
                             <h3 className="text-lg font-bold text-slate-900 dark:text-white">Añadir Empleado</h3>
                             <button onClick={() => setIsEmployeeModalOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
-                                <Trash2 className="w-5 h-5 rotate-45" /> {/* Using Trash2 as X icon for now, or import X */}
+                                <X className="w-5 h-5" />
                             </button>
                         </div>
                         <div className="p-6 space-y-4">
@@ -1554,11 +1554,11 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
             {/* Tax Modal */}
             {isTaxModalOpen && (
                 <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-                    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-                        <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center">
+                    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-md overflow-hidden max-h-[90vh] overflow-y-auto">
+                        <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center sticky top-0 bg-white dark:bg-slate-800 z-10">
                             <h3 className="text-lg font-bold text-slate-900 dark:text-white">Añadir Impuesto</h3>
                             <button onClick={() => setIsTaxModalOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
-                                <Trash2 className="w-5 h-5 rotate-45" />
+                                <X className="w-5 h-5" />
                             </button>
                         </div>
                         <div className="p-6 space-y-4">
@@ -1636,8 +1636,8 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
             {/* Asset Modal */}
             {isAssetModalOpen && (
                 <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-                    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-                        <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center">
+                    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-md overflow-hidden max-h-[90vh] overflow-y-auto">
+                        <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center sticky top-0 bg-white dark:bg-slate-800 z-10">
                             <h3 className="text-lg font-bold text-slate-900 dark:text-white">{editingAssetId ? 'Editar Activo' : 'Registrar Activo'}</h3>
                             <button onClick={() => setIsAssetModalOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
                                 <Trash2 className="w-5 h-5 rotate-45" />
@@ -1710,8 +1710,8 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
             {/* Management Expense Modal */}
             {isManagementExpenseModalOpen && (
                 <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-                    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-                        <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center">
+                    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-md overflow-hidden max-h-[90vh] overflow-y-auto">
+                        <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center sticky top-0 bg-white dark:bg-slate-800 z-10">
                             <h3 className="text-lg font-bold text-slate-900 dark:text-white">Añadir Gasto de Gestoría</h3>
                             <button onClick={() => setIsManagementExpenseModalOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
                                 <Trash2 className="w-5 h-5 rotate-45" />

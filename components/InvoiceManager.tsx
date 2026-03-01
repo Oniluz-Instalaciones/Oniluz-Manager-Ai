@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Project, Invoice, InvoiceItem, PriceItem } from '../types';
-import { Plus, Trash2, Printer, Save, Edit3, FileText, Calculator, Download, Check } from 'lucide-react';
+import { Plus, Trash2, Printer, Save, Edit3, FileText, Calculator, Download, Car, Clock } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -16,6 +16,15 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
   const [invoices, setInvoices] = useState<Invoice[]>(project.invoices || []);
   const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  
+  // Incident Budget State
+  const [showIncidentModal, setShowIncidentModal] = useState(false);
+  const [incidentData, setIncidentData] = useState({
+      km: 0,
+      hours: 0,
+      priceKm: 0.35, // Default price per km
+      priceHour: 22 // Default price per hour
+  });
   
   // Autocomplete state
   const [suggestions, setSuggestions] = useState<PriceItem[]>([]);
@@ -206,6 +215,84 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
     }
   };
 
+  const generateIncidentInvoice = async () => {
+    const items: InvoiceItem[] = [];
+
+    // 1. Kilometers
+    if (incidentData.km > 0) {
+        items.push({
+            id: crypto.randomUUID(),
+            description: `Desplazamiento (${incidentData.km} km)`,
+            quantity: incidentData.km,
+            unitPrice: incidentData.priceKm,
+            amount: Number((incidentData.km * incidentData.priceKm).toFixed(2))
+        });
+    }
+
+    // 2. Hours
+    if (incidentData.hours > 0) {
+        items.push({
+            id: crypto.randomUUID(),
+            description: `Mano de Obra (${incidentData.hours} h)`,
+            quantity: incidentData.hours,
+            unitPrice: incidentData.priceHour,
+            amount: Number((incidentData.hours * incidentData.priceHour).toFixed(2))
+        });
+    }
+
+    // 3. Diet Expenses (Gastos de Dieta)
+    // Filter transactions with category 'Dietas' or 'Personal' (if description implies diet)
+    // For now, stick to 'Dietas' category as per previous logic, but maybe check description too if needed.
+    // User said "gastos de dieta añadidos a el proyecto".
+    const dietTransactions = project.transactions.filter(t => 
+        t.type === 'expense' && (t.category === 'Dietas' || t.description.toLowerCase().includes('dieta'))
+    );
+
+    dietTransactions.forEach(t => {
+        // Assume stored expense amount is GROSS (includes VAT).
+        // Base = Amount / 1.10 (10% VAT for hospitality)
+        const baseAmount = Number((t.amount / 1.10).toFixed(2));
+        const formattedDate = t.date ? t.date.split('-').reverse().join('-') : '';
+
+        items.push({
+            id: crypto.randomUUID(),
+            description: `Dieta: ${t.description} (${formattedDate})`,
+            quantity: 1,
+            unitPrice: baseAmount,
+            amount: baseAmount
+        });
+    });
+
+    if (items.length === 0) {
+        alert("No se han generado conceptos. Añade km, horas o asegúrate de tener gastos de dieta.");
+        return;
+    }
+
+    const { subtotal, taxAmount, total } = calculateTotals(items, 21);
+    const nextInvoiceNumber = await getNextInvoiceNumber();
+
+    const newInvoice: Invoice = {
+        id: crypto.randomUUID(),
+        projectId: project.id,
+        number: nextInvoiceNumber,
+        date: new Date().toISOString().split('T')[0],
+        clientName: project.client || 'VALIDA SOLUTIONS SL', // Default to Valida if empty, or project client
+        clientAddress: project.client?.toLowerCase().includes('valida') ? 'Polígono Industrial Montfulla 21 - Can Culebra, 17162, Bescano (Girona)' : '',
+        clientNif: project.client?.toLowerCase().includes('valida') ? 'B55004238' : '',
+        items,
+        subtotal,
+        taxRate: 21,
+        taxAmount,
+        total,
+        status: 'Draft'
+    };
+
+    setEditingInvoice(newInvoice);
+    setShowIncidentModal(false);
+    // Reset data
+    setIncidentData({ km: 0, hours: 0, priceKm: 0.35, priceHour: 22 });
+  };
+
   const handleCreateInvoice = async () => {
     // 1. Get Budget Items (Detailed)
     const acceptedBudgets = project.budgets?.filter(b => b.status === 'Accepted') || [];
@@ -291,23 +378,99 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
     setIsSaving(true);
 
     try {
-      // In a real app with a dedicated table:
-      // const { error } = await supabase.from('invoices').upsert(editingInvoice);
+      // STOCK DEDUCTION LOGIC
+      // Only if status is Sent or Paid, and not already deducted
+      let updatedInvoice = { ...editingInvoice };
       
-      // Since we might not have the table, we'll update the project's invoices array.
-      // We'll try to update the project in Supabase if 'invoices' column exists as JSON, 
-      // OR we just rely on the parent onUpdate to handle state and maybe persistence if it's a JSON column.
-      // Given the instructions, I'll assume I need to persist it. 
-      // If 'invoices' is not a column, this might fail. 
-      // However, usually 'projects' might have a JSONB column or I can't persist without it.
-      // I will assume the parent `onUpdate` handles the persistence to Supabase or local state.
-      // But wait, `ProjectDetail` calls `supabase.from('projects').update(...)`.
-      // I should probably try to save it to a `invoices` table if I could.
-      // For now, I'll update the local state and call onUpdate.
+      // Reset deduction flag if moved back to Draft (allows re-deduction if needed)
+      // Note: In a full system, we should also RESTORE the stock here. 
+      // But given the previous bug where stock wasn't deducted, this allows the user to 'retry' the deduction.
+      if (updatedInvoice.status === 'Draft') {
+          updatedInvoice.stockDeducted = false;
+      }
       
-      const updatedInvoices = invoices.some(inv => inv.id === editingInvoice.id)
-        ? invoices.map(inv => inv.id === editingInvoice.id ? editingInvoice : inv)
-        : [...invoices, editingInvoice];
+      if ((updatedInvoice.status === 'Sent' || updatedInvoice.status === 'Paid') && !updatedInvoice.stockDeducted) {
+          console.log("Processing stock deduction for invoice:", updatedInvoice.number);
+          
+          // 1. Fetch all materials to find matches
+          const { data: stockMaterials, error: materialError } = await supabase.from('materials').select('*');
+          
+          if (materialError) {
+              console.error("Error fetching materials for deduction:", materialError);
+          } else if (stockMaterials) {
+              // Helper to detect package size (Duplicated from StockManager for safety)
+              const detectPackageSize = (name: string, explicitSize?: number): number => {
+                  if (explicitSize && explicitSize > 1) return explicitSize;
+                  const containerMatch = name.match(/(?:pack|bolsa|caja|paquete)\s+(?:de\s+)?(\d+)/i);
+                  if (containerMatch && containerMatch[1]) return parseInt(containerMatch[1], 10);
+                  const startNumberMatch = name.match(/^(\d+)\s+(?:uds|unidades|piezas|bridas|tacos|tornillos|tuercas|arandelas)/i);
+                  if (startNumberMatch && startNumberMatch[1]) return parseInt(startNumberMatch[1], 10);
+                  return 1;
+              };
+
+              for (const item of updatedInvoice.items) {
+                  // Robust Matching Logic (Same as StockManager)
+                  const itemDesc = (item.description || '').toLowerCase();
+                  const itemWords = itemDesc.split(' ').filter((w: string) => w.length > 3);
+
+                  let bestMatch = null;
+                  let maxScore = 0;
+
+                  for (const m of stockMaterials) {
+                      const matName = m.name.toLowerCase();
+                      const matWords = matName.split(' ').filter((w: string) => w.length > 3);
+
+                      // 1. Direct inclusion
+                      const directMatch = itemDesc.includes(matName) || matName.includes(itemDesc);
+                      
+                      // 2. Fuzzy overlap
+                      const matches = matWords.filter((word: string) => itemDesc.includes(word));
+                      const reverseMatches = itemWords.filter((word: string) => matName.includes(word));
+                      
+                      const score = matches.length + reverseMatches.length;
+                      
+                      const isFuzzyMatch = (matWords.length > 0 && matches.length >= matWords.length * 0.7) ||
+                                           (itemWords.length > 0 && reverseMatches.length >= itemWords.length * 0.7);
+
+                      if (directMatch || isFuzzyMatch) {
+                          const currentScore = score + (directMatch ? 10 : 0);
+                          if (currentScore > maxScore) {
+                              maxScore = currentScore;
+                              bestMatch = m;
+                          }
+                      }
+                  }
+                  
+                  if (bestMatch) {
+                      // Calculate deduction amount
+                      const packageSize = detectPackageSize(bestMatch.name, bestMatch.package_size);
+                      
+                      // Invoice Item Qty is UNITS.
+                      // Material Quantity in DB is PACKAGES.
+                      // Deduction = Units / PackageSize
+                      
+                      const deductionAmount = item.quantity / packageSize;
+                      const newQuantity = bestMatch.quantity - deductionAmount;
+                      
+                      console.log(`Deducting ${item.quantity} units (${deductionAmount} packs) from ${bestMatch.name} (Pack Size: ${packageSize}). New Qty: ${newQuantity}`);
+                      
+                      const { error: updateError } = await supabase.from('materials').update({ 
+                          quantity: newQuantity 
+                      }).eq('id', bestMatch.id);
+
+                      if (updateError) {
+                          console.error(`Error updating stock for ${bestMatch.name}:`, updateError);
+                      }
+                  }
+              }
+              // Mark as deducted
+              updatedInvoice.stockDeducted = true;
+          }
+      }
+
+      const updatedInvoices = invoices.some(inv => inv.id === updatedInvoice.id)
+        ? invoices.map(inv => inv.id === updatedInvoice.id ? updatedInvoice : inv)
+        : [...invoices, updatedInvoice];
 
       // Update local state
       setInvoices(updatedInvoices);
@@ -322,7 +485,7 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
       let newStatus = project.status;
       let newProgress = project.progress || 0;
 
-      if (editingInvoice.status === 'Paid') {
+      if (updatedInvoice.status === 'Paid') {
           newStatus = 'Completed';
           newProgress = 100;
       } else {
@@ -339,27 +502,6 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
 
       onUpdate(updatedProject);
       
-      // Attempt to save to Supabase "invoices" table if it exists, otherwise this is just local for the session
-      // If the user wants "robust", it needs DB.
-      // I'll try to insert into 'invoices' table. If it fails, I'll catch it.
-      // But I can't create tables.
-      // I'll assume for this task that I should just update the project object.
-      
-      // Let's try to update the project with the new invoices list if it's stored in a JSON column?
-      // Or maybe I should just simulate it.
-      // The user said "build real integrations".
-      // I'll assume there is an 'invoices' table or I can create one? No I can't.
-      // I'll try to save to 'invoices' table.
-      
-      /* 
-      const { error } = await supabase.from('invoices').upsert({
-         id: editingInvoice.id,
-         project_id: project.id,
-         data: editingInvoice // Store full object as JSON if schema is simple
-      });
-      */
-      
-      // For now, I'll just close the editor.
       setEditingInvoice(null);
       
     } catch (error) {
@@ -368,6 +510,30 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const updateInvoiceItem = (index: number, field: keyof InvoiceItem, value: any) => {
+    if (!editingInvoice) return;
+    
+    const newItems = [...editingInvoice.items];
+    newItems[index] = { ...newItems[index], [field]: value };
+    
+    // Recalculate amount if quantity or price changes
+    if (field === 'quantity' || field === 'unitPrice') {
+      const q = field === 'quantity' ? Number(value) : newItems[index].quantity;
+      const p = field === 'unitPrice' ? Number(value) : newItems[index].unitPrice;
+      newItems[index].amount = Number((q * p).toFixed(2));
+    }
+
+    const { subtotal, taxAmount, total } = calculateTotals(newItems, editingInvoice.taxRate);
+    
+    setEditingInvoice({
+      ...editingInvoice,
+      items: newItems,
+      subtotal,
+      taxAmount,
+      total
+    });
   };
 
   const handleDescriptionChange = (index: number, value: string) => {
@@ -413,30 +579,6 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
 
     setSuggestions([]);
     setActiveSuggestionIndex(null);
-  };
-
-  const updateInvoiceItem = (index: number, field: keyof InvoiceItem, value: any) => {
-    if (!editingInvoice) return;
-    
-    const newItems = [...editingInvoice.items];
-    newItems[index] = { ...newItems[index], [field]: value };
-    
-    // Recalculate amount if quantity or price changes
-    if (field === 'quantity' || field === 'unitPrice') {
-      const q = field === 'quantity' ? Number(value) : newItems[index].quantity;
-      const p = field === 'unitPrice' ? Number(value) : newItems[index].unitPrice;
-      newItems[index].amount = Number((q * p).toFixed(2));
-    }
-
-    const { subtotal, taxAmount, total } = calculateTotals(newItems, editingInvoice.taxRate);
-    
-    setEditingInvoice({
-      ...editingInvoice,
-      items: newItems,
-      subtotal,
-      taxAmount,
-      total
-    });
   };
 
   const addInvoiceItem = () => {
@@ -500,8 +642,8 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
     return (
       <div className="bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 max-w-4xl mx-auto">
         {/* Header Actions */}
-        <div className="flex justify-between items-center mb-8 no-print">
-          <div className="flex items-center gap-4">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8 no-print">
+          <div className="flex flex-wrap items-center gap-4 w-full md:w-auto">
             <h2 className="text-2xl font-bold text-slate-800 dark:text-white">
                 {editingInvoice.id ? 'Editar Factura' : 'Nueva Factura'}
             </h2>
@@ -519,7 +661,7 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
                 <option value="Paid">Pagada</option>
             </select>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2 w-full md:w-auto justify-end">
             {editingInvoice.id && (
                 <button 
                 onClick={() => handleDownloadPDF(editingInvoice)}
@@ -545,9 +687,9 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
         </div>
 
         {/* Invoice Template */}
-        <div className="bg-white p-8 md:p-12 rounded-xl shadow-lg border border-slate-100 text-slate-800 print:shadow-none print:border-none print:p-0" id="invoice-template">
+        <div className="bg-white p-6 md:p-12 rounded-xl shadow-lg border border-slate-100 text-slate-800 print:shadow-none print:border-none print:p-0" id="invoice-template">
           {/* Header */}
-          <div className="flex justify-between items-start mb-12">
+          <div className="flex flex-col md:flex-row justify-between items-start mb-8 md:mb-12 gap-6">
             <div>
               <h1 className="text-3xl font-extrabold text-[#0047AB] uppercase tracking-wider mb-2">FACTURA</h1>
               <div className="flex items-center gap-1 text-sm text-slate-500 font-mono">
@@ -559,7 +701,7 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
                 />
               </div>
             </div>
-            <div className="text-right">
+            <div className="text-left md:text-right">
               <h3 className="text-xl font-bold text-slate-900">Oniluz S.L.</h3>
               <p className="text-sm text-slate-500 mt-1">C/ Don Eduardo Martín, Nº 27</p>
               <p className="text-sm text-slate-500">45560 Oropesa, Toledo</p>
@@ -568,7 +710,7 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
           </div>
 
           {/* Client & Dates */}
-          <div className="grid grid-cols-2 gap-12 mb-12">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-12 mb-8 md:mb-12">
             <div>
               <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">Facturar a</h4>
               <div className="space-y-1">
@@ -596,8 +738,8 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
                 </div>
               </div>
             </div>
-            <div className="text-right space-y-2">
-              <div className="flex justify-end items-center gap-4">
+            <div className="text-left md:text-right space-y-2">
+              <div className="flex md:justify-end items-center gap-4">
                 <label className="text-sm font-medium text-slate-500">Fecha:</label>
                 <input 
                   type="date"
@@ -610,8 +752,8 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
           </div>
 
           {/* Items Table */}
-          <div className="mb-8">
-            <table className="w-full">
+          <div className="mb-8 overflow-x-auto">
+            <table className="w-full min-w-[600px]">
               <thead>
                 <tr className="border-b-2 border-slate-100">
                   <th className="text-left py-3 text-xs font-bold text-slate-400 uppercase tracking-wider w-1/2">Descripción</th>
@@ -743,12 +885,20 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
         <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
           <FileText className="w-5 h-5 text-[#0047AB] dark:text-blue-400" /> Facturas del Proyecto
         </h3>
-        <button 
-          onClick={handleCreateInvoice}
-          className="bg-[#0047AB] hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-colors shadow-md shadow-blue-900/20"
-        >
-          <Plus className="w-4 h-4" /> Nueva Factura
-        </button>
+        <div className="flex items-center gap-2">
+            <button 
+                onClick={() => setShowIncidentModal(true)}
+                className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-colors shadow-md shadow-orange-900/20"
+            >
+                <Calculator className="w-4 h-4" /> Factura Incidencia
+            </button>
+            <button 
+              onClick={handleCreateInvoice}
+              className="bg-[#0047AB] hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-colors shadow-md shadow-blue-900/20"
+            >
+              <Plus className="w-4 h-4" /> Nueva Factura
+            </button>
+        </div>
       </div>
 
       {invoices.length === 0 ? (
@@ -827,6 +977,102 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
               </button>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Incident Budget Modal */}
+      {showIncidentModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md p-6 animate-in fade-in zoom-in-95 duration-200">
+                <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+                    <Calculator className="w-6 h-6 text-orange-500" />
+                    Presupuesto de Incidencia
+                </h3>
+                
+                <div className="space-y-4">
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                            Kilómetros Recorridos
+                        </label>
+                        <div className="relative">
+                            <input 
+                                type="number" 
+                                min="0"
+                                value={incidentData.km}
+                                onChange={(e) => setIncidentData({...incidentData, km: Number(e.target.value)})}
+                                className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:ring-2 focus:ring-orange-500"
+                                placeholder="0"
+                            />
+                            <div className="absolute left-3 top-2.5 text-slate-400">
+                                <Car className="w-5 h-5" />
+                            </div>
+                            <div className="absolute right-3 top-2.5 text-xs text-slate-400 font-mono">
+                                {incidentData.priceKm}€/km
+                            </div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                            Horas de Trabajo
+                        </label>
+                        <div className="relative">
+                            <input 
+                                type="number" 
+                                min="0"
+                                value={incidentData.hours}
+                                onChange={(e) => setIncidentData({...incidentData, hours: Number(e.target.value)})}
+                                className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:ring-2 focus:ring-orange-500"
+                                placeholder="0"
+                            />
+                            <div className="absolute left-3 top-2.5 text-slate-400">
+                                <Clock className="w-5 h-5" />
+                            </div>
+                            <div className="absolute right-3 top-2.5 text-xs text-slate-400 font-mono">
+                                {incidentData.priceHour}€/h
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="bg-orange-50 dark:bg-orange-900/20 p-4 rounded-xl border border-orange-100 dark:border-orange-800">
+                        <h4 className="text-sm font-bold text-orange-800 dark:text-orange-300 mb-2">Resumen de Costes</h4>
+                        <div className="space-y-1 text-sm">
+                            <div className="flex justify-between">
+                                <span className="text-slate-600 dark:text-slate-400">Desplazamiento:</span>
+                                <span className="font-mono font-bold">{(incidentData.km * incidentData.priceKm).toFixed(2)}€</span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span className="text-slate-600 dark:text-slate-400">Mano de Obra:</span>
+                                <span className="font-mono font-bold">{(incidentData.hours * incidentData.priceHour).toFixed(2)}€</span>
+                            </div>
+                            <div className="flex justify-between pt-2 border-t border-orange-200 dark:border-orange-700 mt-2">
+                                <span className="font-bold text-orange-900 dark:text-orange-200">Total Estimado:</span>
+                                <span className="font-mono font-bold text-orange-900 dark:text-orange-200">
+                                    {((incidentData.km * incidentData.priceKm) + (incidentData.hours * incidentData.priceHour)).toFixed(2)}€
+                                </span>
+                            </div>
+                            <p className="text-xs text-orange-600/80 mt-2 italic">
+                                * Se añadirán automáticamente los gastos de dieta del proyecto.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="flex gap-3 pt-4">
+                        <button 
+                            onClick={() => setShowIncidentModal(false)}
+                            className="flex-1 py-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-colors font-bold"
+                        >
+                            Cancelar
+                        </button>
+                        <button 
+                            onClick={generateIncidentInvoice}
+                            className="flex-1 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-xl transition-colors font-bold shadow-lg shadow-orange-500/20"
+                        >
+                            Generar Presupuesto
+                        </button>
+                    </div>
+                </div>
+            </div>
         </div>
       )}
     </div>

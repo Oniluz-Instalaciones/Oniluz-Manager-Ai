@@ -166,6 +166,7 @@ const formatDate = (dateStr: string) => {
               unit: item.unit || 'ud',
               pricePerUnit: item.price ? Number(item.price) : 0,
               minStock: 5,
+              packageSize: 1,
               addToStock: shouldAddToStock
           }));
           setDetectedMaterials(newMats);
@@ -311,6 +312,7 @@ const formatDate = (dateStr: string) => {
           unit: 'ud',
           pricePerUnit: 0,
           minStock: 5,
+          packageSize: 1,
           addToStock: true
       }]);
   };
@@ -423,7 +425,8 @@ const formatDate = (dateStr: string) => {
                 quantity: m.quantity,
                 unit: m.unit,
                 min_stock: m.minStock,
-                price_per_unit: m.pricePerUnit
+                price_per_unit: m.pricePerUnit,
+                package_size: m.packageSize || 1
             }));
             const { error: matError } = await supabase.from('materials').insert(matsForDb);
             if (matError) throw new Error("Error al guardar materiales: " + matError.message);
@@ -630,9 +633,24 @@ const formatDate = (dateStr: string) => {
                                 <div className="flex-1 space-y-2">
                                     <input value={mat.name} onChange={(e) => updateMaterial(idx, 'name', e.target.value)} className="w-full bg-transparent border-b border-slate-200 dark:border-slate-600 focus:border-[#0047AB] outline-none text-sm font-bold text-slate-800 dark:text-white pb-1" placeholder="Descripción" />
                                     <div className="flex gap-2">
-                                        <input type="number" value={mat.quantity} onChange={(e) => updateMaterial(idx, 'quantity', Number(e.target.value))} className="w-16 bg-transparent border-b border-slate-200 dark:border-slate-600 focus:border-[#0047AB] outline-none text-xs text-slate-600 dark:text-slate-300 pb-1 text-center" />
-                                        <input value={mat.unit} onChange={(e) => updateMaterial(idx, 'unit', e.target.value)} className="w-16 bg-transparent border-b border-slate-200 dark:border-slate-600 focus:border-[#0047AB] outline-none text-xs text-slate-600 dark:text-slate-300 pb-1 text-center" />
-                                        <input type="number" step="0.01" value={mat.pricePerUnit} onChange={(e) => updateMaterial(idx, 'pricePerUnit', Number(e.target.value))} className="flex-1 bg-transparent border-b border-slate-200 dark:border-slate-600 focus:border-[#0047AB] outline-none text-xs text-slate-600 dark:text-slate-300 pb-1 text-right" />
+                                        <div className="flex flex-col flex-[0.5]">
+                                            <label className="text-[9px] text-slate-400 uppercase font-bold">Cant.</label>
+                                            <input type="number" value={mat.quantity} onChange={(e) => updateMaterial(idx, 'quantity', Number(e.target.value))} className="w-full bg-transparent border-b border-slate-200 dark:border-slate-600 focus:border-[#0047AB] outline-none text-xs text-slate-600 dark:text-slate-300 pb-1 text-center" />
+                                        </div>
+                                        <div className="flex flex-col flex-[0.5]">
+                                            <label className="text-[9px] text-slate-400 uppercase font-bold">Unidad</label>
+                                            <input value={mat.unit} onChange={(e) => updateMaterial(idx, 'unit', e.target.value)} className="w-full bg-transparent border-b border-slate-200 dark:border-slate-600 focus:border-[#0047AB] outline-none text-xs text-slate-600 dark:text-slate-300 pb-1 text-center" />
+                                        </div>
+                                        {mat.addToStock && (
+                                            <div className="flex flex-col flex-[0.5]">
+                                                <label className="text-[9px] text-slate-400 uppercase font-bold">Pack</label>
+                                                <input type="number" value={mat.packageSize || 1} onChange={(e) => updateMaterial(idx, 'packageSize', Number(e.target.value))} className="w-full bg-transparent border-b border-slate-200 dark:border-slate-600 focus:border-[#0047AB] outline-none text-xs text-slate-600 dark:text-slate-300 pb-1 text-center" placeholder="1" />
+                                            </div>
+                                        )}
+                                        <div className="flex flex-col flex-1">
+                                            <label className="text-[9px] text-slate-400 uppercase font-bold">Precio/Ud</label>
+                                            <input type="number" step="0.01" value={mat.pricePerUnit} onChange={(e) => updateMaterial(idx, 'pricePerUnit', Number(e.target.value))} className="w-full bg-transparent border-b border-slate-200 dark:border-slate-600 focus:border-[#0047AB] outline-none text-xs text-slate-600 dark:text-slate-300 pb-1 text-right" />
+                                        </div>
                                     </div>
                                 </div>
                                 <div className="flex flex-col gap-1 items-center">

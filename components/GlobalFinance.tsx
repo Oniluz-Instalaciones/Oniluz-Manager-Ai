@@ -730,7 +730,7 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
              <span className="text-xs text-slate-400 font-medium hidden sm:block">Ordenado por menor beneficio</span>
            </div>
            <div className="overflow-x-auto">
-               <table className="w-full text-left text-sm">
+               <table className="w-full min-w-[800px] text-left text-sm">
                    <thead className="bg-slate-50 dark:bg-slate-700/50 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 uppercase text-xs tracking-wider">
                        <tr>
                            <th className="px-6 py-4 font-bold">Proyecto</th>

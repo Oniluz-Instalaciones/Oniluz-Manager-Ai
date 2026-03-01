@@ -46,6 +46,17 @@ export interface Transaction {
   relatedDocumentId?: string; // Link to a ProjectDocument (ticket/invoice image)
 }
 
+export interface InventoryMovement {
+  id: string;
+  type: 'IN' | 'OUT';
+  quantity: number;
+  date: string;
+  description?: string; // e.g., "Initial Stock", "Invoice #123", "Manual Adjustment"
+  projectId?: string;
+  invoiceId?: string;
+  balanceAfter?: number; // Running balance after this movement
+}
+
 export interface Material {
   id: string;
   projectId: string;
@@ -54,6 +65,9 @@ export interface Material {
   unit: string;
   minStock: number; // Alerta si baja de esto
   pricePerUnit: number;
+  packageSize?: number; // Cantidad por paquete/bolsa
+  movements?: InventoryMovement[]; // History of changes
+  createdAt?: string;
 }
 
 export interface Incident {
@@ -128,6 +142,7 @@ export interface Invoice {
   taxAmount: number;
   total: number;
   status: 'Draft' | 'Sent' | 'Paid';
+  stockDeducted?: boolean; // Flag to prevent double deduction
 }
 
 export interface Project {

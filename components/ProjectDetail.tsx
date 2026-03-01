@@ -44,7 +44,7 @@ const HangGlider = ({ className }: { className?: string }) => (
 );
 
 const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate, onDelete, priceDatabase, currentUserName }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'financials' | 'stock' | 'incidents' | 'budgets' | 'invoices' | 'documents' | 'technical_docs' | 'settings'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'financials' | 'incidents' | 'budgets' | 'invoices' | 'documents' | 'technical_docs' | 'settings'>('overview');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isSaving, setIsSaving] = useState(false); // Global saving state for manual actions
@@ -238,58 +238,6 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
     }
   };
 
-  const handleAddMaterial = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (isSaving) return;
-    setIsSaving(true);
-
-    const formData = new FormData(e.currentTarget);
-    const newId = crypto.randomUUID();
-
-    const newMaterial: Material = {
-      id: newId,
-      projectId: project.id,
-      name: formData.get('name') as string,
-      quantity: Number(formData.get('quantity')),
-      unit: formData.get('unit') as string,
-      minStock: Number(formData.get('minStock')),
-      pricePerUnit: Number(formData.get('pricePerUnit')),
-    };
-
-    try {
-        const { error } = await supabase.from('materials').insert({
-            id: newMaterial.id,
-            project_id: newMaterial.projectId,
-            name: newMaterial.name,
-            quantity: newMaterial.quantity,
-            unit: newMaterial.unit,
-            min_stock: newMaterial.minStock,
-            price_per_unit: newMaterial.pricePerUnit
-        });
-
-        if (error) throw error;
-
-        updateProjectWithHistory({ ...project, materials: [...project.materials, newMaterial] });
-        (e.target as HTMLFormElement).reset();
-    } catch (error: any) {
-        console.error("Error adding material:", error);
-        alert("Error al guardar material: " + error.message);
-    } finally {
-        setIsSaving(false);
-    }
-  };
-
-  const handleDeleteMaterial = async (id: string) => {
-      try {
-          const { error } = await supabase.from('materials').delete().eq('id', id);
-          if (error) throw error;
-          updateProjectWithHistory({...project, materials: project.materials.filter(m => m.id !== id)});
-      } catch (error: any) {
-          console.error("Error deleting material:", error);
-          alert("Error al eliminar material");
-      }
-  }
-
   const handleDeleteTransaction = async (id: string) => {
       if(!window.confirm("¿Eliminar este movimiento?")) return;
       try {
@@ -367,9 +315,9 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
               </h4>
               <span className="font-bold text-lg text-slate-900 dark:text-white">{total.toLocaleString()}€</span>
           </div>
-          <div className="flex-1 overflow-y-auto max-h-[300px] p-0">
+          <div className="flex-1 overflow-y-auto overflow-x-auto max-h-[300px] p-0">
               {transactions.length > 0 ? (
-                  <table className="w-full text-left text-xs">
+                  <table className="w-full min-w-[300px] text-left text-xs">
                       <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
                           {transactions.map(t => (
                               <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 group">
@@ -416,7 +364,6 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
         { id: 'invoices', label: 'Facturación', icon: FileCheck },
         { id: 'documents', label: 'Archivos', icon: Paperclip }, // General files
         { id: 'technical_docs', label: 'Documentos Técnicos', icon: Ruler }, // Technical files
-        { id: 'stock', label: 'Stock Material', icon: Package },
         { id: 'incidents', label: 'Incidencias', icon: AlertTriangle },
         { id: 'settings', label: 'Configuración', icon: Settings },
       ].map((tab) => (
@@ -673,29 +620,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                         <Activity className="w-4 h-4 text-[#0047AB] dark:text-blue-400" /> Resumen Operativo
                     </h3>
                     
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                        {/* Estado del Stock */}
-                        <div className="p-4 bg-slate-50 dark:bg-slate-700/30 rounded-xl border border-slate-100 dark:border-slate-700">
-                            <div className="flex items-center gap-2 mb-2 text-slate-500 dark:text-slate-400">
-                                <Package className="w-3.5 h-3.5" />
-                                <span className="text-xs font-bold uppercase">Stock</span>
-                            </div>
-                            <div className="text-sm font-medium text-slate-900 dark:text-white">
-                                {project.materials?.length || 0} ítems registrados
-                            </div>
-                            <div className="text-xs text-slate-500 mt-1">
-                                {project.materials?.filter(m => m.quantity <= (m.minStock || 0)).length > 0 ? (
-                                    <span className="text-amber-600 font-bold flex items-center gap-1">
-                                        <AlertCircle className="w-3 h-3" /> {project.materials.filter(m => m.quantity <= (m.minStock || 0)).length} bajo mínimos
-                                    </span>
-                                ) : (
-                                    <span className="text-green-600 flex items-center gap-1">
-                                        <CheckCircle className="w-3 h-3" /> Niveles óptimos
-                                    </span>
-                                )}
-                            </div>
-                        </div>
-
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         {/* Personal Asignado */}
                         <div className="p-4 bg-slate-50 dark:bg-slate-700/30 rounded-xl border border-slate-100 dark:border-slate-700">
                             <div className="flex items-center gap-2 mb-2 text-slate-500 dark:text-slate-400">
@@ -907,9 +832,9 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                           </h4>
                           <span className="font-bold text-lg text-slate-900 dark:text-white">{totalIncome.toLocaleString()}€</span>
                       </div>
-                      <div className="flex-1 overflow-y-auto max-h-[250px] p-0">
+                      <div className="flex-1 overflow-y-auto overflow-x-auto max-h-[250px] p-0">
                           {project.transactions.filter(t => t.type === 'income').length > 0 ? (
-                              <table className="w-full text-left text-xs">
+                              <table className="w-full min-w-[300px] text-left text-xs">
                                   <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
                                       {project.transactions.filter(t => t.type === 'income').map(t => (
                                           <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 group">
@@ -956,8 +881,8 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                                   {otherExpenses.reduce((s, t) => s + t.amount, 0).toLocaleString()}€
                               </span>
                           </div>
-                          <div className="flex-1 overflow-y-auto max-h-[250px] p-0">
-                                  <table className="w-full text-left text-xs">
+                          <div className="flex-1 overflow-y-auto overflow-x-auto max-h-[250px] p-0">
+                                  <table className="w-full min-w-[300px] text-left text-xs">
                                       <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
                                           {otherExpenses.map(t => (
                                               <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 group">
@@ -1061,74 +986,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
             />
         )}
 
-        {/* STOCK TAB */}
-        {activeTab === 'stock' && (
-          <div className="space-y-8">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                {/* Add Material */}
-                <div className="bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 md:col-span-1 h-fit sticky top-28 transition-colors">
-                   <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-6 uppercase tracking-wider flex items-center gap-2">
-                     <Package className="w-4 h-4 text-[#0047AB] dark:text-blue-400" /> Añadir Material
-                   </h3>
-                   <form onSubmit={handleAddMaterial} className="space-y-4">
-                      <input name="name" placeholder="Nombre material" required className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white transition-colors" />
-                      <div className="flex gap-3">
-                        <input name="quantity" type="number" placeholder="Cant." required className="w-1/2 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white transition-colors" />
-                        <input name="unit" placeholder="Unidad" required className="w-1/2 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white transition-colors" />
-                      </div>
-                      <div className="flex gap-3">
-                         <input name="pricePerUnit" type="number" step="0.01" placeholder="Precio/u" required className="w-1/2 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white transition-colors" />
-                         <input name="minStock" type="number" placeholder="Min Stock" required className="w-1/2 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white transition-colors" />
-                      </div>
-                      <button type="submit" disabled={isSaving} className="w-full py-3 bg-[#0047AB] text-white rounded-xl hover:bg-[#003380] text-sm font-bold transition-all shadow-md flex justify-center items-center disabled:opacity-70 disabled:cursor-not-allowed">
-                        {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Plus className="w-4 h-4 mr-1" />}
-                        {isSaving ? 'Guardando...' : 'Registrar Stock'}
-                      </button>
-                   </form>
-                </div>
-
-                {/* Stock List */}
-                <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 md:col-span-2 overflow-hidden transition-colors">
-                  <div className="p-6 border-b border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-700/30 flex justify-between items-center">
-                     <h3 className="font-bold text-slate-800 dark:text-white">Inventario de Obra</h3>
-                     <span className="text-xs font-semibold bg-slate-200 dark:bg-slate-600 text-slate-600 dark:text-slate-200 px-3 py-1 rounded-full">{project.materials.length} referencias</span>
-                  </div>
-                  <div className="divide-y divide-slate-100 dark:divide-slate-700">
-                    {project.materials.map(m => {
-                      const isLowStock = m.quantity <= m.minStock;
-                      return (
-                        <div key={m.id} className="p-5 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
-                          <div className="flex items-center gap-5">
-                             <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-sm ${isLowStock ? 'bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400' : 'bg-blue-50 dark:bg-blue-900/30 text-[#0047AB] dark:text-blue-400'}`}>
-                                <Package className="w-6 h-6" />
-                             </div>
-                             <div>
-                               <p className="font-bold text-slate-900 dark:text-white">{m.name}</p>
-                               <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">Valor est: <span className="text-slate-700 dark:text-slate-200">{(m.quantity * m.pricePerUnit).toLocaleString()}€</span></p>
-                             </div>
-                          </div>
-                          <div className="flex items-center gap-8">
-                            <div className="text-right">
-                              <p className={`text-lg font-bold ${isLowStock ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-white'}`}>
-                                {m.quantity} <span className="text-xs font-normal text-slate-400 uppercase">{m.unit}</span>
-                              </p>
-                              {isLowStock && <p className="text-[10px] text-red-500 dark:text-red-400 font-bold bg-red-50 dark:bg-red-900/30 px-2 py-0.5 rounded-full mt-1">Stock Bajo</p>}
-                            </div>
-                            <button onClick={() => handleDeleteMaterial(m.id)} className="text-slate-300 hover:text-red-500 transition-colors p-2 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg">
-                              <Trash2 className="w-5 h-5" />
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                    {project.materials.length === 0 && (
-                      <div className="p-10 text-center text-slate-400 dark:text-slate-500 text-sm">No hay materiales asignados a esta obra.</div>
-                    )}
-                  </div>
-                </div>
-            </div>
-          </div>
-        )}
+{/* STOCK TAB REMOVED */}
 
         {/* INCIDENTS TAB */}
         {activeTab === 'incidents' && (
