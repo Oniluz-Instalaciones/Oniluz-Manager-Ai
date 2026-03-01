@@ -126,6 +126,11 @@ const ProjectCalendar: React.FC<ProjectCalendarProps> = ({ projects, onBack }) =
                         const activeProjects = getProjectsForDate(date);
                         const isSingleProject = activeProjects.length === 1;
                         
+                        const today = new Date();
+                        const isToday = date.getDate() === today.getDate() && 
+                                        date.getMonth() === today.getMonth() && 
+                                        date.getFullYear() === today.getFullYear();
+
                         // Style calculation based on occupancy
                         let cellClasses = "bg-white dark:bg-slate-800 relative flex flex-col justify-between p-1 transition-all hover:z-10";
                         let dateClasses = "text-[10px] font-medium text-slate-400 dark:text-slate-500 z-10";
@@ -135,6 +140,11 @@ const ProjectCalendar: React.FC<ProjectCalendarProps> = ({ projects, onBack }) =
                             const pColor = projectColors[activeProjects[0].id];
                             cellClasses = `${pColor.bgSoft} relative flex flex-col justify-between p-1 border-b border-r border-white/50 dark:border-slate-800/50 hover:brightness-95 transition-all`;
                             dateClasses = `text-[10px] font-bold ${pColor.text} z-10`;
+                        }
+
+                        if (isToday) {
+                            cellClasses += " ring-2 ring-indigo-500 z-20 shadow-lg";
+                            dateClasses = "text-[10px] font-extrabold text-indigo-600 dark:text-indigo-400 z-10 bg-indigo-50 dark:bg-indigo-900/50 px-1.5 rounded-full";
                         }
 
                         return (

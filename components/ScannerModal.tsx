@@ -416,20 +416,71 @@ const formatDate = (dateStr: string) => {
             if (txError) throw new Error("Error al guardar la transacción: " + txError.message);
         }
 
-        // 2. Materials
+        // 2. Materials (Upsert Logic)
         if (stockItemsToAdd.length > 0) {
-            const matsForDb = stockItemsToAdd.map(m => ({
-                id: m.id,
-                project_id: m.projectId,
-                name: m.name,
-                quantity: m.quantity,
-                unit: m.unit,
-                min_stock: m.minStock,
-                price_per_unit: m.pricePerUnit,
-                package_size: m.packageSize || 1
-            }));
-            const { error: matError } = await supabase.from('materials').insert(matsForDb);
-            if (matError) throw new Error("Error al guardar materiales: " + matError.message);
+            for (const m of stockItemsToAdd) {
+                // Check if material exists by name (exact match)
+                const { data: existingMaterials } = await supabase
+                    .from('materials')
+                    .select('*')
+                    .eq('name', m.name)
+                    .single();
+
+                if (existingMaterials) {
+                    // Update existing
+                    const newQuantity = existingMaterials.quantity + m.quantity;
+                    
+                    // Create Movement Log
+                    const newMovement = {
+                        id: crypto.randomUUID(),
+                        type: 'IN',
+                        quantity: m.quantity,
+                        date: formData.date,
+                        description: `Compra: ${formData.description || 'Ticket'}`,
+                        projectId: formData.projectId
+                    };
+                    
+                    const currentMovements = existingMaterials.movements || [];
+                    const updatedMovements = [...currentMovements, newMovement];
+
+                    const { error: updateError } = await supabase
+                        .from('materials')
+                        .update({ 
+                            quantity: newQuantity,
+                            price_per_unit: m.pricePerUnit, // Update to latest price
+                            movements: updatedMovements
+                        })
+                        .eq('id', existingMaterials.id);
+
+                    if (updateError) console.error("Error updating material:", updateError);
+                } else {
+                    // Insert new
+                    const newMovement = {
+                        id: crypto.randomUUID(),
+                        type: 'IN',
+                        quantity: m.quantity,
+                        date: formData.date,
+                        description: `Alta Inicial: ${formData.description || 'Ticket'}`,
+                        projectId: formData.projectId
+                    };
+
+                    const { error: insertError } = await supabase
+                        .from('materials')
+                        .insert({
+                            id: crypto.randomUUID(),
+                            project_id: m.projectId,
+                            name: m.name,
+                            quantity: m.quantity,
+                            unit: m.unit,
+                            min_stock: m.minStock,
+                            price_per_unit: m.pricePerUnit,
+                            package_size: m.packageSize || 1,
+                            movements: [newMovement]
+                        });
+                    
+                    if (insertError) console.error("Error inserting material:", insertError);
+                }
+            }
         }
 
         // 3. Document 

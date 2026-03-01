@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { ArrowLeft, Building2, Users, Truck, Wallet, TrendingDown, TrendingUp, AlertTriangle, Briefcase, Calculator, Plus, Trash2, Save, Calendar, CheckCircle2, Target, Edit, X, PieChart as PieIcon } from 'lucide-react';
 import { Project } from '../types';
 import { FixedExpense, Employee, Asset, Tax, InternalFinancialState } from '../types';
@@ -67,11 +67,7 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
     const [showVatDetails, setShowVatDetails] = useState(false);
 
     // --- DATA FETCHING ---
-    useEffect(() => {
-        fetchLedgerData();
-    }, []);
-
-    const fetchLedgerData = async () => {
+    const fetchLedgerData = useCallback(async () => {
         setLoading(true);
         
         // Helper for silent fetching
@@ -161,7 +157,11 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
         } finally {
             setLoading(false);
         }
-    };
+    }, []);
+
+    useEffect(() => {
+        fetchLedgerData();
+    }, [fetchLedgerData]);
 
     // --- HANDLERS (DB Writes) ---
     const handleAddExpense = async () => {

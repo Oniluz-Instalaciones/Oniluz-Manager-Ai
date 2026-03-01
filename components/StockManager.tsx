@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Material, Project, Invoice, InventoryMovement } from '../types';
 import { supabase } from '../lib/supabase';
-import { Package, Search, Filter, ChevronDown, ChevronUp, History, AlertTriangle, ArrowDown, ArrowUp, Calendar, Building2, ArrowLeft } from 'lucide-react';
+import { Package, Search, Filter, ChevronDown, ChevronUp, History, AlertTriangle, ArrowDown, ArrowUp, Calendar, Building2, ArrowLeft, Trash2, RefreshCw } from 'lucide-react';
+import { INVOICE_TAG_OPEN, INVOICE_TAG_CLOSE } from '../constants';
 
 interface StockManagerProps {
     projects: Project[];
@@ -48,141 +49,130 @@ const StockManager: React.FC<StockManagerProps> = ({ projects, onBack }) => {
         }
     };
 
-    // Helper to detect package size from name if not explicitly set
-    const detectPackageSize = (name: string, explicitSize?: number): number => {
-        if (explicitSize && explicitSize > 1) return explicitSize;
-        
-        // Regex to find patterns like "Bolsa 100", "Caja de 50", "Pack 10", "100 Bridas"
-        // 1. "Pack/Bolsa/Caja [de] X"
-        const containerMatch = name.match(/(?:pack|bolsa|caja|paquete)\s+(?:de\s+)?(\d+)/i);
-        if (containerMatch && containerMatch[1]) return parseInt(containerMatch[1], 10);
+    const handleRecalculateStock = async () => {
+        if (!confirm("ATENCIÓN: Esta acción RECALCULARÁ todo el stock basándose en:\n\n1. Entradas: Historial de compras ('IN') existente.\n2. Salidas: Facturas enviadas/pagadas de todos los proyectos.\n\nSe borrarán las salidas manuales antiguas y se regenerarán según las facturas actuales.\n\n¿Desea continuar?")) {
+            return;
+        }
 
-        // 2. Starts with number followed by item name (e.g. "100 Bridas")
-        // We look for a number at the start, followed by a space and a word
-        const startNumberMatch = name.match(/^(\d+)\s+(?:uds|unidades|piezas|bridas|tacos|tornillos|tuercas|arandelas)/i);
-        if (startNumberMatch && startNumberMatch[1]) return parseInt(startNumberMatch[1], 10);
+        setLoading(true);
+        try {
+            // 1. Fetch ALL materials (Global Stock) to ensure we have latest
+            const { data: allMaterials, error: matError } = await supabase.from('materials').select('*');
+            if (matError) throw matError;
 
-        return 1;
+            // 2. Process each material
+            for (const mat of allMaterials) {
+                let currentQty = 0;
+                let newMovements: InventoryMovement[] = [];
+
+                // A. Keep ONLY 'IN' movements (Purchases) from history
+                // We assume 'IN' movements in the history are the "Source of Truth" for purchases.
+                const purchaseMovements = (mat.movements || []).filter((m: any) => m.type === 'IN');
+                
+                newMovements = [...purchaseMovements];
+                currentQty = newMovements.reduce((sum, m) => sum + m.quantity, 0);
+
+                // B. Generate 'OUT' movements from Invoices
+                // Iterate ALL projects to find invoices that used this material
+                for (const proj of projects) {
+                    const validInvoices = proj.invoices?.filter(inv => inv.status === 'Sent' || inv.status === 'Paid') || [];
+                    
+                    for (const inv of validInvoices) {
+                        for (const item of inv.items) {
+                            // Match by Name (Case Insensitive & Trimmed)
+                            if (item.description.trim().toLowerCase() === mat.name.trim().toLowerCase()) {
+                                const deductionQty = item.quantity;
+                                currentQty -= deductionQty;
+
+                                newMovements.push({
+                                    id: crypto.randomUUID(),
+                                    type: 'OUT',
+                                    quantity: deductionQty,
+                                    date: inv.date,
+                                    description: `Factura: ${inv.number}`,
+                                    projectId: proj.id,
+                                    invoiceId: inv.id
+                                });
+                            }
+                        }
+                    }
+                }
+
+                // C. Update Material in DB
+                // Sort movements by date DESC
+                newMovements.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+                const { error: updateError } = await supabase
+                    .from('materials')
+                    .update({
+                        quantity: currentQty,
+                        movements: newMovements
+                    })
+                    .eq('id', mat.id);
+
+                if (updateError) console.error(`Error updating ${mat.name}:`, updateError);
+            }
+
+            alert("Stock recalculado y sincronizado correctamente.");
+            fetchMaterials(); // Refresh UI
+
+        } catch (error: any) {
+            console.error("Error recalculating stock:", error);
+            alert("Error al recalcular stock: " + error.message);
+        } finally {
+            setLoading(false);
+        }
     };
 
     const fetchMovements = async (material: Material) => {
         setLoadingMovements(true);
         try {
-            const calculatedMovements: InventoryMovement[] = [];
-            const packageSize = detectPackageSize(material.name, material.packageSize);
-
-            // 1. IN: Initial Stock / Purchase (Creation)
-            // Fetch Transactions (Expenses)
-            const nameParts = material.name.split(' ').filter(p => p.length > 3);
+            // Use the movements stored in the JSONB column
+            let storedMovements: InventoryMovement[] = material.movements || [];
             
-            let query = supabase
-                .from('transactions')
-                .select('*')
-                .eq('category', 'Material');
+            // Calculate Net Movement from History
+            let netHistory = 0;
+            storedMovements.forEach(m => {
+                if (m.type === 'IN') netHistory += m.quantity;
+                else if (m.type === 'OUT') netHistory -= m.quantity;
+            });
+
+            // Check for discrepancy with Current Stock
+            // Current Stock is the source of truth.
+            // If History says 50 but Current is 100, we are missing +50 IN.
+            // If History says 100 but Current is 80, we are missing -20 OUT (or +(-20) adjustment).
             
-            if (material.projectId) {
-                query = query.eq('project_id', material.projectId);
-            }
+            const discrepancy = material.quantity - netHistory;
 
-            const { data: transactionsData } = await query;
-
-            if (transactionsData) {
-                transactionsData.forEach((tx: any) => {
-                    const txDesc = tx.description.toLowerCase();
-                    const matName = material.name.toLowerCase();
-                    const matches = nameParts.filter(part => txDesc.includes(part.toLowerCase()));
-                    const isMatch = txDesc.includes(matName) || (nameParts.length > 0 && matches.length >= nameParts.length * 0.7);
-
-                    if (isMatch) {
-                        // Try to extract quantity from description if possible, else default to current stock (fallback)
-                        // This is an estimation for INs
-                        calculatedMovements.push({
-                            id: tx.id,
-                            type: 'IN',
-                            quantity: material.quantity * packageSize, // Show in units
-                            date: tx.date,
-                            description: `Compra: ${tx.description}`,
-                            projectId: tx.project_id
-                        });
-                    }
-                });
-            }
-
-            // Fallback IN
-            if (calculatedMovements.length === 0 && material.createdAt) {
-                 calculatedMovements.push({
-                    id: `init-${material.id}`,
-                    type: 'IN',
-                    quantity: material.quantity * packageSize,
-                    date: material.createdAt.split('T')[0],
-                    description: "Alta en Inventario",
+            if (Math.abs(discrepancy) > 0.001) {
+                // Create a synthetic movement to bridge the gap
+                const syntheticMovement: InventoryMovement = {
+                    id: `legacy-${material.id}`,
+                    type: discrepancy > 0 ? 'IN' : 'OUT',
+                    quantity: Math.abs(discrepancy),
+                    date: material.createdAt ? material.createdAt.split('T')[0] : new Date().toISOString().split('T')[0],
+                    description: discrepancy > 0 ? "Stock Inicial / Legacy" : "Ajuste Negativo / Legacy",
                     projectId: material.projectId
-                });
-            }
-
-            // 2. OUT: Invoices (Consumption)
-            const { data: invoicesData } = await supabase
-                .from('invoices')
-                .select('*, items:invoice_items(*)')
-                .eq('status', 'Sent'); // Only finalized invoices
-                
-            if (invoicesData) {
-                invoicesData.forEach((inv: any) => {
-                    const items = inv.items || []; 
-                    items.forEach((item: any) => {
-                        // Robust Matching for Invoices (OUT)
-                        const itemDesc = (item.description || '').toLowerCase();
-                        const matName = material.name.toLowerCase();
-                        
-                        // 1. Direct inclusion (either way)
-                        const directMatch = itemDesc.includes(matName) || matName.includes(itemDesc);
-                        
-                        // 2. Word overlap (Fuzzy)
-                        const matWords = nameParts; // From previous step (words > 3 chars)
-                        const itemWords = itemDesc.split(' ').filter((w: string) => w.length > 3);
-                        
-                        // Count how many material words appear in the invoice item description
-                        const matches = matWords.filter(word => itemDesc.includes(word.toLowerCase()));
-                        
-                        // Reverse check: if invoice item has words and > 70% of them are found in material
-                        const reverseMatches = itemWords.filter((word: string) => matName.includes(word));
-                        
-                        const isFuzzyMatch = (matWords.length > 0 && matches.length >= matWords.length * 0.7) ||
-                                             (itemWords.length > 0 && reverseMatches.length >= itemWords.length * 0.7);
-
-                        if (directMatch || isFuzzyMatch) {
-                            calculatedMovements.push({
-                                id: `inv-${inv.id}-${item.id || Math.random()}`,
-                                type: 'OUT',
-                                quantity: item.quantity, 
-                                date: inv.date,
-                                description: `Usado en ${inv.number} (${item.description})`, // Show item desc for clarity
-                                projectId: inv.project_id,
-                                invoiceId: inv.id
-                            });
-                        }
-                    });
-                });
+                };
+                // Prepend it so it appears as the "start" (conceptually)
+                storedMovements = [syntheticMovement, ...storedMovements];
             }
 
             // Sort by date DESC (Newest first)
-            calculatedMovements.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+            storedMovements.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-            // Calculate Running Balance (Backwards from Current Stock)
-            let currentBalance = material.quantity * packageSize;
+            // Calculate Running Balance for display
+            // We start from Current Stock and work backwards
+            let runningBalance = material.quantity;
             
-            const movementsWithBalance = calculatedMovements.map(mov => {
-                const balanceAfter = currentBalance;
+            const movementsWithBalance = storedMovements.map(mov => {
+                const balanceAfter = runningBalance;
                 
-                // Update balance for the next iteration (which is the previous point in time)
+                // Reverse the operation to find balance BEFORE this movement
                 if (mov.type === 'OUT') {
-                    currentBalance += mov.quantity; // Before consumption, we had more
+                    runningBalance += mov.quantity; // Before consumption, we had more
                 } else if (mov.type === 'IN') {
-                    // For IN, we assume it added to the stock.
-                    // But since our IN quantity is estimated, this might get wonky.
-                    // For display purposes, let's just show the balance *after* this event as the anchor.
-                    // If we rely on the loop,: Before purchase = Balance After - Purchase Qty.
-                    currentBalance -= mov.quantity;
+                    runningBalance -= mov.quantity; // Before purchase, we had less
                 }
                 
                 return { ...mov, balanceAfter };
@@ -230,6 +220,12 @@ const StockManager: React.FC<StockManagerProps> = ({ projects, onBack }) => {
                     </p>
                 </div>
                 <div className="flex gap-3 w-full md:w-auto">
+                    <button 
+                        onClick={handleRecalculateStock}
+                        className="flex items-center gap-2 px-4 py-2 bg-orange-50 text-orange-600 hover:bg-orange-100 dark:bg-orange-900/20 dark:text-orange-400 dark:hover:bg-orange-900/40 rounded-xl transition-colors text-sm font-bold"
+                    >
+                        <RefreshCw className="w-4 h-4" /> Recalcular Stock
+                    </button>
                     <div className="relative flex-1 md:w-64">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                         <input 
@@ -276,18 +272,9 @@ const StockManager: React.FC<StockManagerProps> = ({ projects, onBack }) => {
                             const isExpanded = expandedMaterialId === material.id;
                             const project = projects.find(p => p.id === material.projectId);
                             
-                            // Calculate package size using helper if not explicit
-                            const detectedSize = detectPackageSize(material.name, material.packageSize);
-                            
-                            // Calculate total units: if detectedSize > 1, total = quantity * detectedSize
-                            const totalUnits = (detectedSize > 1) 
-                                ? material.quantity * detectedSize 
-                                : material.quantity;
-                            
-                            // Display unit
-                            const displayUnit = (detectedSize > 1) 
-                                ? 'uds' 
-                                : material.unit;
+                            // Display directly from DB
+                            const totalUnits = material.quantity;
+                            const displayUnit = material.unit;
 
                             return (
                                 <div key={material.id} className="group transition-colors">
@@ -303,11 +290,6 @@ const StockManager: React.FC<StockManagerProps> = ({ projects, onBack }) => {
                                                 <h3 className="font-bold text-slate-900 dark:text-white truncate pr-2">{material.name}</h3>
                                                 <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
                                                     <span>{material.pricePerUnit.toLocaleString()}€ / {material.unit}</span>
-                                                    {detectedSize > 1 && (
-                                                        <span className="bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded text-slate-600 dark:text-slate-300 font-bold whitespace-nowrap">
-                                                            Contiene: {detectedSize} uds
-                                                        </span>
-                                                    )}
                                                     {project && (
                                                         <span className="flex items-center gap-1 bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded text-slate-600 dark:text-slate-300 whitespace-nowrap overflow-hidden text-ellipsis max-w-[150px]">
                                                             <Building2 className="w-3 h-3 flex-shrink-0" /> {project.name}
@@ -319,14 +301,13 @@ const StockManager: React.FC<StockManagerProps> = ({ projects, onBack }) => {
                                         
                                         <div className="flex items-center justify-between w-full md:w-auto gap-6 pl-14 md:pl-0">
                                             <div className="text-left md:text-right">
-                                                <p className={`text-2xl font-extrabold ${isLowStock ? 'text-red-600' : 'text-slate-900 dark:text-white'}`}>
+                                                <p className={`text-2xl font-extrabold ${
+                                                    totalUnits > 0 ? 'text-green-600 dark:text-green-400' :
+                                                    totalUnits < 0 ? 'text-red-600 dark:text-red-400' :
+                                                    'text-slate-300 dark:text-slate-600'
+                                                }`}>
                                                     {totalUnits} <span className="text-sm font-medium text-slate-400">{displayUnit}</span>
                                                 </p>
-                                                {detectedSize > 1 && (
-                                                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                                                        {material.quantity} {material.unit} x {detectedSize} uds
-                                                    </p>
-                                                )}
                                                 {isLowStock && <span className="text-[10px] font-bold text-red-500 bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded-full mt-1 inline-block">Stock Bajo</span>}
                                             </div>
                                             {isExpanded ? <ChevronUp className="w-5 h-5 text-slate-400" /> : <ChevronDown className="w-5 h-5 text-slate-400" />}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Project, Invoice, InvoiceItem, PriceItem } from '../types';
+import { Project, Invoice, InvoiceItem, PriceItem, Material } from '../types';
 import { Plus, Trash2, Printer, Save, Edit3, FileText, Calculator, Download, Car, Clock } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import jsPDF from 'jspdf';
@@ -409,58 +409,49 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
               };
 
               for (const item of updatedInvoice.items) {
-                  // Robust Matching Logic (Same as StockManager)
-                  const itemDesc = (item.description || '').toLowerCase();
-                  const itemWords = itemDesc.split(' ').filter((w: string) => w.length > 3);
-
-                  let bestMatch = null;
-                  let maxScore = 0;
-
-                  for (const m of stockMaterials) {
-                      const matName = m.name.toLowerCase();
-                      const matWords = matName.split(' ').filter((w: string) => w.length > 3);
-
-                      // 1. Direct inclusion
-                      const directMatch = itemDesc.includes(matName) || matName.includes(itemDesc);
-                      
-                      // 2. Fuzzy overlap
-                      const matches = matWords.filter((word: string) => itemDesc.includes(word));
-                      const reverseMatches = itemWords.filter((word: string) => matName.includes(word));
-                      
-                      const score = matches.length + reverseMatches.length;
-                      
-                      const isFuzzyMatch = (matWords.length > 0 && matches.length >= matWords.length * 0.7) ||
-                                           (itemWords.length > 0 && reverseMatches.length >= itemWords.length * 0.7);
-
-                      if (directMatch || isFuzzyMatch) {
-                          const currentScore = score + (directMatch ? 10 : 0);
-                          if (currentScore > maxScore) {
-                              maxScore = currentScore;
-                              bestMatch = m;
-                          }
-                      }
-                  }
+                  // Robust Matching Logic (Exact Match as requested)
+                  const itemDesc = (item.description || '').trim().toLowerCase();
                   
-                  if (bestMatch) {
-                      // Calculate deduction amount
-                      const packageSize = detectPackageSize(bestMatch.name, bestMatch.package_size);
+                  // Find exact match in stock
+                  const bestMatch = stockMaterials.find(m => m.name.toLowerCase().trim() === itemDesc);
+                  
+                  // Fetch fresh material data to get current movements
+                  const { data: freshMaterial } = await supabase
+                      .from('materials')
+                      .select('*')
+                      .eq('id', bestMatch.id)
+                      .single();
+                  
+                  if (freshMaterial) {
+                      const deductionAmount = item.quantity;
+                      const newQuantity = freshMaterial.quantity - deductionAmount;
                       
-                      // Invoice Item Qty is UNITS.
-                      // Material Quantity in DB is PACKAGES.
-                      // Deduction = Units / PackageSize
+                      // Create Movement Log
+                      const newMovement = {
+                          id: crypto.randomUUID(),
+                          type: 'OUT',
+                          quantity: deductionAmount,
+                          date: updatedInvoice.date,
+                          description: `Factura: ${updatedInvoice.number}`,
+                          projectId: updatedInvoice.projectId,
+                          invoiceId: updatedInvoice.id
+                      };
                       
-                      const deductionAmount = item.quantity / packageSize;
-                      const newQuantity = bestMatch.quantity - deductionAmount;
-                      
-                      console.log(`Deducting ${item.quantity} units (${deductionAmount} packs) from ${bestMatch.name} (Pack Size: ${packageSize}). New Qty: ${newQuantity}`);
+                      const currentMovements = freshMaterial.movements || [];
+                      const updatedMovements = [...currentMovements, newMovement];
+
+                      console.log(`Deducting ${deductionAmount} units from ${freshMaterial.name}. New Qty: ${newQuantity}`);
                       
                       const { error: updateError } = await supabase.from('materials').update({ 
-                          quantity: newQuantity 
-                      }).eq('id', bestMatch.id);
+                          quantity: newQuantity,
+                          movements: updatedMovements
+                      }).eq('id', freshMaterial.id);
 
                       if (updateError) {
-                          console.error(`Error updating stock for ${bestMatch.name}:`, updateError);
+                          console.error(`Error updating stock for ${freshMaterial.name}:`, updateError);
                       }
+                  } else {
+                      console.warn(`No stock match found for item: ${item.description}`);
                   }
               }
               // Mark as deducted
@@ -536,16 +527,48 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
     });
   };
 
+  // Fetch materials for autocomplete
+  const [stockMaterials, setStockMaterials] = useState<Material[]>([]);
+
+  useEffect(() => {
+    const fetchStock = async () => {
+        const { data } = await supabase.from('materials').select('*');
+        if (data) {
+            setStockMaterials(data.map((m: any) => ({
+                id: m.id,
+                projectId: m.project_id,
+                name: m.name,
+                quantity: m.quantity,
+                unit: m.unit,
+                minStock: m.min_stock,
+                pricePerUnit: m.price_per_unit,
+                packageSize: m.package_size
+            })));
+        }
+    };
+    fetchStock();
+  }, []);
+
   const handleDescriptionChange = (index: number, value: string) => {
     updateInvoiceItem(index, 'description', value);
     
     if (value.trim().length > 1) {
       const lowerValue = value.toLowerCase();
-      const matches = priceDatabase.filter(item => 
+      // Use stockMaterials for suggestions
+      const matches = stockMaterials.filter(item => 
         item.name.toLowerCase().includes(lowerValue)
-      ).slice(0, 5); // Limit to 5 suggestions
+      ).slice(0, 5); 
       
-      setSuggestions(matches);
+      // Map Material to PriceItem structure for the suggestion list
+      const suggestions: PriceItem[] = matches.map(m => ({
+          id: m.id,
+          name: m.name,
+          unit: m.unit,
+          price: m.pricePerUnit,
+          category: 'Material'
+      }));
+
+      setSuggestions(suggestions);
       setActiveSuggestionIndex(index);
     } else {
       setSuggestions([]);
@@ -886,12 +909,14 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
           <FileText className="w-5 h-5 text-[#0047AB] dark:text-blue-400" /> Facturas del Proyecto
         </h3>
         <div className="flex items-center gap-2">
-            <button 
-                onClick={() => setShowIncidentModal(true)}
-                className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-colors shadow-md shadow-orange-900/20"
-            >
-                <Calculator className="w-4 h-4" /> Factura Incidencia
-            </button>
+            {project.type === 'Elevator' && (
+                <button 
+                    onClick={() => setShowIncidentModal(true)}
+                    className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-colors shadow-md shadow-orange-900/20"
+                >
+                    <Calculator className="w-4 h-4" /> Factura Incidencia
+                </button>
+            )}
             <button 
               onClick={handleCreateInvoice}
               className="bg-[#0047AB] hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-colors shadow-md shadow-blue-900/20"

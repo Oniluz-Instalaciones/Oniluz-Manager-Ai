@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Project, ProjectStatus, Transaction, ProjectDocument, ProjectType, PvData, Material, ElevatorData } from '../types';
-import { Plus, Search, Building2, MapPin, Camera, PieChart, Database, Upload, FileText, Menu, Moon, Sun, ChevronRight, X, Zap, Sun as SunIcon, Battery, Calendar, HardHat, Sparkles, LogOut, Ruler, Layers, Navigation, Briefcase } from 'lucide-react';
+import { Plus, Search, Building2, MapPin, Camera, PieChart, Database, Upload, FileText, Menu, Moon, Sun, ChevronRight, X, Zap, Sun as SunIcon, Battery, Calendar, HardHat, Sparkles, LogOut, Ruler, Layers, Navigation, Briefcase, AlertTriangle } from 'lucide-react';
 import ScannerModal from './ScannerModal';
 import GlobalAssistant from './GlobalAssistant';
 import { calculateDrivingDistance } from '../services/geminiService';
@@ -79,28 +79,37 @@ const ProjectList: React.FC<ProjectListProps> = ({
       window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [statusFilter, typeFilter, showIncidentsOnly, searchTerm]);
 
-  // Filter Logic: Filter by Search, Status AND Type
-  const filteredProjects = projects.filter(p => {
+  // Base Filter: Search, Type, Incidents (Independent of Status Filter)
+  const baseFilteredProjects = projects.filter(p => {
     const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) || p.client.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === 'ALL' || p.status === statusFilter;
     const matchesIncidents = !showIncidentsOnly || p.incidents.some(i => i.status === 'Open');
-    const matchesType = typeFilter === 'ALL' || p.type === typeFilter; // NEW: Type check
-    return matchesSearch && matchesStatus && matchesIncidents && matchesType;
+    const matchesType = typeFilter === 'ALL' || p.type === typeFilter;
+    return matchesSearch && matchesIncidents && matchesType;
   });
 
-  // Calculate stats based on FILTERED view
-  // NOTE: We update totalBudget calculation here to also be robust (sum accepted budgets if project budget is 0)
-  const totalProjects = filteredProjects.length;
-  const inProgressCount = filteredProjects.filter(p => p.status === ProjectStatus.IN_PROGRESS).length;
-  const completedCount = filteredProjects.filter(p => p.status === ProjectStatus.COMPLETED).length;
-  
+  // Calculate stats based on BASE view (so counts don't disappear when filtering by status)
+  const totalProjects = baseFilteredProjects.length;
+  const inProgressCount = baseFilteredProjects.filter(p => p.status === ProjectStatus.IN_PROGRESS && !p.invoices?.some(i => i.status === 'Paid')).length;
+  const completedCount = baseFilteredProjects.filter(p => p.status === ProjectStatus.COMPLETED || p.invoices?.some(i => i.status === 'Paid')).length;
+  const activeIncidents = baseFilteredProjects.reduce((sum, p) => sum + p.incidents.filter(i => i.status === 'Open').length, 0);
+
+  // Final Filter: Apply Status Filter for the list view
+  const filteredProjects = baseFilteredProjects.filter(p => {
+      if (statusFilter === 'ALL') return true;
+      if (statusFilter === ProjectStatus.COMPLETED) {
+          return p.status === ProjectStatus.COMPLETED || p.invoices?.some(i => i.status === 'Paid');
+      }
+      if (statusFilter === ProjectStatus.IN_PROGRESS) {
+           return p.status === ProjectStatus.IN_PROGRESS && !p.invoices?.some(i => i.status === 'Paid');
+      }
+      return p.status === statusFilter;
+  });
+
   const totalBudget = filteredProjects.reduce((sum, p) => {
       const activeBudgets = p.budgets?.filter(b => b.status === 'Accepted').reduce((s, b) => s + b.total, 0) || 0;
       const effectiveBudget = p.budget > 0 ? p.budget : activeBudgets;
       return sum + effectiveBudget;
   }, 0);
-
-  const activeIncidents = filteredProjects.reduce((sum, p) => sum + p.incidents.filter(i => i.status === 'Open').length, 0);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
       if (e.target.files) {
@@ -449,24 +458,24 @@ const ProjectList: React.FC<ProjectListProps> = ({
               onClick={() => { setStatusFilter(ProjectStatus.IN_PROGRESS); setShowIncidentsOnly(false); }}
               className={`p-6 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border transition-all text-left group ${
                   statusFilter === ProjectStatus.IN_PROGRESS 
-                  ? 'bg-white dark:bg-slate-800 border-[#0047AB] ring-1 ring-[#0047AB]/20' 
+                  ? 'bg-white dark:bg-slate-800 border-green-500 ring-1 ring-green-200' 
                   : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-500'
               }`}
           >
               <div className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">En Curso</div>
-              <div className="text-3xl font-bold text-[#0047AB]">{inProgressCount}</div>
+              <div className="text-3xl font-bold text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20 px-3 py-1 rounded-lg inline-block min-w-[3rem] text-center">{inProgressCount}</div>
           </button>
           
           <button 
               onClick={() => { setStatusFilter(ProjectStatus.COMPLETED); setShowIncidentsOnly(false); }}
               className={`p-6 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border transition-all text-left group ${
                   statusFilter === ProjectStatus.COMPLETED 
-                  ? 'bg-white dark:bg-slate-800 border-green-500 ring-1 ring-green-200' 
+                  ? 'bg-white dark:bg-slate-800 border-[#0047AB] ring-1 ring-[#0047AB]/20' 
                   : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-500'
               }`}
           >
-              <div className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Finalizados</div>
-              <div className="text-3xl font-bold text-green-600 dark:text-green-400">{completedCount}</div>
+              <div className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Completados</div>
+              <div className="text-3xl font-bold text-[#0047AB] dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-3 py-1 rounded-lg inline-block min-w-[3rem] text-center">{completedCount}</div>
           </button>
           
           <button 
@@ -555,13 +564,25 @@ const ProjectList: React.FC<ProjectListProps> = ({
             >
               <div className="p-7 flex-1">
                 <div className="flex justify-between items-start mb-5">
-                  <span className={`px-3 py-1 rounded-full text-[11px] font-bold tracking-wide uppercase ${
-                    displayProgress === 100 ? 'bg-blue-50 text-blue-700 border border-blue-100 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800' :
-                    displayProgress >= 50 ? 'bg-green-50 text-green-700 border border-green-100 dark:bg-green-900/20 dark:text-green-400 dark:border-green-800' :
-                    'bg-slate-100 text-slate-600 border border-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:border-slate-600'
-                  }`}>
-                    {displayProgress === 100 ? 'Completado' : displayProgress >= 50 ? 'En Curso' : 'Planificación'}
-                  </span>
+                  <div className="flex flex-wrap gap-2">
+                    <span className={`px-3 py-1 rounded-full text-[11px] font-bold tracking-wide uppercase ${
+                      project.status === ProjectStatus.COMPLETED ? 'bg-blue-50 text-blue-700 border border-blue-100 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800' :
+                      project.status === ProjectStatus.IN_PROGRESS ? 'bg-green-50 text-green-700 border border-green-100 dark:bg-green-900/20 dark:text-green-400 dark:border-green-800' :
+                      project.status === ProjectStatus.PAUSED ? 'bg-orange-50 text-orange-700 border border-orange-100 dark:bg-orange-900/20 dark:text-orange-400 dark:border-orange-800' :
+                      'bg-slate-100 text-slate-600 border border-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:border-slate-600'
+                    }`}>
+                      {project.status === ProjectStatus.COMPLETED ? 'Completado' : 
+                       project.status === ProjectStatus.IN_PROGRESS ? 'En Curso' : 
+                       project.status === ProjectStatus.PAUSED ? 'Pausado' : 
+                       'Planificación'}
+                    </span>
+                    
+                    {project.incidents.some(i => i.status === 'Open') && (
+                        <span className="px-3 py-1 rounded-full text-[11px] font-bold tracking-wide uppercase bg-red-50 text-red-600 border border-red-100 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800 flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3" /> Incidencia
+                        </span>
+                    )}
+                  </div>
                   
                   {/* Project Type Badge */}
                   {project.type === 'Photovoltaic' ? (

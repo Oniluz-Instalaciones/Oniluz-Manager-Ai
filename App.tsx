@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Project, PriceItem } from './types';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Project, PriceItem, ProjectStatus } from './types';
 import { PRICE_DATABASE } from './constants';
 import ProjectList from './components/ProjectList';
 import ProjectDetail from './components/ProjectDetail';
@@ -176,14 +176,18 @@ const App: React.FC = () => {
   }, []);
 
   // --- Supabase Data Fetching (Only if authenticated) ---
-  const fetchProjects = async () => {
+  const fetchProjects = useCallback(async (retryCount = 0) => {
     if (!session) return;
     
-    // Reset error state before fetching
-    setFetchError(null);
+    // Reset error state before fetching ONLY on first attempt
+    if (retryCount === 0) setFetchError(null);
     
     try {
-      setIsLoading(true);
+      if (retryCount === 0) setIsLoading(true);
+
+      if (!navigator.onLine) {
+          throw new Error("No hay conexión a internet. Comprueba tu red.");
+      }
 
       if (!isSupabaseConfigured) {
           throw new Error("La conexión a Supabase no está configurada. Faltan las variables de entorno.");
@@ -250,17 +254,30 @@ const App: React.FC = () => {
           };
         });
         setProjects(formattedProjects);
+        setFetchError(null); // Clear any previous errors on success
       }
     } catch (err: any) {
-      console.error("Error fetching projects from Supabase:", err);
+      console.error(`Error fetching projects from Supabase (Attempt ${retryCount + 1}):`, err);
+      
+      const isNetworkError = err.message?.includes('Failed to fetch') || err.message?.includes('Network request failed');
+      const MAX_RETRIES = 3;
+
+      if (isNetworkError && retryCount < MAX_RETRIES) {
+          const delay = Math.pow(2, retryCount) * 1000; // 1s, 2s, 4s
+          console.log(`Retrying in ${delay}ms...`);
+          setTimeout(() => fetchProjects(retryCount + 1), delay);
+          return;
+      }
+
       // Set user-friendly error message
       setFetchError(err.message || "Error de conexión con la base de datos.");
     } finally {
-      setIsLoading(false);
+      // Only stop loading if we are not retrying or if we hit max retries
+      if (retryCount === 0 || retryCount >= 3) setIsLoading(false);
     }
-  };
+  }, [session]);
 
-  const fetchPrices = async () => {
+  const fetchPrices = useCallback(async () => {
       if (!session) return;
       // We assume table 'price_items' exists. 
       const { data, error } = await supabase.from('price_items').select('*').order('name');
@@ -269,14 +286,24 @@ const App: React.FC = () => {
       } else {
           setPriceDatabase(data || []);
       }
-  };
+  }, [session]);
 
   useEffect(() => {
     if (session) {
       fetchProjects();
       fetchPrices();
     }
-  }, [session]);
+  }, [session, fetchProjects, fetchPrices]);
+
+  // Auto-retry on network reconnection
+  useEffect(() => {
+    const handleOnline = () => {
+        console.log("Network back online, refetching...");
+        if (session) fetchProjects();
+    };
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, [session, fetchProjects]);
 
   // --- Effects ---
 
@@ -421,19 +448,47 @@ const App: React.FC = () => {
          baseDesc += `\n\n${INVOICE_TAG_OPEN}${JSON.stringify(invoiceDataToSave)}${INVOICE_TAG_CLOSE}`;
      }
 
+     // --- SMART STATUS LOGIC ---
+     // Only apply if the user hasn't manually changed the status in this update
+     // We compare with the *previous* version of the project in state
+     const currentProject = projects.find(p => p.id === updatedProject.id);
+     let finalStatus = updatedProject.status;
+
+     if (currentProject && currentProject.status === updatedProject.status) {
+         // User didn't manually change status, so we check for automatic updates
+         const hasPaidInvoices = updatedProject.invoices?.some(i => i.status === 'Paid');
+         const hasSentInvoices = updatedProject.invoices?.some(i => i.status === 'Sent');
+         const hasAcceptedBudgets = updatedProject.budgets?.some(b => b.status === 'Accepted');
+         const isProgress100 = updatedProject.progress === 100;
+
+         if (hasPaidInvoices || isProgress100) {
+             finalStatus = ProjectStatus.COMPLETED;
+         } else if (hasSentInvoices || hasAcceptedBudgets) {
+             finalStatus = ProjectStatus.IN_PROGRESS;
+         }
+         // If none of the above, keep existing (likely Planning)
+     }
+     
+     // Update the payload with the potentially new smart status
      const updatePayload = {
          name: updatedProject.name,
          client: updatedProject.client,
          location: updatedProject.location,
-         status: updatedProject.status,
+         status: finalStatus, // Use calculated status
          progress: updatedProject.progress,
          start_date: updatedProject.startDate,
          end_date: updatedProject.endDate || null,
          description: baseDesc,
          budget: updatedProject.budget || 0,
-         pv_data: updatedProject.pvData || null, // Try standard
-         elevator_data: updatedProject.elevatorData || null // Try standard
+         pv_data: updatedProject.pvData || null,
+         elevator_data: updatedProject.elevatorData || null
      };
+
+     // Update local state again if status changed automatically
+     if (finalStatus !== updatedProject.status) {
+         const autoUpdatedProject = { ...updatedProject, status: finalStatus };
+         setProjects(projects.map(p => p.id === updatedProject.id ? autoUpdatedProject : p));
+     }
 
      // Try Update
      let { error } = await supabase.from('projects').update(updatePayload).eq('id', updatedProject.id);
@@ -591,7 +646,7 @@ const App: React.FC = () => {
         }
       }
     }
-  }, [projects]);
+  }, [projects, handleUpdateProject]);
 
   // --- Render ---
 
