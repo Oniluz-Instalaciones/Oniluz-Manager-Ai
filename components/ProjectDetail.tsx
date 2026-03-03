@@ -507,7 +507,10 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                 </div>
                 {(() => {
                     const start = new Date(project.startDate).getTime();
-                    const end = project.endDate ? new Date(project.endDate).getTime() : new Date().getTime() + 1000 * 60 * 60 * 24 * 30; // Default 30 days if no end date
+                    // Ajustamos el final para que sea a las 23:59:59 del día de finalización (sumamos 1 día menos 1ms)
+                    const end = project.endDate 
+                        ? new Date(project.endDate).getTime() + (24 * 60 * 60 * 1000) - 1 
+                        : new Date().getTime() + 1000 * 60 * 60 * 24 * 30; // Default 30 days if no end date
                     const now = new Date().getTime();
                     const total = end - start;
                     const elapsed = now - start;
@@ -550,6 +553,45 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
               
               {/* COLUMNA IZQUIERDA (2/3) */}
               <div className="lg:col-span-2 space-y-6">
+
+                {/* ALERTAS DE INCIDENCIAS (NUEVO) */}
+                {project.incidents.some(i => i.status === 'Open') && (
+                    <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-2xl p-5 shadow-sm animate-in fade-in slide-in-from-top-4 duration-500">
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="bg-red-100 dark:bg-red-800 p-2 rounded-full">
+                                <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400" />
+                            </div>
+                            <h3 className="text-lg font-bold text-red-700 dark:text-red-300">
+                                Incidencias Activas ({project.incidents.filter(i => i.status === 'Open').length})
+                            </h3>
+                        </div>
+                        
+                        <div className="space-y-3">
+                            {project.incidents.filter(i => i.status === 'Open').map(incident => (
+                                <div key={incident.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl border-l-4 border-red-500 shadow-sm">
+                                    <div className="flex justify-between items-start mb-1">
+                                        <h4 className="font-bold text-slate-900 dark:text-white text-sm">{incident.title}</h4>
+                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
+                                            incident.priority === 'High' ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300' :
+                                            incident.priority === 'Medium' ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300' :
+                                            'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300'
+                                        }`}>
+                                            {incident.priority === 'High' ? 'Alta' : incident.priority === 'Medium' ? 'Media' : 'Baja'}
+                                        </span>
+                                    </div>
+                                    <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                                        {incident.description}
+                                    </p>
+                                    <div className="mt-2 flex items-center gap-2 text-[10px] text-slate-400">
+                                        <Clock className="w-3 h-3" /> {new Date(incident.date).toLocaleDateString()}
+                                        <span>•</span>
+                                        <User className="w-3 h-3" /> {incident.reportedBy}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
                 
                 {/* Detalles del Proyecto (Reestructurado) */}
                 <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700">
@@ -590,7 +632,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
                                     <div className="flex items-center gap-2 text-slate-900 dark:text-white font-medium">
                                         <span>{formatDate(project.startDate)}</span>
                                         <span className="text-slate-300">→</span>
-                                        <span className={project.endDate && new Date() > new Date(project.endDate) ? 'text-red-600' : ''}>
+                                        <span className={project.endDate && new Date().getTime() > (new Date(project.endDate).getTime() + (24 * 60 * 60 * 1000) - 1) ? 'text-red-600' : ''}>
                                             {project.endDate ? formatDate(project.endDate) : 'Sin definir'}
                                         </span>
                                     </div>
