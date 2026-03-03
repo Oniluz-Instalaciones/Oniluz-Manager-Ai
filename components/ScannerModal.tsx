@@ -60,6 +60,7 @@ const formatDate = (dateStr: string) => {
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [scanErrorType, setScanErrorType] = useState<string | null>(null);
   const [paginationWarning, setPaginationWarning] = useState<string | null>(null);
+  const [isZeroTotalWarning, setIsZeroTotalWarning] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -131,6 +132,7 @@ const formatDate = (dateStr: string) => {
     setIsAnalyzing(true);
     setScanErrorType(null);
     setPaginationWarning(null); 
+    setIsZeroTotalWarning(false);
 
     try {
       const images = pagesToProcess.map(p => p.base64);
@@ -141,6 +143,11 @@ const formatDate = (dateStr: string) => {
 
       const isRefund = data.total < 0;
       const absoluteAmount = Math.abs(data.total || 0);
+      
+      if (absoluteAmount === 0) {
+          setIsZeroTotalWarning(true);
+      }
+
       const shouldAddToStock = typeof data.isStockable === 'boolean' 
           ? data.isStockable 
           : ['Material', 'Herramienta'].includes(data.categoria || '');
@@ -636,6 +643,16 @@ const formatDate = (dateStr: string) => {
             <div className="p-6 space-y-6">
                 {scanErrorType && <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-100 dark:border-orange-800 p-4 rounded-xl flex items-start gap-3"><AlertTriangle className="w-5 h-5 text-orange-500 shrink-0 mt-0.5" /><div><h4 className="font-bold text-orange-700 dark:text-orange-400 text-sm">Revisar Datos</h4><p className="text-xs text-orange-600 dark:text-orange-300 mt-1">Verifica los campos detectados manualmente.</p></div></div>}
                 
+                {isZeroTotalWarning && (
+                    <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 p-4 rounded-xl flex items-start gap-3 animate-pulse">
+                        <CreditCard className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                        <div>
+                            <h4 className="font-bold text-blue-800 dark:text-blue-300 text-sm">Importe No Detectado</h4>
+                            <p className="text-xs text-blue-700 dark:text-blue-200 mt-1">No se pudo leer el total automáticamente. Por favor, introdúcelo manualmente.</p>
+                        </div>
+                    </div>
+                )}
+
                 {paginationWarning && (
                     <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-100 dark:border-yellow-800 p-4 rounded-xl flex items-start gap-3 animate-pulse">
                         <FileText className="w-5 h-5 text-yellow-600 dark:text-yellow-400 shrink-0 mt-0.5" />

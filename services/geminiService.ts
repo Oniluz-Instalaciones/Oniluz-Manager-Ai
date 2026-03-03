@@ -6,11 +6,11 @@ const apiKey = process.env.API_KEY || 'AIzaSyAPt-4D6bA9qLK-BrijbJBcmnBU1ojXOA8';
 const genAI = new GoogleGenAI({ apiKey });
 
 // --- ESTRATEGIA DE MODELOS (ROBUSTEZ) ---
-// CAMBIO IMPORTANTE: Arquitectura actualizada a Gemini 3.
-// Primary: 3.0 Flash Preview (Mayor inteligencia y velocidad).
-// Fallback: Flash Lite Latest (Respaldo robusto y económico).
-const MODEL_PRIMARY = 'gemini-3-flash-preview';
-const MODEL_FALLBACK = 'gemini-flash-lite-latest'; 
+// CAMBIO IMPORTANTE: Arquitectura actualizada para mejor visión y razonamiento.
+// Primary: 3.1 Pro Preview (Mayor capacidad de razonamiento para facturas complejas).
+// Fallback: 3.0 Flash Preview (Rápido y robusto).
+const MODEL_PRIMARY = 'gemini-3.1-pro-preview';
+const MODEL_FALLBACK = 'gemini-3-flash-preview'; 
 
 // --- SISTEMA DE CACHÉ ---
 const responseCache = new Map<string, { timestamp: number, data: any }>();
