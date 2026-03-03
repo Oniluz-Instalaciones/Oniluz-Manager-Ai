@@ -276,9 +276,9 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
         projectId: project.id,
         number: nextInvoiceNumber,
         date: new Date().toISOString().split('T')[0],
-        clientName: project.client || 'VALIDA SOLUTIONS SL', // Default to Valida if empty, or project client
-        clientAddress: project.client?.toLowerCase().includes('valida') ? 'Polígono Industrial Montfulla 21 - Can Culebra, 17162, Bescano (Girona)' : '',
-        clientNif: project.client?.toLowerCase().includes('valida') ? 'B55004238' : '',
+        clientName: 'VALIDA SOLUTIONS SL',
+        clientAddress: 'Polígono Industrial Montfulla 21 - Can Culebra, 17162, Bescano (Girona)',
+        clientNif: 'B55004238',
         items,
         subtotal,
         taxRate: 21,
@@ -1011,7 +1011,7 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
             <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md p-6 animate-in fade-in zoom-in-95 duration-200">
                 <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
                     <Calculator className="w-6 h-6 text-orange-500" />
-                    Presupuesto de Incidencia
+                    Factura de Incidencia
                 </h3>
                 
                 <div className="space-y-4">
@@ -1093,7 +1093,7 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
                             onClick={generateIncidentInvoice}
                             className="flex-1 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-xl transition-colors font-bold shadow-lg shadow-orange-500/20"
                         >
-                            Generar Presupuesto
+                            Generar Factura
                         </button>
                     </div>
                 </div>
