@@ -115,7 +115,10 @@ export interface ProjectDocument {
   name: string;
   type: 'image' | 'pdf' | 'other';
   category?: 'general' | 'technical' | 'financial'; // Updated to include financial
-  date: string;
+  date: string; // Upload date
+  emissionDate?: string; // Ticket/Invoice emission date
+  amount?: number; // Total amount
+  uploadedBy?: string; // User who uploaded it
   data: string; // Base64 string
 }
 

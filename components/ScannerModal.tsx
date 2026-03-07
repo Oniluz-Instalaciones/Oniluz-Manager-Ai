@@ -21,19 +21,62 @@ interface DetectedItem extends Material {
 }
 
 const normalizeDate = (dateStr: string | undefined): string => {
+    // Si no hay fecha, devolvemos la fecha actual pero forzando 2026 si estamos en ese contexto
     if (!dateStr) return new Date().toISOString().split('T')[0];
+    
     let cleanDate = dateStr.trim();
-    if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}$/.test(cleanDate)) {
-        const [day, month, year] = cleanDate.split(/[\/\-]/);
+    
+    // Intentar detectar formatos DD/MM/YYYY o DD-MM-YYYY o DD.MM.YYYY
+    // También soporta años de 2 dígitos
+    const dmyRegex = /^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/;
+    const match = cleanDate.match(dmyRegex);
+
+    if (match) {
+        let [_, day, month, year] = match;
+        
+        // Normalizar año de 2 dígitos
+        if (year.length === 2) {
+            year = '20' + year;
+        }
+
+        // CORRECCIÓN ROBUSTA SOLICITADA:
+        // Si el año detectado no es 2026, y parece ser un error (ej: 2024, 2025, 2027...),
+        // el usuario ha solicitado corregir a 2026.
+        // Aplicamos esto con cuidado: si es 2024/2025/2023 lo cambiamos a 2026.
+        const yearNum = parseInt(year);
+        // FORCE 2026: If year is NOT 2026 (whether past or future), force it to 2026.
+        // The user explicitly requested to fix incorrect years to 2026.
+        // We allow 2026 obviously.
+        if (yearNum !== 2026) {
+             year = '2026';
+        }
+
         const paddedDay = day.padStart(2, '0');
         const paddedMonth = month.padStart(2, '0');
         return `${year}-${paddedMonth}-${paddedDay}`;
     }
+
+    // Fallback a Date.parse para otros formatos (YYYY-MM-DD, etc)
     const timestamp = Date.parse(cleanDate);
     if (!isNaN(timestamp)) {
-        return new Date(timestamp).toISOString().split('T')[0];
+        const d = new Date(timestamp);
+        let year = d.getFullYear();
+        
+        // Misma lógica de corrección de año
+        if (year !== 2026) {
+            d.setFullYear(2026);
+        }
+        
+        return d.toISOString().split('T')[0];
     }
-    return new Date().toISOString().split('T')[0];
+
+    // Si todo falla, devolver fecha actual (que debería ser 2026 en este entorno)
+    // Pero por si acaso el reloj del sistema está mal:
+    const now = new Date();
+    if (now.getFullYear() !== 2026) {
+        now.setFullYear(2026);
+    }
+    return now.toISOString().split('T')[0];
 };
 
 const formatDate = (dateStr: string) => {
@@ -495,13 +538,23 @@ const formatDate = (dateStr: string) => {
         if (fileUrl) {
             const finalCategory = defaultCategory; 
 
+            // FORCE 2026 for upload date as well, in case system clock is wrong
+            const uploadDate = new Date();
+            if (uploadDate.getFullYear() !== 2026) {
+                uploadDate.setFullYear(2026);
+            }
+            const uploadDateStr = uploadDate.toISOString().split('T')[0];
+
             newDocument = {
                 id: crypto.randomUUID(),
                 projectId: formData.projectId,
                 name: `${formData.docType === 'DELIVERY_NOTE' ? 'Albarán' : 'Factura'} ${formatDate(formData.date)}`,
                 type: fileType,
                 category: finalCategory as 'general' | 'technical' | 'financial', 
-                date: formData.date || new Date().toISOString().split('T')[0],
+                date: uploadDateStr, // Fecha de subida (hoy, forzada a 2026)
+                emissionDate: formData.date, // Fecha del ticket/emisión
+                amount: formData.amount, // Importe
+                uploadedBy: currentUserName, // Usuario que sube
                 data: fileUrl
             };
 
@@ -512,6 +565,9 @@ const formatDate = (dateStr: string) => {
                 type: newDocument.type,
                 category: newDocument.category as "general" | "technical" | "financial",
                 date: newDocument.date,
+                emission_date: newDocument.emissionDate,
+                amount: newDocument.amount,
+                uploaded_by: newDocument.uploadedBy,
                 data: newDocument.data 
             });
             

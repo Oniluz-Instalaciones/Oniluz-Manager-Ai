@@ -16,6 +16,7 @@ import { supabase } from '../lib/supabase';
 
 interface ProjectDetailProps {
   project: Project;
+  projects: Project[]; // Full list of projects for reassignment
   onBack: () => void;
   onUpdate: (updatedProject: Project) => void;
   onDelete: (projectId: string) => void;
@@ -43,7 +44,7 @@ const HangGlider = ({ className }: { className?: string }) => (
   </svg>
 );
 
-const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate, onDelete, priceDatabase, currentUserName }) => {
+const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack, onUpdate, onDelete, priceDatabase, currentUserName }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'financials' | 'incidents' | 'budgets' | 'invoices' | 'documents' | 'technical_docs' | 'settings'>('overview');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -1006,12 +1007,14 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
         {activeTab === 'documents' && (
             <DocumentManager 
                 project={project} 
+                allProjects={projects}
                 onUpdate={updateProjectWithHistory} 
                 onOpenScanner={() => {
                     setScannerCategory('general');
                     setIsScannerOpen(true);
                 }}
                 category="general"
+                currentUserName={currentUserName}
             />
         )}
 
@@ -1019,12 +1022,14 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onUpdate
         {activeTab === 'technical_docs' && (
             <DocumentManager 
                 project={project} 
+                allProjects={projects}
                 onUpdate={updateProjectWithHistory} 
                 onOpenScanner={() => {
                     setScannerCategory('technical');
                     setIsScannerOpen(true);
                 }}
                 category="technical"
+                currentUserName={currentUserName}
             />
         )}
 

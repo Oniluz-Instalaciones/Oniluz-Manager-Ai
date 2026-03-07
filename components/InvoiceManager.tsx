@@ -17,6 +17,10 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
   const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   
+  // Modal States for Sandbox Compatibility
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [alertMessage, setAlertMessage] = useState<string | null>(null);
+  
   // Incident Budget State
   const [showIncidentModal, setShowIncidentModal] = useState(false);
   const [incidentData, setIncidentData] = useState({
@@ -240,23 +244,41 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
         });
     }
 
-    // 3. Diet Expenses (Gastos de Dieta)
-    // Filter transactions with category 'Dietas' or 'Personal' (if description implies diet)
-    // For now, stick to 'Dietas' category as per previous logic, but maybe check description too if needed.
-    // User said "gastos de dieta añadidos a el proyecto".
-    const dietTransactions = project.transactions.filter(t => 
-        t.type === 'expense' && (t.category === 'Dietas' || t.description.toLowerCase().includes('dieta'))
+    // 3. Diet & Travel Expenses (Gastos de Dieta y Desplazamiento)
+    // Filter transactions with category 'Dietas', 'Parking', 'Transporte' or description keywords
+    const expenseKeywords = ['parking', 'aparcamiento', 'zona azul', 'ota', 'ticket', 'estacionamiento', 'peaje', 'combustible', 'gasolina', 'diesel', 'dieta', 'comida', 'almuerzo', 'cena'];
+    const expenseCategories = ['Dietas', 'Parking', 'Transporte', 'Combustible', 'Desplazamiento'];
+
+    const expenseTransactions = project.transactions.filter(t => 
+        t.type === 'expense' && (
+            expenseCategories.includes(t.category) || 
+            expenseKeywords.some(k => t.description.toLowerCase().includes(k))
+        )
     );
 
-    dietTransactions.forEach(t => {
+    expenseTransactions.forEach(t => {
         // Assume stored expense amount is GROSS (includes VAT).
-        // Base = Amount / 1.10 (10% VAT for hospitality)
-        const baseAmount = Number((t.amount / 1.10).toFixed(2));
+        // Base = Amount / 1.10 (10% VAT for hospitality) or 1.21 (21% for others)
+        // For simplicity/robustness, we'll assume 10% for Dietas and 21% for others, 
+        // but since we don't have exact tax rate per transaction, we might need a heuristic.
+        // However, usually re-invoicing is done at cost or cost + margin.
+        // If we want to be precise, we should store tax rate in transaction.
+        // For now, let's assume standard 21% for Parking/Fuel and 10% for Diets.
+        
+        let taxDivisor = 1.21;
+        const lowerDesc = t.description.toLowerCase();
+        const lowerCat = t.category.toLowerCase();
+        
+        if (lowerCat === 'dietas' || lowerDesc.includes('dieta') || lowerDesc.includes('comida') || lowerDesc.includes('menu')) {
+            taxDivisor = 1.10;
+        }
+
+        const baseAmount = Number((t.amount / taxDivisor).toFixed(2));
         const formattedDate = t.date ? t.date.split('-').reverse().join('-') : '';
 
         items.push({
             id: crypto.randomUUID(),
-            description: `Dieta: ${t.description} (${formattedDate})`,
+            description: `${t.category || 'Gasto'}: ${t.description} (${formattedDate})`,
             quantity: 1,
             unitPrice: baseAmount,
             amount: baseAmount
@@ -324,24 +346,36 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
         });
     }
 
-    // 2. Get Diet Expenses (Detailed)
-    // Filter ONLY 'Dietas'. Exclude 'Personal'.
-    const dietTransactions = project.transactions.filter(t => t.type === 'expense' && t.category === 'Dietas');
+    // 2. Get Diet & Travel Expenses (Detailed)
+    // Filter transactions with category 'Dietas', 'Parking', 'Transporte' or description keywords
+    const expenseKeywords = ['parking', 'aparcamiento', 'zona azul', 'ota', 'ticket', 'estacionamiento', 'peaje', 'combustible', 'gasolina', 'diesel', 'dieta', 'comida', 'almuerzo', 'cena'];
+    const expenseCategories = ['Dietas', 'Parking', 'Transporte', 'Combustible', 'Desplazamiento'];
+
+    const expenseTransactions = project.transactions.filter(t => 
+        t.type === 'expense' && (
+            expenseCategories.includes(t.category) || 
+            expenseKeywords.some(k => t.description.toLowerCase().includes(k))
+        )
+    );
     
-    const expenseItems: InvoiceItem[] = dietTransactions.map(t => {
+    const expenseItems: InvoiceItem[] = expenseTransactions.map(t => {
         // Assume stored expense amount is GROSS (includes VAT).
-        // User said: "si el hotel cuesta 220 euros 200 de hotel y 20 de iva".
-        // This implies 10% VAT for Dietas/Hotel.
-        // We need to extract the BASE amount to invoice it, then apply 21% invoice VAT.
-        // Base = Amount / 1.10
-        const baseAmount = Number((t.amount / 1.10).toFixed(2));
+        // Base = Amount / 1.10 (10% VAT for hospitality) or 1.21 (21% for others)
         
-        // Format date to dd-mm-yyyy
+        let taxDivisor = 1.21;
+        const lowerDesc = t.description.toLowerCase();
+        const lowerCat = t.category.toLowerCase();
+        
+        if (lowerCat === 'dietas' || lowerDesc.includes('dieta') || lowerDesc.includes('comida') || lowerDesc.includes('menu')) {
+            taxDivisor = 1.10;
+        }
+
+        const baseAmount = Number((t.amount / taxDivisor).toFixed(2));
         const formattedDate = t.date ? t.date.split('-').reverse().join('-') : '';
 
         return {
             id: crypto.randomUUID(),
-            description: `Dieta: ${t.description} (${formattedDate})`,
+            description: `${t.category || 'Gasto'}: ${t.description} (${formattedDate})`,
             quantity: 1,
             unitPrice: baseAmount,
             amount: baseAmount
@@ -653,11 +687,119 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
     setEditingInvoice({ ...editingInvoice, ...updates });
   };
 
-  const handleDeleteInvoice = (id: string) => {
-    if (confirm('¿Estás seguro de eliminar esta factura?')) {
-      const updatedInvoices = invoices.filter(i => i.id !== id);
-      setInvoices(updatedInvoices);
-      onUpdate({ ...project, invoices: updatedInvoices });
+  const initiateDeleteInvoice = (id: string) => {
+    console.log("Intentando borrar factura ID:", id);
+
+    if (!id) {
+        console.error("Error: ID de factura no válido");
+        return;
+    }
+
+    const invoiceToDelete = invoices.find(i => i.id === id);
+    
+    // 1. VALIDACIÓN DE ESTADO (Regla de Negocio)
+    if (!invoiceToDelete) {
+        console.error("Factura no encontrada en memoria local");
+        return;
+    }
+    
+    if (invoiceToDelete.status !== 'Draft') {
+        setAlertMessage("⛔ OPERACIÓN DENEGADA\n\nSolo se pueden eliminar facturas en estado BORRADOR.\nLas facturas emitidas (Enviadas/Pagadas) son documentos legales protegidos.");
+        return;
+    }
+
+    setDeleteConfirmId(id);
+  };
+
+  const executeDeleteInvoice = async () => {
+    if (!deleteConfirmId) return;
+    const id = deleteConfirmId;
+    setDeleteConfirmId(null);
+
+    const invoiceToDelete = invoices.find(i => i.id === id);
+    if (!invoiceToDelete) return;
+
+    // 2. OPTIMISTIC UI UPDATE (Frontend instantáneo)
+    const updatedInvoices = invoices.filter(i => i.id !== id);
+    setInvoices(updatedInvoices);
+    
+    // Actualizar el proyecto padre (JSON blob)
+    onUpdate({ 
+        ...project, 
+        invoices: updatedInvoices,
+        invoiceData: updatedInvoices 
+    });
+
+    // 3. CONTROLADOR DE BORRADO (Lógica de Backend simulada con Supabase)
+    try {
+        console.log("🔄 Iniciando proceso de borrado en cascada en servidor...");
+
+        // PASO A: REVERSIÓN DE STOCK (Logística Inversa)
+        if (invoiceToDelete.stockDeducted) {
+            const { data: materials } = await supabase.from('materials').select('*');
+            
+            if (materials) {
+                for (const item of invoiceToDelete.items) {
+                    const itemDesc = (item.description || '').trim().toLowerCase();
+                    const match = materials.find(m => m.name.toLowerCase().trim() === itemDesc);
+                    
+                    if (match) {
+                        const newQuantity = match.quantity + item.quantity;
+                        
+                        // Registrar movimiento de devolución
+                        const reversionMovement = {
+                            id: crypto.randomUUID(),
+                            type: 'IN',
+                            quantity: item.quantity,
+                            date: new Date().toISOString().split('T')[0],
+                            description: `REVERSIÓN: Borrado Factura ${invoiceToDelete.number}`,
+                            projectId: project.id,
+                            invoiceId: invoiceToDelete.id
+                        };
+                        
+                        const updatedMovements = [...(match.movements || []), reversionMovement];
+                        
+                        const { error: stockError } = await supabase.from('materials').update({
+                            quantity: newQuantity,
+                            movements: updatedMovements
+                        }).eq('id', match.id);
+
+                        if (stockError) {
+                            console.error(`Error al revertir stock de ${match.name}:`, stockError);
+                        } else {
+                            console.log(`✅ Stock restaurado: ${match.name} (+${item.quantity})`);
+                        }
+                    }
+                }
+            }
+        }
+
+        // PASO B: LIMPIEZA DE DEPENDENCIAS (Cascade Delete Manual)
+        // Intentamos borrar items de factura primero si existen en tabla relacional
+        const { error: itemsError } = await supabase.from('invoice_items').delete().eq('invoice_id', id);
+        if (itemsError && itemsError.code !== '42P01') { // Ignorar error si la tabla no existe
+             console.warn("Aviso: Error al limpiar items de factura (puede que no existan):", itemsError.message);
+        }
+
+        // PASO C: BORRADO FÍSICO DE LA FACTURA
+        const { error: deleteError } = await supabase.from('invoices').delete().eq('id', id);
+        
+        if (deleteError) {
+            // Si falla el borrado en DB, notificamos pero no revertimos la UI (prioridad UX)
+            // A menos que sea un error crítico de integridad
+            if (deleteError.code === '23503') { // Foreign Key Violation
+                setAlertMessage("Error de Integridad: No se pudo borrar la factura de la base de datos porque tiene registros dependientes no limpiados.");
+                console.error("Foreign Key Error:", deleteError);
+            } else if (deleteError.code !== 'PGRST204' && !deleteError.message.includes('does not exist')) {
+                console.warn("Nota: El borrado en tabla 'invoices' falló (posiblemente uso solo JSON):", deleteError.message);
+            }
+        } else {
+            console.log("✅ Registro de factura eliminado correctamente de la base de datos.");
+        }
+
+    } catch (error: any) {
+        console.error("CRITICAL ERROR en transacción de borrado:", error);
+        setAlertMessage(`Error del sistema al procesar el borrado: ${error.message}`);
     }
   };
 
@@ -958,7 +1100,7 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
                   <h4 className="font-bold text-slate-900 dark:text-white">{invoice.number}</h4>
                   <p className="text-xs text-slate-500">{new Date(invoice.date).toLocaleDateString()}</p>
                 </div>
-                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="flex gap-1">
                   <button 
                     onClick={() => handleDownloadPDF(invoice)}
                     className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg text-slate-500 hover:text-[#0047AB] transition-colors"
@@ -974,7 +1116,10 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
                     <Edit3 className="w-4 h-4" />
                   </button>
                   <button 
-                    onClick={() => handleDeleteInvoice(invoice.id)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      initiateDeleteInvoice(invoice.id);
+                    }}
                     className="p-2 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg text-slate-400 hover:text-red-500 transition-colors"
                     title="Eliminar"
                   >
@@ -1097,6 +1242,56 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
                         </button>
                     </div>
                 </div>
+            </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal (Sandbox Friendly) */}
+      {deleteConfirmId && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] p-4 backdrop-blur-sm">
+            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm p-6 animate-in fade-in zoom-in-95 duration-200 border border-slate-200 dark:border-slate-700">
+                <div className="w-12 h-12 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4 text-red-600 dark:text-red-400">
+                    <Trash2 className="w-6 h-6" />
+                </div>
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white text-center mb-2">¿Borrar Factura?</h3>
+                <p className="text-slate-500 dark:text-slate-400 text-center text-sm mb-6 leading-relaxed">
+                    Esta acción es <strong>permanente</strong>. Se devolverán los productos al stock y se eliminará el registro de la base de datos.
+                </p>
+                <div className="flex gap-3">
+                    <button 
+                        onClick={() => setDeleteConfirmId(null)}
+                        className="flex-1 py-2.5 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-colors font-bold text-sm"
+                    >
+                        Cancelar
+                    </button>
+                    <button 
+                        onClick={executeDeleteInvoice}
+                        className="flex-1 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-xl transition-colors font-bold shadow-lg shadow-red-500/20 text-sm"
+                    >
+                        Sí, Borrar
+                    </button>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {/* Alert Modal (Sandbox Friendly) */}
+      {alertMessage && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[70] p-4 backdrop-blur-sm">
+            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm p-6 animate-in fade-in zoom-in-95 duration-200 border border-slate-200 dark:border-slate-700">
+                <div className="w-12 h-12 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center mx-auto mb-4 text-amber-600 dark:text-amber-400">
+                    <AlertTriangle className="w-6 h-6" />
+                </div>
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white text-center mb-4">Aviso del Sistema</h3>
+                <p className="text-slate-600 dark:text-slate-300 text-center text-sm mb-6 whitespace-pre-line leading-relaxed">
+                    {alertMessage}
+                </p>
+                <button 
+                    onClick={() => setAlertMessage(null)}
+                    className="w-full py-2.5 bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 dark:hover:bg-slate-600 text-white rounded-xl transition-colors font-bold text-sm"
+                >
+                    Entendido
+                </button>
             </div>
         </div>
       )}

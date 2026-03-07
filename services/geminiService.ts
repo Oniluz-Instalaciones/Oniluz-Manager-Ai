@@ -224,6 +224,7 @@ export const analyzeDocument = async (input: string | string[], mimeType: string
         }));
 
         const prompt = `Actúa como el CONTABLE experto. Analiza documento (puede tener múltiples páginas).
+        CONTEXTO TEMPORAL: Estamos en el año 2026. Si encuentras fechas con año de 2 dígitos (ej: '24', '25'), asume 2026 si es razonable. NUNCA devuelvas fechas futuras al 2026 (como 2027, 2028, etc) a menos que sea explícitamente claro en el documento. Ante la duda, usa 2026.
         OBJETIVO: Extraer datos y DECIDIR SI LOS ITEMS VAN AL ALMACÉN (Stock).
         CRITERIOS 'isStockable': TRUE para materiales físicos (cables, mecanismos). FALSE para servicios, comida, gasolina, herramientas.
         IMPORTANTE: Si es una FACTURA RECTIFICATIVA, ABONO o DEVOLUCIÓN, el 'total' debe ser NEGATIVO.

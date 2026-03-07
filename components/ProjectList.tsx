@@ -256,6 +256,10 @@ const ProjectList: React.FC<ProjectListProps> = ({
               Oniluz iA
             </h1>
             <p className="text-slate-500 dark:text-slate-400 mt-2 text-lg font-medium">Gestión integral de obras</p>
+            <div className="flex items-center gap-2 mt-2 text-sm font-semibold text-slate-400 dark:text-slate-500 bg-white dark:bg-slate-800 px-3 py-1.5 rounded-full border border-slate-100 dark:border-slate-700 w-fit shadow-sm">
+                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                Hola, <span className="text-slate-700 dark:text-slate-200">{currentUserName}</span>
+            </div>
           </div>
           
           <div className="flex items-center gap-3 flex-wrap justify-center md:justify-end">

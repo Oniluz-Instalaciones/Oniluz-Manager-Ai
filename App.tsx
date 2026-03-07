@@ -193,6 +193,8 @@ const App: React.FC = () => {
           throw new Error("La conexión a Supabase no está configurada. Faltan las variables de entorno.");
       }
 
+      // OPTIMIZATION: Removed 'documents(*)' from main fetch to prevent "Failed to fetch" (payload too large)
+      // Documents are now lazy-loaded when a project is selected.
       const { data, error } = await supabase
         .from('projects')
         .select(`
@@ -200,7 +202,6 @@ const App: React.FC = () => {
           transactions(*),
           materials(*),
           incidents(*),
-          documents(*),
           budgets(*, items:budget_items(*))
         `)
         .order('created_at', { ascending: false });
@@ -242,7 +243,7 @@ const App: React.FC = () => {
             })) || [],
             materials: p.materials || [],
             incidents: p.incidents || [],
-            documents: p.documents || [],
+            documents: [], // Placeholder, will be merged below
             budgets: p.budgets?.map((b: any) => ({
                ...b,
                items: b.items?.map((i: any) => ({
@@ -253,7 +254,21 @@ const App: React.FC = () => {
             })) || []
           };
         });
-        setProjects(formattedProjects);
+
+        // CRITICAL FIX: Preserve existing documents when refreshing project list
+        // Since we lazy-load documents, a full fetchProjects() (which returns documents=[]) 
+        // would wipe out currently loaded documents if we simply replaced the state.
+        setProjects(currentProjects => {
+            return formattedProjects.map(newP => {
+                const existingP = currentProjects.find(p => p.id === newP.id);
+                // If we have existing documents in memory for this project, keep them
+                if (existingP && existingP.documents && existingP.documents.length > 0) {
+                    return { ...newP, documents: existingP.documents };
+                }
+                return newP;
+            });
+        });
+
         setFetchError(null); // Clear any previous errors on success
       }
     } catch (err: any) {
@@ -276,6 +291,43 @@ const App: React.FC = () => {
       if (retryCount === 0 || retryCount >= 3) setIsLoading(false);
     }
   }, [session]);
+
+  // Lazy load documents for a specific project
+  const fetchProjectDocuments = async (projectId: string) => {
+      try {
+          const { data, error } = await supabase
+            .from('documents')
+            .select('*')
+            .eq('project_id', projectId);
+            
+          if (error) throw error;
+
+          if (data) {
+              const formattedDocs = data.map((d: any) => ({
+                  ...d,
+                  uploadedBy: d.uploaded_by,
+                  emissionDate: d.emission_date,
+                  amount: d.amount
+              }));
+
+              setProjects(prev => prev.map(p => {
+                  if (p.id === projectId) {
+                      return { ...p, documents: formattedDocs };
+                  }
+                  return p;
+              }));
+          }
+      } catch (err) {
+          console.error("Error fetching documents:", err);
+      }
+  };
+
+  // Trigger document fetch when a project is selected
+  useEffect(() => {
+      if (selectedProjectId) {
+          fetchProjectDocuments(selectedProjectId);
+      }
+  }, [selectedProjectId]);
 
   const fetchPrices = useCallback(async () => {
       if (!session) return;
@@ -648,6 +700,127 @@ const App: React.FC = () => {
     }
   }, [projects, handleUpdateProject]);
 
+  // --- ONE-TIME DATA FIX: Correct Years to 2026 ---
+  const hasFixedYears = React.useRef(false);
+
+  useEffect(() => {
+    const fixYears = async () => {
+        if (hasFixedYears.current || !session) return;
+        
+        console.log("Running Year Correction Fix (Deep Clean)...");
+        hasFixedYears.current = true;
+
+        try {
+            // 1. Fix Documents (Emission Date + Upload Date + Name)
+            const { data: docs } = await supabase
+                .from('documents')
+                .select('id, emission_date, date, name');
+
+            if (docs) {
+                const updates = [];
+                for (const d of docs) {
+                    let needsUpdate = false;
+                    let newEmissionDate = d.emission_date;
+                    let newDate = d.date;
+                    let newName = d.name;
+
+                    // Fix Emission Date
+                    if (newEmissionDate) {
+                        const year = parseInt(newEmissionDate.split('-')[0]);
+                        if (year !== 2026) {
+                            const parts = newEmissionDate.split('-');
+                            parts[0] = '2026';
+                            newEmissionDate = parts.join('-');
+                            needsUpdate = true;
+                        }
+                    }
+
+                    // Fix Upload Date
+                    if (newDate) {
+                        const year = parseInt(newDate.split('-')[0]);
+                        if (year !== 2026) {
+                            const parts = newDate.split('-');
+                            parts[0] = '2026';
+                            newDate = parts.join('-');
+                            needsUpdate = true;
+                        }
+                    }
+
+                    // Fix Name (e.g. "Factura 03-03-2028" -> "Factura 03-03-2026")
+                    if (newName) {
+                        // Regex to find years like 2020-2030 but not 2026
+                        const yearRegex = /(20[2-3][0-9])/g;
+                        const match = newName.match(yearRegex);
+                        if (match) {
+                            for (const m of match) {
+                                if (m !== '2026') {
+                                    newName = newName.replace(m, '2026');
+                                    needsUpdate = true;
+                                }
+                            }
+                        }
+                    }
+
+                    if (needsUpdate) {
+                        updates.push({ 
+                            id: d.id, 
+                            emission_date: newEmissionDate, 
+                            date: newDate,
+                            name: newName
+                        });
+                    }
+                }
+
+                if (updates.length > 0) {
+                    console.log(`Fixing ${updates.length} documents (dates/names) to year 2026...`);
+                    for (const update of updates) {
+                        await supabase.from('documents').update({ 
+                            emission_date: update.emission_date,
+                            date: update.date,
+                            name: update.name
+                        }).eq('id', update.id);
+                    }
+                }
+            }
+
+            // 2. Fix Transactions
+            const { data: txs } = await supabase
+                .from('transactions')
+                .select('id, date')
+                .not('date', 'is', null);
+
+            if (txs) {
+                const txUpdates = txs
+                    .filter((t: any) => {
+                        if (!t.date) return false;
+                        const year = parseInt(t.date.split('-')[0]);
+                        return year !== 2026;
+                    })
+                    .map((t: any) => {
+                        const parts = t.date.split('-');
+                        parts[0] = '2026';
+                        return { id: t.id, date: parts.join('-') };
+                    });
+
+                if (txUpdates.length > 0) {
+                    console.log(`Fixing ${txUpdates.length} transactions to year 2026...`);
+                    for (const update of txUpdates) {
+                        await supabase.from('transactions').update({ date: update.date }).eq('id', update.id);
+                    }
+                }
+            }
+            
+            // Refresh data after fix
+            fetchProjects();
+
+        } catch (err) {
+            console.error("Error running year fix:", err);
+        }
+    };
+
+    fixYears();
+  }, [session]);
+
   // --- Render ---
 
   if (isAuthLoading) {
@@ -761,6 +934,7 @@ const App: React.FC = () => {
     return (
       <ProjectDetail 
         project={projects.find(p => p.id === selectedProjectId)!} 
+        projects={projects}
         onBack={handleBackToMenu}
         onUpdate={handleUpdateProject}
         onDelete={handleDeleteProject}

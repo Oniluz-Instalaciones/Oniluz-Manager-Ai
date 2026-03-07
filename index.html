@@ -16,19 +16,47 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Oniluz Manager" />
 
-    <!-- Tailwind CSS Restored -->
-    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- ROBUST ERROR SUPPRESSION (Environment Noise Filter) -->
     <script>
-      tailwind.config = {
-        darkMode: 'class',
-        theme: {
-          extend: {
-            colors: {
-              cobalt: '#0047AB',
-            }
-          }
-        }
-      }
+      (function() {
+        const originalError = console.error;
+        const originalWarn = console.warn;
+        const originalLog = console.log;
+
+        // Filter patterns for known environment/platform noise
+        const NOISE_PATTERNS = [
+          'No ID or name found in config',
+          'Could not create web worker',
+          'Falling back to loading web worker',
+          'Unrecognized feature:',
+          'Origin trial controlled feature',
+          'Dj', // Minified Monaco noise
+          'A listener indicated an asynchronous response',
+          'The message channel closed before a response',
+          'cdn.tailwindcss.com',
+          'WebSocket connection to',
+          'Failed to load resource'
+        ];
+
+        const isNoise = (args) => {
+          if (!args || args.length === 0) return false;
+          const msg = typeof args[0] === 'string' ? args[0] : 
+                      (args[0] && args[0].message) ? args[0].message : '';
+          return NOISE_PATTERNS.some(pattern => msg.includes(pattern));
+        };
+
+        console.error = function(...args) {
+          if (isNoise(args)) return;
+          originalError.apply(console, args);
+        };
+
+        console.warn = function(...args) {
+          if (isNoise(args)) return;
+          originalWarn.apply(console, args);
+        };
+        
+        // Optional: Filter specific logs if needed, but usually log is fine
+      })();
     </script>
 
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
