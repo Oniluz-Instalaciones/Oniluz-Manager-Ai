@@ -885,6 +885,7 @@ const App: React.FC = () => {
       return (
           <PriceDatabase 
             items={priceDatabase}
+            projects={projects}
             onAdd={handleAddPrice}
             onEdit={handleEditPrice}
             onDelete={handleDeletePrice}

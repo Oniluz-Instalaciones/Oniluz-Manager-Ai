@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Project, Invoice, InvoiceItem, PriceItem, Material } from '../types';
-import { Plus, Trash2, Printer, Save, Edit3, FileText, Calculator, Download, Car, Clock } from 'lucide-react';
+import { Plus, Trash2, Printer, Save, Edit3, FileText, Calculator, Download, Car, Clock, AlertTriangle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -777,8 +777,18 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
         // PASO B: LIMPIEZA DE DEPENDENCIAS (Cascade Delete Manual)
         // Intentamos borrar items de factura primero si existen en tabla relacional
         const { error: itemsError } = await supabase.from('invoice_items').delete().eq('invoice_id', id);
-        if (itemsError && itemsError.code !== '42P01') { // Ignorar error si la tabla no existe
-             console.warn("Aviso: Error al limpiar items de factura (puede que no existan):", itemsError.message);
+        
+        if (itemsError) {
+            // Ignorar errores si la tabla no existe (404, 42P01, o mensaje específico de schema cache)
+            const isTableMissing = itemsError.code === '42P01' || 
+                                  itemsError.message?.includes('does not exist') || 
+                                  itemsError.message?.includes('schema cache');
+            
+            if (!isTableMissing) {
+                 console.warn("Aviso: Error al limpiar items de factura (puede que no existan):", itemsError.message);
+            } else {
+                 console.log("ℹ️ Tablas relacionales de facturas no configuradas (se usa solo JSON).");
+            }
         }
 
         // PASO C: BORRADO FÍSICO DE LA FACTURA
@@ -787,10 +797,14 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
         if (deleteError) {
             // Si falla el borrado en DB, notificamos pero no revertimos la UI (prioridad UX)
             // A menos que sea un error crítico de integridad
+            const isTableMissing = deleteError.code === '42P01' || 
+                                  deleteError.message?.includes('does not exist') || 
+                                  deleteError.message?.includes('schema cache');
+
             if (deleteError.code === '23503') { // Foreign Key Violation
                 setAlertMessage("Error de Integridad: No se pudo borrar la factura de la base de datos porque tiene registros dependientes no limpiados.");
                 console.error("Foreign Key Error:", deleteError);
-            } else if (deleteError.code !== 'PGRST204' && !deleteError.message.includes('does not exist')) {
+            } else if (!isTableMissing && deleteError.code !== 'PGRST204') {
                 console.warn("Nota: El borrado en tabla 'invoices' falló (posiblemente uso solo JSON):", deleteError.message);
             }
         } else {

@@ -214,12 +214,30 @@ const formatDate = (dateStr: string) => {
               name: item.name || 'Concepto',
               quantity: item.quantity ? Number(item.quantity) : 1, 
               unit: item.unit || 'ud',
-              pricePerUnit: item.price ? Number(item.price) : 0,
+              pricePerUnit: item.unitPrice ? Number(item.unitPrice) : (item.price ? Number(item.price) / (item.quantity || 1) : 0),
               minStock: 5,
               packageSize: 1,
-              addToStock: shouldAddToStock
+              addToStock: shouldAddToStock && item.isMaterial !== false
           }));
           setDetectedMaterials(newMats);
+
+          // Detect Price Updates
+          if (shouldAddToStock) {
+              const candidates = data.items
+                  .filter((item: any) => item.unitPrice && item.name && item.isMaterial !== false)
+                  .map((item: any) => ({
+                      id: crypto.randomUUID(),
+                      name: item.name,
+                      unit: item.unit || 'ud',
+                      price: Number(item.unitPrice),
+                      category: 'Material',
+                      discount: item.discount ? Number(item.discount) : undefined
+                  }));
+              
+              if (candidates.length > 0) {
+                  setPriceUpdateCandidates(candidates);
+              }
+          }
       } else {
         setDetectedMaterials([]);
       }
@@ -424,6 +442,8 @@ const formatDate = (dateStr: string) => {
       }
   };
 
+  const [priceUpdateCandidates, setPriceUpdateCandidates] = useState<any[]>([]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.projectId) {
@@ -434,6 +454,36 @@ const formatDate = (dateStr: string) => {
     setIsUploading(true);
 
     try {
+        // 0. Update Price Database (if candidates exist)
+        if (priceUpdateCandidates.length > 0) {
+            for (const candidate of priceUpdateCandidates) {
+                // Check if exists
+                const { data: existing } = await supabase
+                    .from('price_database')
+                    .select('id, price')
+                    .eq('name', candidate.name)
+                    .single();
+                
+                if (existing) {
+                    // Update only if price changed significantly or is newer
+                    await supabase.from('price_database').update({
+                        price: candidate.price,
+                        updated_at: new Date().toISOString()
+                    }).eq('id', existing.id);
+                } else {
+                    // Insert new
+                    await supabase.from('price_database').insert({
+                        name: candidate.name,
+                        unit: candidate.unit,
+                        price: candidate.price,
+                        category: 'Material',
+                        discount: candidate.discount
+                    });
+                }
+            }
+            console.log("Base de precios actualizada con", priceUpdateCandidates.length, "items.");
+        }
+
         const uploadResult = await uploadFileToSupabase(formData.projectId);
         const fileUrl = uploadResult?.url;
         const fileType = uploadResult?.type || 'image';

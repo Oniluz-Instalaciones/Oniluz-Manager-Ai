@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
-import { PriceItem } from '../types';
-import { ArrowLeft, Search, Plus, Trash2, Wand2, Loader2, Database, AlertCircle, ArrowRight, CheckCircle, Percent, Edit3, Tag } from 'lucide-react';
+import { PriceItem, Project } from '../types';
+import { ArrowLeft, Search, Plus, Trash2, Wand2, Loader2, Database, AlertCircle, ArrowRight, CheckCircle, Percent, Edit3, Tag, FileText, Package } from 'lucide-react';
 import PriceScannerModal from './PriceScannerModal';
+import ProjectDocumentScannerModal from './ProjectDocumentScannerModal';
 
 interface PriceDatabaseProps {
   items: PriceItem[];
+  projects: Project[];
   onAdd: (item: PriceItem) => Promise<void>;
   onEdit: (item: PriceItem) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
@@ -18,11 +20,13 @@ interface ConflictItem {
     selected: 'existing' | 'incoming';
 }
 
-const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onAdd, onEdit, onDelete, onBulkAdd, onBack }) => {
+const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, projects, onAdd, onEdit, onDelete, onBulkAdd, onBack }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [showAiModal, setShowAiModal] = useState(false);
+  const [showProjectScanner, setShowProjectScanner] = useState(false);
   const [editingItem, setEditingItem] = useState<PriceItem | null>(null);
+  const [itemToDelete, setItemToDelete] = useState<string | null>(null);
   
   // States for Conflict Resolution
   const [conflictItems, setConflictItems] = useState<ConflictItem[]>([]);
@@ -50,9 +54,14 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onAdd, onEdit, onD
   });
 
   const handleDelete = async (id: string) => {
-    if (window.confirm('¿Eliminar este artículo permanentemente?')) {
-      await onDelete(id);
-    }
+    setItemToDelete(id);
+  };
+
+  const confirmDelete = async () => {
+      if (itemToDelete) {
+          await onDelete(itemToDelete);
+          setItemToDelete(null);
+      }
   };
 
   const handleSaveItem = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -83,7 +92,7 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onAdd, onEdit, onD
     }
   };
 
-  const handleScannerSave = async (importedItems: PriceItem[]) => {
+  const processImportedItems = async (importedItems: PriceItem[]) => {
       if (importedItems.length === 0) {
           alert("No se encontraron artículos válidos.");
           return;
@@ -120,9 +129,6 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onAdd, onEdit, onD
       setCleanItems(safeItems);
       setConflictItems(conflicts);
 
-      // Close the scanner modal immediately after processing
-      setShowAiModal(false);
-
       if (conflicts.length > 0) {
           setShowConflictModal(true);
       } else {
@@ -131,6 +137,16 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onAdd, onEdit, onD
               alert(`Se han importado ${safeItems.length} artículos correctamente.`);
           }
       }
+  };
+
+  const handleScannerSave = async (importedItems: PriceItem[]) => {
+      await processImportedItems(importedItems);
+      setShowAiModal(false);
+  };
+
+  const handleProjectScannerSave = async (importedItems: PriceItem[]) => {
+      await processImportedItems(importedItems);
+      setShowProjectScanner(false);
   };
 
   const resolveConflicts = async () => {
@@ -186,6 +202,9 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onAdd, onEdit, onD
             <div>
                 <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white flex items-center gap-3">
                     <Database className="text-[#0047AB] dark:text-blue-400" /> Base de Precios
+                    <span className="ml-2 flex items-center gap-1.5 text-sm font-bold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 px-3 py-1 rounded-full">
+                        <Package className="w-4 h-4" /> {items.length}
+                    </span>
                 </h1>
                 <p className="text-sm text-slate-500 dark:text-slate-400 font-medium mt-1">Sincronizada en la nube</p>
             </div>
@@ -196,6 +215,12 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onAdd, onEdit, onD
                 className="bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 border border-purple-100 dark:border-purple-800 px-4 py-2.5 rounded-xl hover:bg-purple-100 dark:hover:bg-purple-900/50 transition-colors flex items-center font-bold shadow-sm whitespace-nowrap text-xs sm:text-sm"
             >
                 <Wand2 className="w-4 h-4 mr-2" /> <span className="hidden sm:inline">Importar con IA</span><span className="sm:hidden">Importar IA</span>
+            </button>
+            <button 
+                onClick={() => setShowProjectScanner(true)}
+                className="bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-800 px-4 py-2.5 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors flex items-center font-bold shadow-sm whitespace-nowrap text-xs sm:text-sm"
+            >
+                <FileText className="w-4 h-4 mr-2" /> <span className="hidden sm:inline">Escanear Proyectos</span><span className="sm:hidden">Escanear Docs</span>
             </button>
             <button 
                 onClick={() => setEditingItem({ id: '', name: '', unit: 'ud', price: 0, category: 'Material' })}
@@ -377,6 +402,15 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onAdd, onEdit, onD
           />
       )}
 
+      {/* Project Document Scanner Modal */}
+      {showProjectScanner && (
+          <ProjectDocumentScannerModal 
+            projects={projects}
+            onClose={() => setShowProjectScanner(false)}
+            onScanComplete={handleProjectScannerSave}
+          />
+      )}
+
       {/* Conflict Resolution Modal */}
       {showConflictModal && (
           <div className="fixed inset-0 bg-slate-900/80 flex items-center justify-center p-4 z-[60] backdrop-blur-md">
@@ -485,6 +519,30 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, onAdd, onEdit, onD
                       >
                           {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
                           Confirmar Selección
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {itemToDelete && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[80]">
+              <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl max-w-sm w-full mx-4 shadow-2xl">
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">¿Eliminar artículo?</h3>
+                  <p className="text-slate-500 dark:text-slate-400 mb-6">Esta acción no se puede deshacer. El artículo se eliminará permanentemente de la base de precios.</p>
+                  <div className="flex justify-end gap-3">
+                      <button 
+                          onClick={() => setItemToDelete(null)}
+                          className="px-4 py-2 text-slate-600 dark:text-slate-400 font-bold hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg"
+                      >
+                          Cancelar
+                      </button>
+                      <button 
+                          onClick={confirmDelete}
+                          className="px-4 py-2 bg-red-500 text-white font-bold rounded-lg hover:bg-red-600"
+                      >
+                          Eliminar
                       </button>
                   </div>
               </div>

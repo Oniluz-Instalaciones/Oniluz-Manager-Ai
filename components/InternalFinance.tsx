@@ -738,6 +738,9 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
         return months > 0 ? totalRev / months : 0;
     }, [projects]);
 
+    // 9. Monthly Net Profit (Estimated)
+    const monthlyNetProfit = averageRevenue - monthlyBurnRate;
+
     // Data for Break Even Chart
     const breakEvenData = [
         {
@@ -793,21 +796,21 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
                 
                 {/* KPI CARDS (Management Cards) */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
-                    {/* Runway */}
-                    <div className={`p-6 rounded-2xl border shadow-sm transition-all hover:shadow-md ${runwayMonths < 3 ? 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700'}`}>
+                    {/* Beneficio Neto (was Runway) */}
+                    <div className={`p-6 rounded-2xl border shadow-sm transition-all hover:shadow-md ${monthlyNetProfit < 0 ? 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800' : 'bg-emerald-50 border-emerald-200 dark:bg-emerald-900/20 dark:border-emerald-800'}`}>
                         <div className="flex justify-between items-start mb-4">
-                            <div className="p-3 bg-slate-100 dark:bg-slate-700 rounded-xl">
-                                <AlertTriangle className={`w-6 h-6 ${runwayMonths < 3 ? 'text-red-500' : 'text-slate-600 dark:text-slate-300'}`} />
+                            <div className={`p-3 rounded-xl ${monthlyNetProfit < 0 ? 'bg-red-100 dark:bg-red-800' : 'bg-emerald-100 dark:bg-emerald-800'}`}>
+                                {monthlyNetProfit < 0 ? <TrendingDown className={`w-6 h-6 ${monthlyNetProfit < 0 ? 'text-red-600 dark:text-red-200' : 'text-emerald-600 dark:text-emerald-200'}`} /> : <TrendingUp className="w-6 h-6 text-emerald-600 dark:text-emerald-200" />}
                             </div>
-                            <span className={`text-xs font-bold px-2 py-1 rounded-full ${runwayMonths < 3 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-                                {runwayMonths < 3 ? 'CRÍTICO' : 'SALUDABLE'}
+                            <span className={`text-xs font-bold px-2 py-1 rounded-full ${monthlyNetProfit < 0 ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                                {monthlyNetProfit < 0 ? 'DÉFICIT' : 'BENEFICIO'}
                             </span>
                         </div>
                         <div className="text-3xl font-extrabold text-slate-900 dark:text-white mb-1">
-                            {runwayMonths.toFixed(1)} Meses
+                            {formatCurrency(monthlyNetProfit)}
                         </div>
                         <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-                            Fondo de Maniobra (Supervivencia)
+                            Beneficio Neto (Mensual Est.)
                         </div>
                     </div>
 

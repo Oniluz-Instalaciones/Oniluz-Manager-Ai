@@ -12,6 +12,29 @@ const genAI = new GoogleGenAI({ apiKey });
 const MODEL_PRIMARY = 'gemini-3.1-pro-preview';
 const MODEL_FALLBACK = 'gemini-3-flash-preview'; 
 
+// Estado Global del Modelo (Sticky Strategy)
+// Si el modelo primario falla por cuota, nos quedamos en el fallback un tiempo
+// para evitar intentar y fallar en cada documento del lote.
+let activeModel = MODEL_PRIMARY;
+let modelResetTimer: NodeJS.Timeout | null = null;
+
+const switchToFallback = () => {
+    if (activeModel === MODEL_FALLBACK) return; // Ya estamos en fallback
+    
+    console.log(`[Oniluz iA] 📉 Activando modo Fallback (${MODEL_FALLBACK}) por 2 minutos.`);
+    activeModel = MODEL_FALLBACK;
+    
+    // Cancelar timer anterior si existe
+    if (modelResetTimer) clearTimeout(modelResetTimer);
+    
+    // Volver a intentar el modelo primario después de 2 minutos
+    modelResetTimer = setTimeout(() => {
+        console.log(`[Oniluz iA] 📈 Intentando restaurar modelo Primario (${MODEL_PRIMARY}).`);
+        activeModel = MODEL_PRIMARY;
+        modelResetTimer = null;
+    }, 120000); // 2 minutos
+};
+
 // --- SISTEMA DE CACHÉ ---
 const responseCache = new Map<string, { timestamp: number, data: any }>();
 const CACHE_TTL = 1000 * 60 * 5; // 5 minutos de validez
@@ -61,8 +84,9 @@ class RequestQueue {
             const op = this.queue.shift();
             if (op) {
                 await op();
-                // Ritmo base para no saturar (1.5s entre llamadas exitosas)
-                await new Promise(r => setTimeout(r, 1500)); 
+                // Ritmo base para no saturar (1s entre llamadas exitosas)
+                // Reducido de 1.5s a 1s para agilizar si estamos en Flash
+                await new Promise(r => setTimeout(r, 1000)); 
             }
         }
         
@@ -145,59 +169,82 @@ const optimizeImage = (base64Str: string): Promise<string> => {
 // Ejecuta la operación pasando el modelo a usar. Gestiona Fallback y 429.
 const robustGenerate = async <T>(
     operationBuilder: (model: string) => Promise<T>, 
-    allowFallback: boolean = true
+    allowFallback: boolean = true,
+    onStatus?: (msg: string) => void
 ): Promise<T> => {
-    let currentModel = MODEL_PRIMARY;
+    // Usamos el modelo activo globalmente (Sticky Strategy)
+    let currentModel = activeModel;
     let attempt = 0;
     const maxRetries = 3;
+    const TIMEOUT_MS = 60000; // 60s timeout absoluto por petición
 
     while (attempt < maxRetries) {
         try {
-            return await operationBuilder(currentModel);
+            // Wrapper con Timeout para evitar bloqueos indefinidos
+            const operationPromise = operationBuilder(currentModel);
+            const timeoutPromise = new Promise<never>((_, reject) => 
+                setTimeout(() => reject(new Error("Timeout: La API tardó demasiado en responder.")), TIMEOUT_MS)
+            );
+
+            return await Promise.race([operationPromise, timeoutPromise]);
+
         } catch (error: any) {
             attempt++;
             const errStr = error.toString();
             
-            // Detección precisa de error de cuota (429)
+            // Detección precisa de error de cuota (429), Timeout o Servidor (500/503)
             const isQuotaError = errStr.includes('429') || error.status === 429 || error.code === 429 || errStr.includes('RESOURCE_EXHAUSTED');
+            const isTimeout = errStr.includes('Timeout') || errStr.includes('fetch failed') || errStr.includes('network');
+            const isServerError = errStr.includes('500') || error.status === 500 || error.code === 500 || errStr.includes('503') || error.status === 503;
 
-            if (!isQuotaError) {
+            if (!isQuotaError && !isTimeout && !isServerError) {
                 if (attempt >= maxRetries) throw error;
                 // Error genérico, espera exponencial breve
-                await new Promise(r => setTimeout(r, 1000 * attempt));
+                if (onStatus) onStatus(`⚠️ Error temporal (${attempt}/${maxRetries}). Reintentando en 2s...`);
+                await new Promise(r => setTimeout(r, 2000 * attempt));
                 continue;
             }
 
-            console.warn(`[Oniluz iA] ⚠️ Cuota excedida en ${currentModel}.`);
+            console.warn(`[Oniluz iA] ⚠️ Problema (${isQuotaError ? 'Cuota' : isTimeout ? 'Timeout' : 'Servidor'}) en ${currentModel}.`);
 
             // 1. ESTRATEGIA FALLBACK: Cambiar de modelo si es posible
             if (allowFallback && currentModel === MODEL_PRIMARY) {
-                console.log(`[Oniluz iA] 🔄 Cambiando a modelo de respaldo: ${MODEL_FALLBACK}`);
+                const msg = `🔄 Problema en Pro. Cambiando a Flash...`;
+                console.log(`[Oniluz iA] ${msg}`);
+                if (onStatus) onStatus(msg);
+                
+                // Activar Sticky Fallback Globalmente
+                switchToFallback();
                 currentModel = MODEL_FALLBACK;
+                
                 // Reiniciamos intentos para el nuevo modelo
                 attempt = 0; 
                 continue;
             }
 
             // 2. ESTRATEGIA DE ESPERA INTELIGENTE
-            // Si ya estamos en fallback o no se permite cambio, analizamos el tiempo de espera real
-            let waitMs = 5000; // Default 5s
+            let waitMs = 5000 * attempt; // 5s, 10s, 15s
             
             // Extraer "retry in X s" del mensaje de error
             const match = errStr.match(/retry in ([\d\.]+)s/);
             if (match && match[1]) {
                 const seconds = parseFloat(match[1]);
-                waitMs = Math.ceil(seconds * 1000) + 1500; // Buffer de 1.5s
+                waitMs = Math.ceil(seconds * 1000) + 2000; // Buffer de 2s
                 console.log(`[Oniluz iA] ⏳ Google solicita espera de: ${seconds}s`);
             }
 
-            // Si la espera es muy larga (> 10s), pausamos toda la cola para no quemar intentos
+            if (attempt >= maxRetries) {
+                if (onStatus) onStatus(`❌ Fallo definitivo tras ${maxRetries} intentos.`);
+                throw error;
+            }
+
+            const waitMsg = `⏳ Esperando ${Math.ceil(waitMs/1000)}s para reintentar (${attempt}/${maxRetries})...`;
+            if (onStatus) onStatus(waitMsg);
+
+            // Si la espera es muy larga (> 10s), pausamos toda la cola
             if (waitMs > 10000) {
                 apiQueue.pause(waitMs);
             }
-
-            // Si es el último intento, lanzamos error, si no, esperamos
-            if (attempt >= maxRetries) throw error;
             
             await new Promise(r => setTimeout(r, waitMs));
         }
@@ -207,20 +254,87 @@ const robustGenerate = async <T>(
 
 // --- FUNCIONES PÚBLICAS ---
 
-export const analyzeDocument = async (input: string | string[], mimeType: string = 'image/jpeg'): Promise<any> => {
+const fetchResourceAsBase64 = async (url: string, maxRetries = 2): Promise<string> => {
+    let attempt = 0;
+    while (attempt <= maxRetries) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout per attempt
+        
+        try {
+            const response = await fetch(url, { signal: controller.signal });
+            clearTimeout(timeoutId);
+            
+            if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            
+            const blob = await response.blob();
+            if (blob.size === 0) throw new Error("Archivo descargado vacío.");
+
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    const result = reader.result as string;
+                    if (!result) return reject(new Error("Fallo al leer archivo local."));
+                    const base64 = result.includes(',') ? result.split(',')[1] : result;
+                    resolve(base64);
+                };
+                reader.onerror = () => reject(new Error("Error FileReader."));
+                reader.readAsDataURL(blob);
+            });
+        } catch (error: any) {
+            clearTimeout(timeoutId);
+            attempt++;
+            const isTimeout = error.name === 'AbortError' || error.message?.includes('Timeout');
+            console.warn(`[Oniluz iA] ⚠️ Error descargando documento (Intento ${attempt}/${maxRetries + 1}): ${error.message}`);
+            
+            if (attempt > maxRetries) {
+                throw new Error(isTimeout ? `Timeout al descargar documento tras ${maxRetries + 1} intentos.` : `Fallo al descargar documento: ${error.message}`);
+            }
+            // Espera breve antes de reintentar la descarga
+            await new Promise(r => setTimeout(r, 1000 * attempt));
+        }
+    }
+    throw new Error("Fallo inesperado en fetchResourceAsBase64");
+};
+
+export const analyzeDocument = async (input: string | string[], mimeType: string = 'image/jpeg', onStatus?: (msg: string) => void): Promise<any> => {
   const fallbackData = { comercio: "", fecha: new Date().toISOString().split('T')[0], total: 0, iva: 0, categoria: "Material", isStockable: false, description: "Introducir datos manualmente", items: [] };
   
   return apiQueue.add(async () => {
       try {
         const inputs = Array.isArray(input) ? input : [input];
-        const imageParts = await Promise.all(inputs.map(async (imgStr) => {
-            let cleanBase64;
-            if (mimeType.startsWith('image/')) {
-                cleanBase64 = await optimizeImage(imgStr);
-            } else {
-                cleanBase64 = imgStr.includes(',') ? imgStr.split(',')[1] : imgStr;
+        
+        // Validate inputs
+        if (inputs.length === 0 || inputs.some(i => !i)) {
+            throw new Error("Documento vacío o inválido.");
+        }
+
+        const imageParts = await Promise.all(inputs.map(async (inputStr) => {
+            let rawBase64 = inputStr;
+
+            // 1. Handle Remote URLs (Supabase Storage, etc.)
+            if (inputStr.startsWith('http') || inputStr.startsWith('https')) {
+                if (onStatus) onStatus("Descargando documento remoto...");
+                rawBase64 = await fetchResourceAsBase64(inputStr);
             }
-            return { inlineData: { mimeType: mimeType, data: cleanBase64 } };
+
+            let finalBase64 = rawBase64;
+
+            // 2. Optimize if Image
+            if (mimeType.startsWith('image/')) {
+                // Ensure Data URI format for optimizeImage
+                const dataUri = rawBase64.startsWith('data:') ? rawBase64 : `data:${mimeType};base64,${rawBase64}`;
+                finalBase64 = await optimizeImage(dataUri);
+            } else {
+                // For PDF/Other, ensure raw base64
+                finalBase64 = rawBase64.includes(',') ? rawBase64.split(',')[1] : rawBase64;
+            }
+            
+            // Sanitize: remove whitespace/newlines
+            finalBase64 = finalBase64.replace(/\s/g, '');
+
+            if (!finalBase64) throw new Error("Datos base64 vacíos tras limpieza.");
+
+            return { inlineData: { mimeType: mimeType, data: finalBase64 } };
         }));
 
         const prompt = `Actúa como el CONTABLE experto. Analiza documento (puede tener múltiples páginas).
@@ -231,7 +345,13 @@ export const analyzeDocument = async (input: string | string[], mimeType: string
         TOTALES: Si hay múltiples páginas, busca el 'Total a Pagar' definitivo del documento completo. No sumes totales parciales si ya están incluidos en el final.
         CATEGORIAS: Material, Dietas, Transporte, Combustible, Herramienta, Varios, Devolución.
         PAGINACIÓN: Detecta si el documento indica que hay más páginas (ej: "Página 1 de 3", "1/2").
-        Extrae items línea por línea de TODAS las páginas.`;
+        Extrae items línea por línea de TODAS las páginas.
+        
+        PARA BASE DE PRECIOS Y MATERIALES:
+        Es CRÍTICO diferenciar entre materiales de construcción/reforma (cables, tornillos, tuberías, cemento, mecanismos, etc.) y otros gastos (desayunos, comidas, gasolina, peajes, herramientas, servicios).
+        - Para CADA línea, evalúa si es un material de construcción/reforma válido. Si lo es, marca 'isMaterial' como true.
+        - Si es comida, bebida (ej. cafés, tostadas, menús, restaurantes), gasolina, servicios, o herramientas, marca 'isMaterial' como false. ¡ESTO ES MUY IMPORTANTE! NUNCA marques un desayuno o comida como material.
+        - Extrae 'unitPrice' (precio por unidad sin IVA) y 'discount' (descuento aplicado en %) SOLO si 'isMaterial' es true. Si no es un material de construcción, NO extraigas 'unitPrice' ni 'discount'.`;
         
         const documentSchema = {
             type: Type.OBJECT,
@@ -259,7 +379,10 @@ export const analyzeDocument = async (input: string | string[], mimeType: string
                             name: { type: Type.STRING },
                             quantity: { type: Type.NUMBER },
                             unit: { type: Type.STRING },
-                            price: { type: Type.NUMBER }
+                            price: { type: Type.NUMBER, description: "Precio total de la línea" },
+                            unitPrice: { type: Type.NUMBER, description: "Precio unitario SIN IVA (solo si isMaterial es true)" },
+                            discount: { type: Type.NUMBER, description: "Descuento en % (solo si isMaterial es true)" },
+                            isMaterial: { type: Type.BOOLEAN, description: "TRUE solo si es material de construcción/reforma o consumible de obra (ej. tornillos, cables). FALSE para comida, gasolina, herramientas, servicios." }
                         }
                     }
                 }
@@ -268,6 +391,7 @@ export const analyzeDocument = async (input: string | string[], mimeType: string
         };
 
         const response = await robustGenerate(async (model) => {
+            // Ensure contents is an array of parts to avoid ambiguity
             return genAI.models.generateContent({
                 model: model,
                 contents: { 
@@ -278,7 +402,7 @@ export const analyzeDocument = async (input: string | string[], mimeType: string
                 },
                 config: { temperature: 0.0, responseMimeType: 'application/json', responseSchema: documentSchema }
             });
-        }, true); // Allow fallback
+        }, true, onStatus); // Pass onStatus to robustGenerate
 
         let result;
         try { result = JSON.parse(response.text || "{}"); } catch { result = cleanAndParseJSON(response.text || "{}"); }
@@ -287,6 +411,10 @@ export const analyzeDocument = async (input: string | string[], mimeType: string
         throw new Error("JSON inválido");
       } catch (error: any) {
         console.error("Gemini API Error:", error);
+        // Enhanced error logging
+        if (error.message?.includes('400') || error.status === 400) {
+             console.error("Bad Request Details - Check MimeType or Base64 integrity.");
+        }
         const isQuotaError = error.toString().includes('429') || (error.status === 429);
         return { ...fallbackData, errorType: isQuotaError ? 'QUOTA' : 'GENERIC', description: isQuotaError ? "Límite de cuota alcanzado." : "Error al procesar" };
       }
