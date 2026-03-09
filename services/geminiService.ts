@@ -7,10 +7,10 @@ const genAI = new GoogleGenAI({ apiKey });
 
 // --- ESTRATEGIA DE MODELOS (ROBUSTEZ) ---
 // CAMBIO IMPORTANTE: Arquitectura actualizada para mejor visión y razonamiento.
-// Primary: 3.1 Pro Preview (Mayor capacidad de razonamiento para facturas complejas).
-// Fallback: 3.0 Flash Preview (Rápido y robusto).
-const MODEL_PRIMARY = 'gemini-3.1-pro-preview';
-const MODEL_FALLBACK = 'gemini-3-flash-preview'; 
+// Primary: 3.1 Flash Lite Preview (Muy rápido y con mayor cuota para escaneos masivos).
+// Fallback: 3.1 Pro Preview (El más capaz, por si el lite falla en documentos complejos).
+const MODEL_PRIMARY = 'gemini-3.1-flash-lite-preview';
+const MODEL_FALLBACK = 'gemini-3.1-pro-preview'; 
 
 // Estado Global del Modelo (Sticky Strategy)
 // Si el modelo primario falla por cuota, nos quedamos en el fallback un tiempo

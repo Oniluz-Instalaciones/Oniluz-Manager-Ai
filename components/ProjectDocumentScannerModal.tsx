@@ -366,8 +366,8 @@ const ProjectDocumentScannerModal: React.FC<ProjectDocumentScannerModalProps> = 
               </div>
             </>
           ) : isReviewing ? (
-            <div className="flex flex-col h-full">
-                <div className="flex justify-between items-center mb-4">
+            <div className="flex flex-col h-full overflow-hidden">
+                <div className="flex justify-between items-center mb-4 shrink-0">
                     <div>
                         <h3 className="text-lg font-bold text-slate-900 dark:text-white">Revisar Artículos Encontrados</h3>
                         <p className="text-sm text-slate-500 dark:text-slate-400">Selecciona y edita los artículos antes de añadirlos a la base de precios.</p>
@@ -380,11 +380,11 @@ const ProjectDocumentScannerModal: React.FC<ProjectDocumentScannerModalProps> = 
                     </button>
                 </div>
 
-                <div className="flex-1 overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-xl bg-slate-50 dark:bg-slate-900/50 p-2 space-y-2">
+                <div className="flex-1 overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-xl bg-slate-50 dark:bg-slate-900/50 p-2 space-y-2 min-h-0">
                     {foundItems.map(item => (
                         <div key={item.id} className={`p-4 rounded-xl border transition-colors ${selectedItems.has(item.id) ? 'bg-white dark:bg-slate-800 border-blue-200 dark:border-blue-900/50 shadow-sm' : 'bg-slate-100/50 dark:bg-slate-800/50 border-transparent opacity-60'}`}>
                             <div className="flex items-start gap-3">
-                                <button onClick={() => toggleItemSelection(item.id)} className="mt-1 text-[#0047AB] dark:text-blue-400">
+                                <button onClick={() => toggleItemSelection(item.id)} className="mt-1 text-[#0047AB] dark:text-blue-400 shrink-0">
                                     {selectedItems.has(item.id) ? <CheckSquare className="w-5 h-5" /> : <Square className="w-5 h-5" />}
                                 </button>
                                 <div className="flex-1 grid grid-cols-1 md:grid-cols-12 gap-4">
@@ -428,7 +428,7 @@ const ProjectDocumentScannerModal: React.FC<ProjectDocumentScannerModalProps> = 
                                 </div>
                                 <button 
                                     onClick={() => setFoundItems(prev => prev.filter(i => i.id !== item.id))}
-                                    className="mt-1 text-slate-400 hover:text-red-500 transition-colors"
+                                    className="mt-1 text-slate-400 hover:text-red-500 transition-colors shrink-0"
                                 >
                                     <Trash2 className="w-5 h-5" />
                                 </button>
@@ -437,7 +437,7 @@ const ProjectDocumentScannerModal: React.FC<ProjectDocumentScannerModalProps> = 
                     ))}
                 </div>
 
-                <div className="mt-6 flex justify-end gap-4">
+                <div className="mt-6 flex justify-end gap-4 shrink-0">
                     <button 
                         onClick={() => setIsScanning(false)}
                         className="px-6 py-3 text-slate-600 dark:text-slate-400 font-bold hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-colors"
