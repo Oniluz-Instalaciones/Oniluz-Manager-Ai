@@ -568,6 +568,7 @@ const DocumentManager: React.FC<DocumentManagerProps> = ({ project, allProjects 
                                                         value={editForm.amount} 
                                                         onChange={(e) => setEditForm({...editForm, amount: e.target.value})}
                                                         className="w-full text-[10px] p-1 border rounded bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-600"
+                                                        onFocus={(e) => e.target.select()}
                                                     />
                                                 </div>
                                             </div>

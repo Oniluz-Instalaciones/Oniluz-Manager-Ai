@@ -449,40 +449,42 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
                   // Find exact match in stock
                   const bestMatch = stockMaterials.find(m => m.name.toLowerCase().trim() === itemDesc);
                   
-                  // Fetch fresh material data to get current movements
-                  const { data: freshMaterial } = await supabase
-                      .from('materials')
-                      .select('*')
-                      .eq('id', bestMatch.id)
-                      .single();
-                  
-                  if (freshMaterial) {
-                      const deductionAmount = item.quantity;
-                      const newQuantity = freshMaterial.quantity - deductionAmount;
+                  if (bestMatch) {
+                      // Fetch fresh material data to get current movements
+                      const { data: freshMaterial } = await supabase
+                          .from('materials')
+                          .select('*')
+                          .eq('id', bestMatch.id)
+                          .single();
                       
-                      // Create Movement Log
-                      const newMovement = {
-                          id: crypto.randomUUID(),
-                          type: 'OUT',
-                          quantity: deductionAmount,
-                          date: updatedInvoice.date,
-                          description: `Factura: ${updatedInvoice.number}`,
-                          projectId: updatedInvoice.projectId,
-                          invoiceId: updatedInvoice.id
-                      };
-                      
-                      const currentMovements = freshMaterial.movements || [];
-                      const updatedMovements = [...currentMovements, newMovement];
+                      if (freshMaterial) {
+                          const deductionAmount = item.quantity;
+                          const newQuantity = freshMaterial.quantity - deductionAmount;
+                          
+                          // Create Movement Log
+                          const newMovement = {
+                              id: crypto.randomUUID(),
+                              type: 'OUT',
+                              quantity: deductionAmount,
+                              date: updatedInvoice.date,
+                              description: `Factura: ${updatedInvoice.number}`,
+                              projectId: updatedInvoice.projectId,
+                              invoiceId: updatedInvoice.id
+                          };
+                          
+                          const currentMovements = freshMaterial.movements || [];
+                          const updatedMovements = [...currentMovements, newMovement];
 
-                      console.log(`Deducting ${deductionAmount} units from ${freshMaterial.name}. New Qty: ${newQuantity}`);
-                      
-                      const { error: updateError } = await supabase.from('materials').update({ 
-                          quantity: newQuantity,
-                          movements: updatedMovements
-                      }).eq('id', freshMaterial.id);
+                          console.log(`Deducting ${deductionAmount} units from ${freshMaterial.name}. New Qty: ${newQuantity}`);
+                          
+                          const { error: updateError } = await supabase.from('materials').update({ 
+                              quantity: newQuantity,
+                              movements: updatedMovements
+                          }).eq('id', freshMaterial.id);
 
-                      if (updateError) {
-                          console.error(`Error updating stock for ${freshMaterial.name}:`, updateError);
+                          if (updateError) {
+                              console.error(`Error updating stock for ${freshMaterial.name}:`, updateError);
+                          }
                       }
                   } else {
                       console.warn(`No stock match found for item: ${item.description}`);

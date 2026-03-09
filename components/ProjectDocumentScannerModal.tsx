@@ -414,6 +414,7 @@ const ProjectDocumentScannerModal: React.FC<ProjectDocumentScannerModalProps> = 
                                             value={item.price}
                                             onChange={(e) => handleItemEdit(item.id, 'price', parseFloat(e.target.value) || 0)}
                                             className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm font-medium text-slate-900 dark:text-white"
+                                            onFocus={(e) => e.target.select()}
                                         />
                                     </div>
                                     <div className="md:col-span-2">
@@ -423,6 +424,7 @@ const ProjectDocumentScannerModal: React.FC<ProjectDocumentScannerModalProps> = 
                                             value={item.discount || ''}
                                             onChange={(e) => handleItemEdit(item.id, 'discount', parseFloat(e.target.value) || undefined)}
                                             className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm font-medium text-slate-900 dark:text-white"
+                                            onFocus={(e) => e.target.select()}
                                         />
                                     </div>
                                 </div>
