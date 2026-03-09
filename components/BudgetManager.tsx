@@ -535,6 +535,7 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                                                 value={advanceValue}
                                                 onChange={(e) => setAdvanceValue(Number(e.target.value))}
                                                 className="w-full p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-[#0047AB] text-lg font-bold text-slate-900 dark:text-white pr-10"
+                                                onFocus={(e) => e.target.select()}
                                             />
                                             <div className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
                                                 {advanceType === 'percent' ? '%' : '€'}
@@ -721,6 +722,7 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                                                 value={item.quantity} 
                                                 onChange={(e) => handleUpdateItem(item.id, 'quantity', Number(e.target.value))}
                                                 className="w-full text-right bg-transparent border-b border-transparent hover:border-slate-300 dark:hover:border-slate-600 focus:border-[#0047AB] focus:ring-0 p-1 font-mono text-slate-700 dark:text-slate-300"
+                                                onFocus={(e) => e.target.select()}
                                             />
                                         </td>
                                         <td className="px-4 py-3">
@@ -730,6 +732,7 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                                                 value={item.pricePerUnit} 
                                                 onChange={(e) => handleUpdateItem(item.id, 'pricePerUnit', Number(e.target.value))}
                                                 className="w-full text-right bg-transparent border-b border-transparent hover:border-slate-300 dark:hover:border-slate-600 focus:border-[#0047AB] focus:ring-0 p-1 font-mono text-slate-700 dark:text-slate-300"
+                                                onFocus={(e) => e.target.select()}
                                             />
                                         </td>
                                         <td className="px-4 py-3 text-right font-bold text-slate-900 dark:text-white">

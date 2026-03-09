@@ -794,7 +794,7 @@ const formatDate = (dateStr: string) => {
 
                     <div className="grid grid-cols-2 gap-4">
                         <div><label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">Fecha</label><input type="date" value={formData.date} onChange={(e) => setFormData({...formData, date: e.target.value})} className="w-full mt-1 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none font-bold text-slate-900 dark:text-white" /></div>
-                        <div><label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">Total</label><input type="number" step="0.01" value={formData.amount} onChange={(e) => setFormData({...formData, amount: Number(e.target.value)})} className="w-full mt-1 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none font-bold text-slate-900 dark:text-white" /></div>
+                        <div><label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">Total</label><input type="number" step="0.01" value={formData.amount} onChange={(e) => setFormData({...formData, amount: Number(e.target.value)})} className="w-full mt-1 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none font-bold text-slate-900 dark:text-white" onFocus={(e) => e.target.select()} /></div>
                     </div>
                     <div><label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">Descripción</label><input type="text" value={formData.description} onChange={(e) => setFormData({...formData, description: e.target.value})} className="w-full mt-1 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl outline-none font-bold text-slate-900 dark:text-white" /></div>
                 </div>
@@ -809,7 +809,7 @@ const formatDate = (dateStr: string) => {
                                     <div className="flex gap-2">
                                         <div className="flex flex-col flex-[0.5]">
                                             <label className="text-[9px] text-slate-400 uppercase font-bold">Cant.</label>
-                                            <input type="number" value={mat.quantity} onChange={(e) => updateMaterial(idx, 'quantity', Number(e.target.value))} className="w-full bg-transparent border-b border-slate-200 dark:border-slate-600 focus:border-[#0047AB] outline-none text-xs text-slate-600 dark:text-slate-300 pb-1 text-center" />
+                                            <input type="number" value={mat.quantity} onChange={(e) => updateMaterial(idx, 'quantity', Number(e.target.value))} className="w-full bg-transparent border-b border-slate-200 dark:border-slate-600 focus:border-[#0047AB] outline-none text-xs text-slate-600 dark:text-slate-300 pb-1 text-center" onFocus={(e) => e.target.select()} />
                                         </div>
                                         <div className="flex flex-col flex-[0.5]">
                                             <label className="text-[9px] text-slate-400 uppercase font-bold">Unidad</label>
@@ -818,12 +818,12 @@ const formatDate = (dateStr: string) => {
                                         {mat.addToStock && (
                                             <div className="flex flex-col flex-[0.5]">
                                                 <label className="text-[9px] text-slate-400 uppercase font-bold">Pack</label>
-                                                <input type="number" value={mat.packageSize || 1} onChange={(e) => updateMaterial(idx, 'packageSize', Number(e.target.value))} className="w-full bg-transparent border-b border-slate-200 dark:border-slate-600 focus:border-[#0047AB] outline-none text-xs text-slate-600 dark:text-slate-300 pb-1 text-center" placeholder="1" />
+                                                <input type="number" value={mat.packageSize || 1} onChange={(e) => updateMaterial(idx, 'packageSize', Number(e.target.value))} className="w-full bg-transparent border-b border-slate-200 dark:border-slate-600 focus:border-[#0047AB] outline-none text-xs text-slate-600 dark:text-slate-300 pb-1 text-center" placeholder="1" onFocus={(e) => e.target.select()} />
                                             </div>
                                         )}
                                         <div className="flex flex-col flex-1">
                                             <label className="text-[9px] text-slate-400 uppercase font-bold">Precio/Ud</label>
-                                            <input type="number" step="0.01" value={mat.pricePerUnit} onChange={(e) => updateMaterial(idx, 'pricePerUnit', Number(e.target.value))} className="w-full bg-transparent border-b border-slate-200 dark:border-slate-600 focus:border-[#0047AB] outline-none text-xs text-slate-600 dark:text-slate-300 pb-1 text-right" />
+                                            <input type="number" step="0.01" value={mat.pricePerUnit} onChange={(e) => updateMaterial(idx, 'pricePerUnit', Number(e.target.value))} className="w-full bg-transparent border-b border-slate-200 dark:border-slate-600 focus:border-[#0047AB] outline-none text-xs text-slate-600 dark:text-slate-300 pb-1 text-right" onFocus={(e) => e.target.select()} />
                                         </div>
                                     </div>
                                 </div>

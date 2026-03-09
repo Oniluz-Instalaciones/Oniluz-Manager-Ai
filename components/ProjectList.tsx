@@ -792,11 +792,11 @@ const ProjectList: React.FC<ProjectListProps> = ({
                         <div className="flex gap-4">
                             <div className="w-1/2">
                               <label className="text-[10px] font-bold text-amber-700/70 dark:text-amber-400 uppercase">Potencia Pico (kWp)</label>
-                              <input name="peakPower" type="number" step="0.1" required className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-700 rounded-lg text-sm" />
+                              <input name="peakPower" type="number" step="0.1" required className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-700 rounded-lg text-sm" onFocus={(e) => e.target.select()} />
                             </div>
                             <div className="w-1/2">
                               <label className="text-[10px] font-bold text-amber-700/70 dark:text-amber-400 uppercase">Nº Módulos</label>
-                              <input name="modulesCount" type="number" required className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-700 rounded-lg text-sm" />
+                              <input name="modulesCount" type="number" required className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-700 rounded-lg text-sm" onFocus={(e) => e.target.select()} />
                             </div>
                         </div>
                         <div>
@@ -840,7 +840,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
                         <div className="flex gap-4">
                             <div className="w-1/2">
                                 <label className="text-[10px] font-bold text-rose-700/70 dark:text-rose-400 uppercase">Nº Plantas/Paradas</label>
-                                <input name="floors" type="number" min="1" required className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-700 rounded-lg text-sm text-slate-900 dark:text-white" />
+                                <input name="floors" type="number" min="1" required className="w-full mt-1 p-2 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-700 rounded-lg text-sm text-slate-900 dark:text-white" onFocus={(e) => e.target.select()} />
                             </div>
                             <div className="w-1/2">
                                 <label className="text-[10px] font-bold text-rose-700/70 dark:text-rose-400 uppercase">Ubicación</label>
@@ -855,7 +855,7 @@ const ProjectList: React.FC<ProjectListProps> = ({
                                 <label className="text-[10px] font-bold text-rose-700/70 dark:text-rose-400 uppercase">Altura Total (m)</label>
                                 <div className="relative">
                                     <Ruler className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" />
-                                    <input name="installationHeight" type="number" step="0.01" placeholder="Ej: 3.5" className="w-full mt-1 pl-7 p-2 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-700 rounded-lg text-sm text-slate-900 dark:text-white" />
+                                    <input name="installationHeight" type="number" step="0.01" placeholder="Ej: 3.5" className="w-full mt-1 pl-7 p-2 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-700 rounded-lg text-sm text-slate-900 dark:text-white" onFocus={(e) => e.target.select()} />
                                 </div>
                             </div>
                              <div className="w-1/2">

@@ -1533,6 +1533,7 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
                                         className="w-full px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
                                         value={newEmployee.grossSalary}
                                         onChange={e => setNewEmployee({...newEmployee, grossSalary: Number(e.target.value)})}
+                                        onFocus={(e) => e.target.select()}
                                     />
                                 </div>
                                 <div>
@@ -1542,6 +1543,7 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
                                         className="w-full px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
                                         value={newEmployee.socialSecurity}
                                         onChange={e => setNewEmployee({...newEmployee, socialSecurity: Number(e.target.value)})}
+                                        onFocus={(e) => e.target.select()}
                                     />
                                 </div>
                             </div>
@@ -1603,6 +1605,7 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
                                             className="w-full px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
                                             value={newTax.amount}
                                             onChange={e => setNewTax({...newTax, amount: Number(e.target.value)})}
+                                            onFocus={(e) => e.target.select()}
                                         />
                                         <button 
                                             onClick={calculateEstimatedTax}
@@ -1689,6 +1692,7 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
                                         className="w-full px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
                                         value={newAsset.cost}
                                         onChange={e => setNewAsset({...newAsset, cost: Number(e.target.value)})}
+                                        onFocus={(e) => e.target.select()}
                                     />
                                 </div>
                                 <div>
@@ -1698,6 +1702,7 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
                                         className="w-full px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
                                         value={newAsset.usefulLifeYears}
                                         onChange={e => setNewAsset({...newAsset, usefulLifeYears: Number(e.target.value)})}
+                                        onFocus={(e) => e.target.select()}
                                     />
                                 </div>
                             </div>
@@ -1739,6 +1744,7 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
                                         className="w-full px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
                                         value={newManagementExpense.amount}
                                         onChange={e => setNewManagementExpense({...newManagementExpense, amount: Number(e.target.value)})}
+                                        onFocus={(e) => e.target.select()}
                                     />
                                 </div>
                                 <div>

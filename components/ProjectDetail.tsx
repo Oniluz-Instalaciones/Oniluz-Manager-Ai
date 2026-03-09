@@ -831,7 +831,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
                       <input type="hidden" name="type" value={transactionType} />
                       
                       <div className="flex gap-3">
-                          <input name="amount" type="number" step="0.01" placeholder="Importe (€)" required className="w-1/3 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white transition-colors" />
+                          <input name="amount" type="number" step="0.01" placeholder="Importe (€)" required className="w-1/3 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white transition-colors" onFocus={(e) => e.target.select()} />
                           <input name="description" placeholder="Descripción" required className="w-2/3 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white transition-colors" />
                       </div>
 
@@ -1217,6 +1217,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
                                           pvData: { ...settingsForm.pvData!, peakPower: Number(e.target.value) }
                                       })}
                                       className="w-full p-3 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-800 rounded-xl outline-none focus:ring-2 focus:ring-amber-500 text-slate-900 dark:text-white font-medium"
+                                      onFocus={(e) => e.target.select()}
                                   />
                               </div>
                               <div>
@@ -1229,6 +1230,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
                                           pvData: { ...settingsForm.pvData!, modulesCount: Number(e.target.value) }
                                       })}
                                       className="w-full p-3 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-800 rounded-xl outline-none focus:ring-2 focus:ring-amber-500 text-slate-900 dark:text-white font-medium"
+                                      onFocus={(e) => e.target.select()}
                                   />
                               </div>
                           </div>
@@ -1283,6 +1285,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
                                               pvData: { ...settingsForm.pvData!, batteryCapacity: Number(e.target.value) }
                                           })}
                                           className="flex-1 p-2 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-800 rounded-lg outline-none focus:ring-2 focus:ring-amber-500 text-sm"
+                                          onFocus={(e) => e.target.select()}
                                       />
                                   )}
                               </div>
@@ -1334,6 +1337,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
                                       value={project.elevatorData?.floors || 1}
                                       onChange={(e) => updateElevatorField('floors', Number(e.target.value))}
                                       className="w-full p-3 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-800 rounded-xl outline-none focus:ring-2 focus:ring-rose-500 text-slate-900 dark:text-white font-medium"
+                                      onFocus={(e) => e.target.select()}
                                   />
                               </div>
                               <div>
@@ -1346,6 +1350,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
                                           value={project.elevatorData?.installationHeight || ''}
                                           onChange={(e) => updateElevatorField('installationHeight', Number(e.target.value))}
                                           className="w-full p-3 pl-10 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-800 rounded-xl outline-none focus:ring-2 focus:ring-rose-500 text-slate-900 dark:text-white font-medium"
+                                          onFocus={(e) => e.target.select()}
                                       />
                                   </div>
                               </div>
@@ -1358,6 +1363,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
                                           value={project.elevatorData?.distanceFromBase || 0}
                                           onChange={(e) => updateElevatorField('distanceFromBase', Number(e.target.value))}
                                           className="w-full p-3 pl-10 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-800 rounded-xl outline-none focus:ring-2 focus:ring-rose-500 text-slate-900 dark:text-white font-medium"
+                                          onFocus={(e) => e.target.select()}
                                       />
                                   </div>
                               </div>

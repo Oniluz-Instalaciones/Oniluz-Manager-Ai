@@ -366,7 +366,7 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, projects, onAdd, o
                       <div className="flex gap-4">
                           <div className="w-1/2">
                               <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Precio Lista (€)</label>
-                              <input name="price" type="number" step="0.01" defaultValue={editingItem.price} required className="w-full mt-2 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-[#0047AB] transition-colors" />
+                              <input name="price" type="number" step="0.01" defaultValue={editingItem.price} required className="w-full mt-2 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-[#0047AB] transition-colors" onFocus={(e) => e.target.select()} />
                           </div>
                           <div className="w-1/2">
                               <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Unidad</label>
@@ -380,7 +380,7 @@ const PriceDatabase: React.FC<PriceDatabaseProps> = ({ items, projects, onAdd, o
                           </div>
                           <div className="w-1/2">
                               <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Descuento (%)</label>
-                              <input name="discount" type="number" defaultValue={editingItem.discount} className="w-full mt-2 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-[#0047AB] transition-colors" />
+                              <input name="discount" type="number" defaultValue={editingItem.discount} className="w-full mt-2 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-[#0047AB] transition-colors" onFocus={(e) => e.target.select()} />
                           </div>
                       </div>
                       <div className="flex gap-4 mt-8">

@@ -561,48 +561,17 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
     });
   };
 
-  // Fetch materials for autocomplete
-  const [stockMaterials, setStockMaterials] = useState<Material[]>([]);
-
-  useEffect(() => {
-    const fetchStock = async () => {
-        const { data } = await supabase.from('materials').select('*');
-        if (data) {
-            setStockMaterials(data.map((m: any) => ({
-                id: m.id,
-                projectId: m.project_id,
-                name: m.name,
-                quantity: m.quantity,
-                unit: m.unit,
-                minStock: m.min_stock,
-                pricePerUnit: m.price_per_unit,
-                packageSize: m.package_size
-            })));
-        }
-    };
-    fetchStock();
-  }, []);
-
   const handleDescriptionChange = (index: number, value: string) => {
     updateInvoiceItem(index, 'description', value);
     
     if (value.trim().length > 1) {
       const lowerValue = value.toLowerCase();
-      // Use stockMaterials for suggestions
-      const matches = stockMaterials.filter(item => 
+      // Use priceDatabase for suggestions
+      const matches = priceDatabase.filter(item => 
         item.name.toLowerCase().includes(lowerValue)
-      ).slice(0, 5); 
-      
-      // Map Material to PriceItem structure for the suggestion list
-      const suggestions: PriceItem[] = matches.map(m => ({
-          id: m.id,
-          name: m.name,
-          unit: m.unit,
-          price: m.pricePerUnit,
-          category: 'Material'
-      }));
+      ).slice(0, 20); 
 
-      setSuggestions(suggestions);
+      setSuggestions(matches);
       setActiveSuggestionIndex(index);
     } else {
       setSuggestions([]);
@@ -944,7 +913,7 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
               </thead>
               <tbody className="divide-y divide-slate-50">
                 {editingInvoice.items.map((item, index) => (
-                  <tr key={item.id} className="group">
+                  <tr key={item.id} className={`group relative ${activeSuggestionIndex === index ? 'z-50' : 'z-0'}`}>
                     <td className="py-3 relative">
                       <input 
                         value={item.description}
@@ -956,7 +925,7 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
                       {activeSuggestionIndex === index && suggestions.length > 0 && (
                         <div 
                           ref={suggestionsRef}
-                          className="absolute z-50 left-0 top-full mt-1 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl max-h-60 overflow-y-auto"
+                          className="absolute z-50 left-0 top-full mt-1 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl max-h-96 overflow-y-auto"
                         >
                           {suggestions.map((suggestion) => (
                             <button
@@ -982,6 +951,7 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
                         onChange={(e) => updateInvoiceItem(index, 'quantity', Number(e.target.value))}
                         className="w-full text-right text-sm text-slate-600 bg-transparent outline-none"
                         onBlur={(e) => updateInvoiceItem(index, 'quantity', Number(parseFloat(e.target.value).toFixed(2)))}
+                        onFocus={(e) => e.target.select()}
                       />
                     </td>
                     <td className="py-3">
@@ -993,6 +963,7 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
                         onChange={(e) => updateInvoiceItem(index, 'unitPrice', Number(e.target.value))}
                         className="w-full text-right text-sm text-slate-600 bg-transparent outline-none"
                         onBlur={(e) => updateInvoiceItem(index, 'unitPrice', Number(parseFloat(e.target.value).toFixed(2)))}
+                        onFocus={(e) => e.target.select()}
                       />
                     </td>
                     <td className="py-3 text-right text-sm font-bold text-slate-800">
@@ -1186,6 +1157,7 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
                                 onChange={(e) => setIncidentData({...incidentData, km: Number(e.target.value)})}
                                 className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:ring-2 focus:ring-orange-500"
                                 placeholder="0"
+                                onFocus={(e) => e.target.select()}
                             />
                             <div className="absolute left-3 top-2.5 text-slate-400">
                                 <Car className="w-5 h-5" />
@@ -1208,6 +1180,7 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
                                 onChange={(e) => setIncidentData({...incidentData, hours: Number(e.target.value)})}
                                 className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:ring-2 focus:ring-orange-500"
                                 placeholder="0"
+                                onFocus={(e) => e.target.select()}
                             />
                             <div className="absolute left-3 top-2.5 text-slate-400">
                                 <Clock className="w-5 h-5" />
