@@ -246,15 +246,24 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
 
     // 3. Diet & Travel Expenses (Gastos de Dieta y Desplazamiento)
     // Filter transactions with category 'Dietas', 'Parking', 'Transporte' or description keywords
-    const expenseKeywords = ['parking', 'aparcamiento', 'zona azul', 'ota', 'ticket', 'estacionamiento', 'peaje', 'combustible', 'gasolina', 'diesel', 'dieta', 'comida', 'almuerzo', 'cena'];
-    const expenseCategories = ['Dietas', 'Parking', 'Transporte', 'Combustible', 'Desplazamiento'];
+    const expenseKeywords = ['parking', 'aparcamiento', 'zona azul', 'ota', 'ticket', 'estacionamiento', 'peaje', 'dieta', 'comida', 'almuerzo', 'cena'];
+    const expenseCategories = ['Dietas', 'Parking', 'Transporte', 'Desplazamiento'];
+    const excludedKeywords = ['combustible', 'gasolina', 'diesel', 'gasoil'];
 
-    const expenseTransactions = project.transactions.filter(t => 
-        t.type === 'expense' && (
-            expenseCategories.includes(t.category) || 
-            expenseKeywords.some(k => t.description.toLowerCase().includes(k))
-        )
-    );
+    const expenseTransactions = project.transactions.filter(t => {
+        if (t.type !== 'expense') return false;
+        
+        const desc = t.description.toLowerCase();
+        const cat = t.category.toLowerCase();
+        
+        // Exclude fuel explicitly
+        if (excludedKeywords.some(k => desc.includes(k) || cat.includes(k))) {
+            return false;
+        }
+        
+        return expenseCategories.includes(t.category) || 
+               expenseKeywords.some(k => desc.includes(k));
+    });
 
     expenseTransactions.forEach(t => {
         // Assume stored expense amount is GROSS (includes VAT).
@@ -348,15 +357,24 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
 
     // 2. Get Diet & Travel Expenses (Detailed)
     // Filter transactions with category 'Dietas', 'Parking', 'Transporte' or description keywords
-    const expenseKeywords = ['parking', 'aparcamiento', 'zona azul', 'ota', 'ticket', 'estacionamiento', 'peaje', 'combustible', 'gasolina', 'diesel', 'dieta', 'comida', 'almuerzo', 'cena'];
-    const expenseCategories = ['Dietas', 'Parking', 'Transporte', 'Combustible', 'Desplazamiento'];
+    const expenseKeywords = ['parking', 'aparcamiento', 'zona azul', 'ota', 'ticket', 'estacionamiento', 'peaje', 'dieta', 'comida', 'almuerzo', 'cena'];
+    const expenseCategories = ['Dietas', 'Parking', 'Transporte', 'Desplazamiento'];
+    const excludedKeywords = ['combustible', 'gasolina', 'diesel', 'gasoil'];
 
-    const expenseTransactions = project.transactions.filter(t => 
-        t.type === 'expense' && (
-            expenseCategories.includes(t.category) || 
-            expenseKeywords.some(k => t.description.toLowerCase().includes(k))
-        )
-    );
+    const expenseTransactions = project.transactions.filter(t => {
+        if (t.type !== 'expense') return false;
+        
+        const desc = t.description.toLowerCase();
+        const cat = t.category.toLowerCase();
+        
+        // Exclude fuel explicitly
+        if (excludedKeywords.some(k => desc.includes(k) || cat.includes(k))) {
+            return false;
+        }
+        
+        return expenseCategories.includes(t.category) || 
+               expenseKeywords.some(k => desc.includes(k));
+    });
     
     const expenseItems: InvoiceItem[] = expenseTransactions.map(t => {
         // Assume stored expense amount is GROSS (includes VAT).
