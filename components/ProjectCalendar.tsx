@@ -24,6 +24,7 @@ const COLOR_PALETTE = [
 const ProjectCalendar: React.FC<ProjectCalendarProps> = ({ projects, onBack }) => {
     const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
     const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]); // Empty = Show All
+    const [activeTooltipDate, setActiveTooltipDate] = useState<string | null>(null);
     
     // Scroll ref
     const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -32,6 +33,13 @@ const ProjectCalendar: React.FC<ProjectCalendarProps> = ({ projects, onBack }) =
     useEffect(() => {
         scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
     }, [currentYear, selectedProjectIds]);
+
+    // Close tooltip when clicking outside
+    useEffect(() => {
+        const handleClickOutside = () => setActiveTooltipDate(null);
+        document.addEventListener('click', handleClickOutside);
+        return () => document.removeEventListener('click', handleClickOutside);
+    }, []);
 
     const months = [
         "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
@@ -131,14 +139,16 @@ const ProjectCalendar: React.FC<ProjectCalendarProps> = ({ projects, onBack }) =
                                         date.getMonth() === today.getMonth() && 
                                         date.getFullYear() === today.getFullYear();
 
+                        const dateString = `${currentYear}-${monthIndex}-${day}`;
+
                         // Style calculation based on occupancy
-                        let cellClasses = "bg-white dark:bg-slate-800 relative flex flex-col justify-between p-1 transition-all hover:z-10";
+                        let cellClasses = "bg-white dark:bg-slate-800 relative flex flex-col justify-between p-1 transition-all hover:z-10 cursor-pointer";
                         let dateClasses = "text-[10px] font-medium text-slate-400 dark:text-slate-500 z-10";
                         
                         // If exactly one project, color the WHOLE cell background
                         if (isSingleProject) {
                             const pColor = projectColors[activeProjects[0].id];
-                            cellClasses = `${pColor.bgSoft} relative flex flex-col justify-between p-1 border-b border-r border-white/50 dark:border-slate-800/50 hover:brightness-95 transition-all`;
+                            cellClasses = `${pColor.bgSoft} relative flex flex-col justify-between p-1 border-b border-r border-white/50 dark:border-slate-800/50 hover:brightness-95 transition-all cursor-pointer`;
                             dateClasses = `text-[10px] font-bold ${pColor.text} z-10`;
                         }
 
@@ -147,8 +157,19 @@ const ProjectCalendar: React.FC<ProjectCalendarProps> = ({ projects, onBack }) =
                             dateClasses = "text-[10px] font-extrabold text-indigo-600 dark:text-indigo-400 z-10 bg-indigo-50 dark:bg-indigo-900/50 px-1.5 rounded-full";
                         }
 
+                        const handleDayClick = (e: React.MouseEvent) => {
+                            e.stopPropagation();
+                            if (activeProjects.length > 0) {
+                                setActiveTooltipDate(activeTooltipDate === dateString ? null : dateString);
+                            }
+                        };
+
                         return (
-                            <div key={day} className={`min-h-[60px] ${cellClasses} group`}>
+                            <div 
+                                key={day} 
+                                className={`min-h-[60px] ${cellClasses} group`}
+                                onClick={handleDayClick}
+                            >
                                 <span className={dateClasses}>{day}</span>
                                 
                                 <div className="flex flex-col gap-1 w-full z-0 mt-1">
@@ -169,9 +190,9 @@ const ProjectCalendar: React.FC<ProjectCalendarProps> = ({ projects, onBack }) =
                                     ))}
                                 </div>
 
-                                {/* Tooltip on hover */}
+                                {/* Tooltip on hover or click */}
                                 {activeProjects.length > 0 && (
-                                    <div className="absolute left-1/2 bottom-full mb-2 -translate-x-1/2 hidden group-hover:block w-32 bg-slate-900 text-white text-xs p-2 rounded-lg shadow-xl z-50 pointer-events-none">
+                                    <div className={`absolute left-1/2 bottom-full mb-2 -translate-x-1/2 ${activeTooltipDate === dateString ? 'block' : 'hidden group-hover:block'} w-32 bg-slate-900 text-white text-xs p-2 rounded-lg shadow-xl z-50 pointer-events-none`}>
                                         <div className="font-bold mb-1 border-b border-slate-700 pb-1">{day} {months[monthIndex]}</div>
                                         {activeProjects.map(p => (
                                             <div key={p.id} className="truncate">• {p.name}</div>

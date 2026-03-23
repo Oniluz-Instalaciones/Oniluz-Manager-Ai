@@ -100,104 +100,36 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
   }, [projects]);
 
   // 2. Apply Filters
-  const filteredTransactions = useMemo(() => {
+  const baseTransactions = useMemo(() => {
     return allTransactions.filter(t => {
-      // Robust string comparison for dates (YYYY-MM-DD) to avoid timezone issues
       const tDateStr = t.date.split('T')[0]; 
       const startStr = dateRange.start || '2000-01-01';
       const endStr = dateRange.end || '2100-01-01';
 
       const matchDate = tDateStr >= startStr && tDateStr <= endStr;
       const matchProject = selectedProject === 'ALL' || t.projectId === selectedProject;
-      const matchType = filterType === 'ALL' || t.type === filterType;
 
-      return matchDate && matchProject && matchType;
+      return matchDate && matchProject;
     });
-  }, [allTransactions, dateRange, selectedProject, filterType]);
+  }, [allTransactions, dateRange, selectedProject]);
+
+  const filteredTransactions = useMemo(() => {
+    return baseTransactions.filter(t => {
+      const matchType = filterType === 'ALL' || t.type === filterType;
+      return matchType;
+    });
+  }, [baseTransactions, filterType]);
 
   // 3. Calculate KPI Totals based on Filtered Data
-  const totalIncome = useMemo(() => {
-      // Calculate income from Invoices (Draft/Sent/Paid) to ensure accuracy with billing
-      let income = 0;
-      projects.forEach(p => {
-          if (selectedProject !== 'ALL' && p.id !== selectedProject) return;
-          
-          if (p.invoices) {
-              p.invoices.forEach(inv => {
-                  // Include Draft, Sent, Paid
-                  if (inv.status === 'Draft' || inv.status === 'Sent' || inv.status === 'Paid') {
-                      // Check date
-                      const invDate = inv.date;
-                      const startStr = dateRange.start || '2000-01-01';
-                      const endStr = dateRange.end || '2100-01-01';
-                      if (invDate >= startStr && invDate <= endStr) {
-                          income += inv.total; // Use Gross Total
-                      }
-                  }
-              });
-          }
-      });
-      return income;
-  }, [projects, selectedProject, dateRange]);
+  const totalIncome = useMemo(() => baseTransactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0), [baseTransactions]);
 
-  const totalExpense = useMemo(() => filteredTransactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0), [filteredTransactions]);
+  const totalExpense = useMemo(() => baseTransactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0), [baseTransactions]);
   const netProfit = useMemo(() => totalIncome - totalExpense, [totalIncome, totalExpense]);
   
   // Margen Neto: ((Ingresos - Gastos) / Ingresos) * 100
   const profitMargin = useMemo(() => {
       return totalIncome > 0 ? ((totalIncome - totalExpense) / totalIncome) * 100 : 0;
   }, [totalIncome, totalExpense]);
-
-  // Previsión de IVA:
-  // Income VAT: Sum of taxAmount from actual invoices
-  // Expense VAT: Calculated based on expense category rates
-  
-  const vatIncome = useMemo(() => {
-      let totalInvoiceVat = 0;
-
-      projects.forEach(p => {
-          if (selectedProject !== 'ALL' && p.id !== selectedProject) return;
-
-          if (p.invoices && p.invoices.length > 0) {
-              p.invoices.forEach(inv => {
-                  // Include Draft, Sent, Paid
-                  if (inv.status === 'Draft' || inv.status === 'Sent' || inv.status === 'Paid') {
-                      const invDate = inv.date;
-                      const startStr = dateRange.start || '2000-01-01';
-                      const endStr = dateRange.end || '2100-01-01';
-                      
-                      if (invDate >= startStr && invDate <= endStr) {
-                          totalInvoiceVat += inv.taxAmount;
-                      }
-                  }
-              });
-          }
-      });
-      
-      return totalInvoiceVat; 
-  }, [projects, selectedProject, dateRange]);
-
-  const vatExpense = useMemo(() => {
-    return filteredTransactions
-        .filter(t => t.type === 'expense')
-        .reduce((sum, t) => {
-            let rate = 0.21; // Default 21%
-            
-            if (t.category === 'Dietas' || t.category === 'Transporte') rate = 0.10;
-            if (t.category === 'Seguros' || t.category === 'Personal') rate = 0;
-            
-            // Calculate VAT amount from the GROSS amount
-            // Base = Amount / (1 + rate)
-            // VAT = Amount - Base
-            const base = t.amount / (1 + rate);
-            const vat = t.amount - base;
-            
-            return sum + vat;
-        }, 0);
-  }, [filteredTransactions]);
-  const vatNet = useMemo(() => vatIncome - vatExpense, [vatIncome, vatExpense]);
-
-  const [showVatDetails, setShowVatDetails] = useState(false);
 
   // Detección de Pérdidas: Filtra los proyectos donde los gastos sean mayores que los ingresos
   const lossMakingProjects = useMemo(() => {
@@ -214,7 +146,7 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
   const fixedCategories = ['Herramientas', 'Maquinaria', 'Alquiler', 'Seguros', 'Suscripciones', 'Personal']; // Added common fixed
   const variableCategories = ['Material', 'Dietas', 'Combustible', 'Logística', 'Mano de Obra', 'Transporte']; // Added common variable
 
-  const expensesList = filteredTransactions.filter(t => t.type === 'expense');
+  const expensesList = baseTransactions.filter(t => t.type === 'expense');
   const fixedExpenses = expensesList.filter(t => fixedCategories.includes(t.category) || !variableCategories.includes(t.category)).reduce((s, t) => s + t.amount, 0);
   // Actually, let's be strict. If it's in variable, it's variable. If in fixed, fixed. 
   // If neither? Default to Variable for project based? Or Fixed? 
@@ -238,7 +170,7 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
     const grouped: Record<string, { date: string, income: number, expense: number }> = {};
     
     // Sort by date first
-    const sorted = [...filteredTransactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const sorted = [...baseTransactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
     sorted.forEach(t => {
       const key = t.date; // YYYY-MM-DD
@@ -266,11 +198,11 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
     }
 
     return rawData;
-  }, [filteredTransactions]);
+  }, [baseTransactions]);
 
   // 5. Prepare Chart Data: Expense Categories
   const categoryData = useMemo(() => {
-    const expenses = filteredTransactions.filter(t => t.type === 'expense');
+    const expenses = baseTransactions.filter(t => t.type === 'expense');
     const grouped: Record<string, number> = {};
     expenses.forEach(t => {
         const cat = t.category || 'Otros';
@@ -278,7 +210,7 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
     });
     
     return Object.keys(grouped).map(key => ({ name: key, value: grouped[key] })).sort((a, b) => b.value - a.value);
-  }, [filteredTransactions]);
+  }, [baseTransactions]);
 
   // 6. Per Project Breakdown (LIFETIME DATA - Ignoring Date Filter for "Rentabilidad por Obra")
   const projectFinancials = useMemo(() => {
@@ -463,7 +395,7 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
       <div className="flex-1 overflow-y-auto p-8 max-w-[1600px] mx-auto w-full space-y-8" ref={scrollContainerRef}>
         
         {/* KPI Cards Row 1: General Financials */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-3 gap-6">
           <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 flex flex-col justify-between h-32 transition-colors relative overflow-hidden">
              <div className="absolute top-0 right-0 p-4 opacity-10">
                  <TrendingUp className="w-16 h-16 text-green-500" />
@@ -472,7 +404,7 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
              <div>
                 <p className="text-3xl font-extrabold text-slate-900 dark:text-white z-10">{totalIncome.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}</p>
                 <p className="text-xs text-green-600 dark:text-green-400 font-bold mt-1 bg-green-50 dark:bg-green-900/20 inline-block px-2 py-0.5 rounded-md">
-                    {filteredTransactions.filter(t => t.type === 'income').length} movimientos
+                    {baseTransactions.filter(t => t.type === 'income').length} movimientos
                 </p>
              </div>
           </div>
@@ -485,7 +417,7 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
              <div>
                 <p className="text-3xl font-extrabold text-slate-900 dark:text-white z-10">{totalExpense.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}</p>
                 <p className="text-xs text-red-500 dark:text-red-400 font-bold mt-1 bg-red-50 dark:bg-red-900/20 inline-block px-2 py-0.5 rounded-md">
-                    {filteredTransactions.filter(t => t.type === 'expense').length} movimientos
+                    {baseTransactions.filter(t => t.type === 'expense').length} movimientos
                 </p>
              </div>
           </div>
@@ -503,69 +435,6 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
                     {profitMargin.toFixed(1)}% de rentabilidad
                 </p>
              </div>
-          </div>
-
-          <div 
-              className={`p-6 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border flex flex-col justify-between h-32 transition-colors relative overflow-visible cursor-pointer hover:shadow-md ${vatNet > 0 ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-700/50' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700'}`}
-              onClick={() => setShowVatDetails(!showVatDetails)}
-          >
-             <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
-                 <PieIcon className="w-16 h-16 text-purple-500" />
-             </div>
-             <p className={`text-xs font-bold uppercase tracking-wider z-10 flex items-center gap-1 ${vatNet > 0 ? 'text-amber-700 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400'}`}>
-                 Previsión IVA (Estimado)
-                 <span className="bg-slate-200 dark:bg-slate-700 rounded-full w-4 h-4 flex items-center justify-center text-[10px] ml-1">?</span>
-             </p>
-             <div>
-                 <p className={`text-2xl font-extrabold z-10 ${vatNet > 0 ? 'text-amber-700 dark:text-amber-400' : 'text-slate-800 dark:text-slate-200'}`}>
-                     {Math.abs(vatNet).toLocaleString()}€
-                 </p>
-                 <p className={`text-xs font-medium mt-1 ${vatNet > 0 ? 'text-amber-600 dark:text-amber-500' : 'text-slate-400 dark:text-slate-500'}`}>
-                    {vatNet > 0 ? 'A Pagar (Reservar dinero)' : 'A Devolver (A favor)'}
-                 </p>
-             </div>
-
-             {/* VAT Breakdown Dropdown */}
-             {showVatDetails && (
-                <div 
-                    className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-100 dark:border-slate-700 p-4 z-50 animate-in fade-in zoom-in-95 duration-200"
-                    onClick={(e) => e.stopPropagation()}
-                >
-                    <div className="flex justify-between items-center mb-3">
-                        <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">Desglose IVA</h4>
-                        <button onClick={() => setShowVatDetails(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
-                            <X className="w-3 h-3" />
-                        </button>
-                    </div>
-                    <div className="space-y-3">
-                        <div className="flex justify-between items-center p-2 bg-green-50 dark:bg-green-900/20 rounded-lg">
-                            <div>
-                                <p className="text-xs font-bold text-green-700 dark:text-green-400 uppercase">IVA Repercutido</p>
-                                <p className="text-[10px] text-green-600 dark:text-green-500">Basado en facturas emitidas</p>
-                            </div>
-                            <p className="font-bold text-green-700 dark:text-green-400">+{vatIncome.toLocaleString()}€</p>
-                        </div>
-                        
-                        <div className="flex justify-between items-center p-2 bg-red-50 dark:bg-red-900/20 rounded-lg">
-                            <div>
-                                <p className="text-xs font-bold text-red-700 dark:text-red-400 uppercase">IVA Soportado</p>
-                                <p className="text-[10px] text-red-600 dark:text-red-500">Estimado s/categoría (21%, 10%, 0%)</p>
-                            </div>
-                            <p className="font-bold text-red-700 dark:text-red-400">-{vatExpense.toLocaleString()}€</p>
-                        </div>
-
-                        <div className="pt-2 border-t border-slate-100 dark:border-slate-700 flex justify-between items-center">
-                            <p className="text-xs font-bold text-slate-700 dark:text-slate-300">A Pagar / Devolver</p>
-                            <p className={`font-bold ${vatNet > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                                {Math.abs(vatNet).toLocaleString()}€ {vatNet > 0 ? '(A Pagar)' : '(A Devolver)'}
-                            </p>
-                        </div>
-                    </div>
-                    <div className="mt-3 text-[10px] text-slate-400 italic bg-slate-50 dark:bg-slate-900/50 p-2 rounded">
-                        * Cálculo estimado. Repercutido basado en facturas reales. Soportado estimado según categoría de gasto.
-                    </div>
-                </div>
-             )}
           </div>
         </div>
 
@@ -610,7 +479,7 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
                 </div>
                 <div className="flex items-center gap-4">
                     <div className="h-24 w-24 min-w-[6rem] relative">
-                         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={200}>
+                         <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1} debounce={200}>
                              <PieChart>
                                  <Pie 
                                     data={expenseStructureData} 
@@ -668,7 +537,7 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
                      </div>
                  </div>
                  <div className="h-[300px] w-full relative">
-                     <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={200}>
+                     <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1} debounce={200}>
                          <LineChart data={evolutionData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                              <XAxis 
@@ -698,7 +567,7 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
                      <PieIcon className="w-5 h-5 text-[#0047AB] dark:text-blue-400" /> Distribución de Gastos
                 </h3>
                 <div className="h-[300px] w-full relative">
-                     <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={200}>
+                     <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1} debounce={200}>
                          <PieChart>
                              <Pie 
                                 data={categoryData} 

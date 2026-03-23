@@ -31,6 +31,10 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
     const [newEmployee, setNewEmployee] = useState({
         name: '',
         role: 'Technician',
+        calculationMode: 'auto', // 'auto' or 'manual'
+        netSalary: 1500,
+        irpf: 15, // %
+        payments: 12,
         grossSalary: 0,
         socialSecurity: 0
     });
@@ -124,7 +128,11 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
                     grossSalary: row.gross_salary_monthly,
                     socialSecurityCost: row.social_security_cost_monthly,
                     contractHours: row.contract_hours_yearly,
-                    holidays: row.holidays_days
+                    holidays: row.holidays_days,
+                    calculationMode: row.calculation_mode || 'manual',
+                    netSalary: row.net_salary_monthly,
+                    irpf: row.irpf_percentage,
+                    payments: row.payments
                 }));
             }
 
@@ -163,6 +171,33 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
         fetchLedgerData();
     }, [fetchLedgerData]);
 
+    useEffect(() => {
+        if (newEmployee.calculationMode === 'auto') {
+            // Social Security paid by employee (approx 6.35%)
+            const employeeSSRate = 0.0635;
+            // IRPF rate
+            const irpfRate = newEmployee.irpf / 100;
+            
+            // Net Salary = Gross Salary * (1 - IRPF - EmployeeSS)
+            // Gross Salary = Net Salary / (1 - IRPF - EmployeeSS)
+            const annualNet = newEmployee.netSalary * newEmployee.payments;
+            const annualGross = annualNet / (1 - irpfRate - employeeSSRate);
+            
+            // Monthly Gross (prorated to 12 months for cost calculations)
+            const monthlyGrossProrated = annualGross / 12;
+            
+            // Social Security paid by company (approx 31.4% of prorated gross)
+            const companySSRate = 0.314;
+            const monthlySSCost = monthlyGrossProrated * companySSRate;
+
+            setNewEmployee(prev => ({
+                ...prev,
+                grossSalary: Math.round(monthlyGrossProrated * 100) / 100,
+                socialSecurity: Math.round(monthlySSCost * 100) / 100
+            }));
+        }
+    }, [newEmployee.netSalary, newEmployee.irpf, newEmployee.payments, newEmployee.calculationMode]);
+
     // --- HANDLERS (DB Writes) ---
     const handleAddExpense = async () => {
         const name = prompt("Nombre del Gasto:");
@@ -199,13 +234,26 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
             name: newEmployee.name,
             role: newEmployee.role,
             gross_salary_monthly: newEmployee.grossSalary,
-            social_security_cost_monthly: newEmployee.socialSecurity
+            social_security_cost_monthly: newEmployee.socialSecurity,
+            calculation_mode: newEmployee.calculationMode,
+            net_salary_monthly: newEmployee.calculationMode === 'auto' ? newEmployee.netSalary : null,
+            irpf_percentage: newEmployee.calculationMode === 'auto' ? newEmployee.irpf : null,
+            payments: newEmployee.calculationMode === 'auto' ? newEmployee.payments : null
         }]).select();
 
         if (!error && data) {
             fetchLedgerData();
             setIsEmployeeModalOpen(false);
-            setNewEmployee({ name: '', role: 'Technician', grossSalary: 0, socialSecurity: 0 });
+            setNewEmployee({ 
+                name: '', 
+                role: 'Technician', 
+                calculationMode: 'auto',
+                netSalary: 1500,
+                irpf: 15,
+                payments: 12,
+                grossSalary: 0, 
+                socialSecurity: 0 
+            });
         } else {
             alert("Error al guardar empleado: " + error?.message);
         }
@@ -369,17 +417,38 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
             }
 
             // IVA Repercutido (Ingresos)
-            const incomeTransactions = periodTransactions.filter(t => t.type === 'income' || t.type === 'Income');
-            const outputVAT = incomeTransactions.reduce((sum, t) => {
-                const amt = Number(t.amount) || 0;
-                return sum + (amt - (amt / 1.21));
-            }, 0);
+            // Use actual taxAmount from invoices instead of guessing 21% from transactions
+            let outputVAT = 0;
+            projects.forEach(p => {
+                if (p.invoices) {
+                    p.invoices.forEach(inv => {
+                        const invDate = new Date(inv.date);
+                        if (invDate >= new Date(taxYear, startMonth, 1) && invDate <= new Date(taxYear, endMonth + 1, 0) && (inv.status === 'Paid' || inv.status === 'Sent')) {
+                            outputVAT += (inv.taxAmount || 0);
+                        }
+                    });
+                }
+            });
+
+            // If no invoices found, fallback to estimating from income transactions
+            if (outputVAT === 0) {
+                const incomeTransactions = periodTransactions.filter(t => t.type === 'income' || t.type === 'Income');
+                outputVAT = incomeTransactions.reduce((sum, t) => {
+                    const amt = Number(t.amount) || 0;
+                    return sum + (amt - (amt / 1.21));
+                }, 0);
+            }
 
             // IVA Soportado (Gastos Variables de Proyectos)
             const expenseTransactions = periodTransactions.filter(t => t.type === 'expense' || t.type === 'Expense');
             const inputVAT = expenseTransactions.reduce((sum, t) => {
                 const amt = Number(t.amount) || 0;
-                return sum + (amt - (amt / 1.21));
+                let rate = 0.21;
+                if (t.category === 'Dietas' || t.category === 'Transporte') rate = 0.10;
+                if (t.category === 'Seguros' || t.category === 'Personal') rate = 0;
+                
+                const base = amt / (1 + rate);
+                return sum + (amt - base);
             }, 0);
             
             // IVA Soportado (Gastos Fijos / Estructura)
@@ -391,7 +460,17 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
                  else if (exp.frequency === 'Yearly') monthlyAmount = amt / 12;
                  
                  const quarterlyTotal = monthlyAmount * 3;
-                 return sum + (quarterlyTotal - (quarterlyTotal / 1.21));
+                 
+                 let rate = 0.21;
+                 const cat = exp.details?.category || '';
+                 const nameLower = exp.name.toLowerCase();
+                 if (cat === 'Insurance' || cat === 'Taxes' || cat === 'Payroll' || 
+                     nameLower.includes('seguro') || nameLower.includes('nómina') || nameLower.includes('impuesto') || nameLower.includes('cuota')) {
+                     rate = 0;
+                 }
+                 
+                 const base = quarterlyTotal / (1 + rate);
+                 return sum + (quarterlyTotal - base);
             }, 0);
 
             estimatedAmount = outputVAT - (inputVAT + fixedExpensesVAT);
@@ -414,13 +493,15 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
                 alert("ERROR: No hay empleados registrados en la base de datos.\n\nEl Modelo 111 se calcula sobre las nóminas. Ve a la pestaña 'RRHH y Costes' y añade empleados, o ejecuta el script SQL de 'Seeds'.");
             }
 
-            const monthlyIRPF = state.employees.reduce((sum, emp) => sum + (emp.grossSalary * 0.15), 0); // 15% estimate
+            const monthlyIRPF = state.employees.reduce((sum, emp) => {
+                const irpfRate = emp.irpf ? (emp.irpf / 100) : 0.15;
+                return sum + (emp.grossSalary * irpfRate);
+            }, 0);
             estimatedAmount = monthlyIRPF * 3;
             
             msg = `Cálculo IRPF 111 (${quarterName} ${taxYear}):\n\n` +
                   `Empleados Activos: ${state.employees.length}\n` +
-                  `Nóminas Mensuales (Total): ${formatCurrency(monthlyIRPF / 0.15)} (aprox)\n` +
-                  `Retención Estimada (15%): ${formatCurrency(monthlyIRPF)}\n` +
+                  `Retención Mensual (Total): ${formatCurrency(monthlyIRPF)}\n` +
                   `x 3 Meses: ${formatCurrency(estimatedAmount)}`;
 
         } else if (newTax.model === '202') {
@@ -577,9 +658,13 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
                     if (t.type === 'expense') {
                         const tDate = new Date(t.date);
                         if (tDate >= startDate && tDate <= endDate) {
-                            // Estimate VAT if not explicit (assuming 21% included in gross amount for simplicity, or calculate from base if available)
-                            // Ideally transaction should have taxAmount. If not, we estimate: Amount - (Amount / 1.21)
-                            const tax = t.amount - (t.amount / 1.21);
+                            // Estimate VAT based on category
+                            let rate = 0.21; // Default 21%
+                            if (t.category === 'Dietas' || t.category === 'Transporte') rate = 0.10;
+                            if (t.category === 'Seguros' || t.category === 'Personal') rate = 0;
+                            
+                            const base = t.amount / (1 + rate);
+                            const tax = t.amount - base;
                             vatExpenseProjects += tax;
                             expenseCount++;
                         }
@@ -589,7 +674,6 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
         });
 
         // 3. VAT Expense (Input VAT) from Fixed Expenses (Prorated)
-        // We assume fixed expenses have VAT.
         const vatExpenseFixed = state.fixedExpenses.reduce((sum, exp) => {
              let monthlyAmount = 0;
              if (exp.frequency === 'Monthly') monthlyAmount = exp.amount;
@@ -597,8 +681,20 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
              else if (exp.frequency === 'Yearly') monthlyAmount = exp.amount / 12;
              
              const quarterlyTotal = monthlyAmount * 3;
-             // Estimate VAT (21%)
-             return sum + (quarterlyTotal - (quarterlyTotal / 1.21));
+             
+             // Estimate VAT based on category/name
+             let rate = 0.21;
+             const cat = exp.details?.category || '';
+             const nameLower = exp.name.toLowerCase();
+             if (cat === 'Insurance' || cat === 'Taxes' || cat === 'Payroll' || 
+                 nameLower.includes('seguro') || nameLower.includes('nómina') || nameLower.includes('impuesto') || nameLower.includes('cuota')) {
+                 rate = 0;
+             }
+             
+             const base = quarterlyTotal / (1 + rate);
+             const tax = quarterlyTotal - base;
+             
+             return sum + tax;
         }, 0);
 
         const totalVatExpense = vatExpenseProjects + vatExpenseFixed;
@@ -1050,7 +1146,7 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
                                         </div>
                                     </div>
                                     <div className="h-72 w-full relative">
-                                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={200}>
+                                        <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1} debounce={200}>
                                             <ComposedChart data={breakEvenData} layout="vertical" margin={{ top: 20, right: 30, left: 40, bottom: 5 }}>
                                                 <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={true} stroke="#e2e8f0" />
                                                 <XAxis type="number" tickFormatter={(val) => `${val/1000}k€`} stroke="#94a3b8" fontSize={12} />
@@ -1139,7 +1235,7 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
                                     <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6">Distribución de Costes Estructurales</h3>
                                     <div className="h-64 w-full relative">
                                         {(monthlyFixedExpenses + monthlyPayrollCost + monthlyAmortization) > 0 ? (
-                                            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={200}>
+                                            <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1} debounce={200}>
                                                 <PieChart>
                                                     <Pie
                                                         data={[
@@ -1294,10 +1390,26 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
                                             </div>
                                             <div>
                                                 <div className="font-bold text-slate-900 dark:text-white">{emp.name}</div>
-                                                <div className="text-xs text-slate-500 dark:text-slate-400">{emp.role === 'Technician' ? 'Técnico' : emp.role === 'Admin' ? 'Administración' : 'Gerencia'}</div>
+                                                <div className="text-xs text-slate-500 dark:text-slate-400">
+                                                    {emp.role === 'Technician' ? 'Técnico' : emp.role === 'Admin' ? 'Administración' : 'Gerencia'}
+                                                    {emp.calculationMode === 'auto' && ' (Cálculo Automático)'}
+                                                </div>
                                             </div>
                                         </div>
                                         <div className="space-y-2 text-sm">
+                                            {emp.calculationMode === 'auto' && (
+                                                <>
+                                                    <div className="flex justify-between">
+                                                        <span className="text-slate-500 dark:text-slate-400">Salario Neto:</span>
+                                                        <span className="font-mono font-medium text-slate-700 dark:text-slate-300">{formatCurrency(emp.netSalary || 0)}</span>
+                                                    </div>
+                                                    <div className="flex justify-between">
+                                                        <span className="text-slate-500 dark:text-slate-400">IRPF / Pagas:</span>
+                                                        <span className="font-mono font-medium text-slate-700 dark:text-slate-300">{emp.irpf}% / {emp.payments}</span>
+                                                    </div>
+                                                    <div className="border-t border-slate-200 dark:border-slate-600 my-2"></div>
+                                                </>
+                                            )}
                                             <div className="flex justify-between">
                                                 <span className="text-slate-500 dark:text-slate-400">Salario Bruto:</span>
                                                 <span className="font-mono font-medium text-slate-700 dark:text-slate-300">{formatCurrency(emp.grossSalary)}</span>
@@ -1525,26 +1637,83 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
                                     <option value="Manager">Gerencia</option>
                                 </select>
                             </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Modo de Cálculo</label>
+                                <div className="flex gap-4">
+                                    <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300 cursor-pointer">
+                                        <input type="radio" name="calcMode" value="auto" checked={newEmployee.calculationMode === 'auto'} onChange={() => setNewEmployee({...newEmployee, calculationMode: 'auto'})} className="text-indigo-600 focus:ring-indigo-500" />
+                                        Automático (desde Neto)
+                                    </label>
+                                    <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300 cursor-pointer">
+                                        <input type="radio" name="calcMode" value="manual" checked={newEmployee.calculationMode === 'manual'} onChange={() => setNewEmployee({...newEmployee, calculationMode: 'manual'})} className="text-indigo-600 focus:ring-indigo-500" />
+                                        Manual (Bruto)
+                                    </label>
+                                </div>
+                            </div>
+                            
+                            {newEmployee.calculationMode === 'auto' && (
+                                <div className="p-4 bg-slate-50 dark:bg-slate-700/30 rounded-xl space-y-4 border border-slate-100 dark:border-slate-600">
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Salario Neto Mensual (€)</label>
+                                            <input 
+                                                type="number" 
+                                                className="w-full px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                                                value={newEmployee.netSalary}
+                                                onChange={e => setNewEmployee({...newEmployee, netSalary: Number(e.target.value)})}
+                                                onFocus={(e) => e.target.select()}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Retención IRPF (%)</label>
+                                            <input 
+                                                type="number" 
+                                                className="w-full px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                                                value={newEmployee.irpf}
+                                                onChange={e => setNewEmployee({...newEmployee, irpf: Number(e.target.value)})}
+                                                onFocus={(e) => e.target.select()}
+                                            />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Número de Pagas</label>
+                                        <select 
+                                            className="w-full px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                                            value={newEmployee.payments}
+                                            onChange={e => setNewEmployee({...newEmployee, payments: Number(e.target.value)})}
+                                        >
+                                            <option value={12}>12 Pagas (Prorrateadas)</option>
+                                            <option value={14}>14 Pagas</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            )}
+
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Salario Bruto (Mes)</label>
                                     <input 
                                         type="number" 
-                                        className="w-full px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                                        className={`w-full px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 ${newEmployee.calculationMode === 'auto' ? 'opacity-70 cursor-not-allowed bg-slate-100 dark:bg-slate-800' : ''}`}
                                         value={newEmployee.grossSalary}
                                         onChange={e => setNewEmployee({...newEmployee, grossSalary: Number(e.target.value)})}
                                         onFocus={(e) => e.target.select()}
+                                        disabled={newEmployee.calculationMode === 'auto'}
                                     />
+                                    {newEmployee.calculationMode === 'auto' && <p className="text-[10px] text-slate-500 mt-1">Calculado automáticamente</p>}
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Coste S.S. (Empresa)</label>
                                     <input 
                                         type="number" 
-                                        className="w-full px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                                        className={`w-full px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 ${newEmployee.calculationMode === 'auto' ? 'opacity-70 cursor-not-allowed bg-slate-100 dark:bg-slate-800' : ''}`}
                                         value={newEmployee.socialSecurity}
                                         onChange={e => setNewEmployee({...newEmployee, socialSecurity: Number(e.target.value)})}
                                         onFocus={(e) => e.target.select()}
+                                        disabled={newEmployee.calculationMode === 'auto'}
                                     />
+                                    {newEmployee.calculationMode === 'auto' && <p className="text-[10px] text-slate-500 mt-1">Calculado automáticamente</p>}
                                 </div>
                             </div>
                         </div>

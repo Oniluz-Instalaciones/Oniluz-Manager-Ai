@@ -210,6 +210,10 @@ export interface Employee {
   socialSecurityCost: number; // Annual (Company cost)
   contractHours: number; // Annual hours
   holidays: number; // Days per year
+  calculationMode?: 'auto' | 'manual';
+  netSalary?: number; // Monthly
+  irpf?: number; // %
+  payments?: number; // 12 or 14
 }
 
 export interface Asset {

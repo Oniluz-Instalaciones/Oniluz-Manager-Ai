@@ -27,7 +27,11 @@ create table if not exists company_staff (
   gross_salary_monthly numeric not null,
   social_security_cost_monthly numeric not null,
   contract_hours_yearly numeric default 1760,
-  holidays_days numeric default 30
+  holidays_days numeric default 30,
+  calculation_mode text default 'manual',
+  net_salary_monthly numeric,
+  irpf_percentage numeric,
+  payments numeric
 );
 
 -- COMPANY ASSETS (Activos - Para Amortizaciones)
