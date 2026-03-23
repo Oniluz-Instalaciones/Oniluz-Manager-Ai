@@ -311,10 +311,10 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
   const renderExpenseSection = (title: string, transactions: Transaction[], total: number, icon: React.ReactNode, colorClass: string) => (
       <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700 flex flex-col h-full overflow-hidden transition-colors">
           <div className={`p-5 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center ${colorClass} bg-opacity-5 dark:bg-opacity-10`}>
-              <h4 className="font-bold text-slate-800 dark:text-white flex items-center gap-2 text-sm uppercase tracking-wide">
+              <h4 className="font-bold text-black flex items-center gap-2 text-sm uppercase tracking-wide">
                   {icon} {title}
               </h4>
-              <span className="font-bold text-lg text-slate-900 dark:text-white">{total.toLocaleString()}€</span>
+              <span className="font-bold text-lg text-black">{total.toLocaleString()}€</span>
           </div>
           <div className="flex-1 overflow-y-auto overflow-x-auto max-h-[300px] p-0">
               {transactions.length > 0 ? (
