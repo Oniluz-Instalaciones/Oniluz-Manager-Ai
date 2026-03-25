@@ -479,7 +479,7 @@ const GlobalFinance: React.FC<GlobalFinanceProps> = ({ projects, onBack }) => {
                 </div>
                 <div className="flex items-center gap-4">
                     <div className="h-24 w-24 min-w-[6rem] relative">
-                         <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1} debounce={200}>
+                         <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1} debounce={200} aspect={undefined}>
                              <PieChart>
                                  <Pie 
                                     data={expenseStructureData} 

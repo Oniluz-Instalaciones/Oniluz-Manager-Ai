@@ -201,8 +201,16 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
   ].filter(d => d.value > 0);
 
   // --- AUDIT LOGIC ---
-  const financialDocuments = project.documents?.filter(d => d.category === 'financial') || [];
-  const totalTicketsAmount = financialDocuments.reduce((sum, d) => sum + (d.amount || 0), 0);
+  const ticketDocuments = project.documents?.filter(d => 
+    d.category === 'financial' || 
+    (d.category === 'general' && (d.amount > 0 || project.transactions.some(t => t.relatedDocumentId === d.id && t.type === 'expense')))
+  ) || [];
+
+  const totalTicketsAmount = ticketDocuments.reduce((sum, d) => {
+      const linkedTx = project.transactions.find(t => t.relatedDocumentId === d.id && t.type === 'expense');
+      const docAmount = d.amount || (linkedTx ? linkedTx.amount : 0);
+      return sum + docAmount;
+  }, 0);
   
   // Gastos sin ticket (transacciones de tipo expense sin relatedDocumentId o cuyo documento no existe)
   const unlinkedExpenses = project.transactions.filter(t => 
@@ -211,7 +219,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
   );
   
   // Tickets sin gasto (documentos financieros cuyo ID no está en ninguna transacción)
-  const unlinkedTickets = financialDocuments.filter(d => 
+  const unlinkedTickets = ticketDocuments.filter(d => 
     !project.transactions.find(t => t.relatedDocumentId === d.id)
   );
 
@@ -438,6 +446,15 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
       }
   }
 
+  const handleOpenTicket = (documentId: string) => {
+      const doc = project.documents?.find(d => d.id === documentId);
+      if (doc && doc.data) {
+          window.open(doc.data, '_blank');
+      } else {
+          alert('No se pudo encontrar el archivo asociado o no tiene un formato válido para abrirse.');
+      }
+  };
+
   const handleAddIncident = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (isSaving) return;
@@ -515,9 +532,13 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
                                         <p className="text-[10px] text-slate-400">{formatDate(t.date)}</p>
                                         <span className="text-[10px] text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded">{t.category}</span>
                                         {t.relatedDocumentId && (
-                                            <span className="text-[10px] text-blue-500 bg-blue-50 dark:bg-blue-900/30 px-1.5 py-0.5 rounded flex items-center gap-1" title="Ticket asociado">
+                                            <button 
+                                                onClick={() => handleOpenTicket(t.relatedDocumentId!)}
+                                                className="text-[10px] text-blue-500 bg-blue-50 dark:bg-blue-900/30 px-1.5 py-0.5 rounded flex items-center gap-1 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors cursor-pointer" 
+                                                title="Ver ticket asociado"
+                                            >
                                                 <FileText className="w-2.5 h-2.5" /> Ticket
-                                            </span>
+                                            </button>
                                         )}
                                         {t.userName && (
                                             <span className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1">
@@ -1128,21 +1149,29 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
                             {unlinkedTickets.length > 0 ? (
                                 <ul className="divide-y divide-slate-200 dark:divide-slate-600">
                                     {unlinkedTickets.map(d => (
-                                        <li key={d.id} className="p-3 flex justify-between items-center text-xs group">
-                                            <div className="flex-1">
-                                                <p className="font-semibold text-slate-900 dark:text-white">{d.name}</p>
-                                                <p className="text-slate-500 dark:text-slate-400">{d.emissionDate ? formatDate(d.emissionDate) : (d.date ? formatDate(d.date) : 'Sin fecha')}</p>
+                                        <li key={d.id} className="p-3 flex justify-between items-center text-xs group hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors">
+                                            <div 
+                                                className="flex-1 cursor-pointer" 
+                                                onClick={() => handleOpenTicket(d.id)}
+                                                title="Ver documento"
+                                            >
+                                                <p className="font-semibold text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 flex items-center gap-1 transition-colors">
+                                                    <FileText className="w-3.5 h-3.5" /> {d.name}
+                                                </p>
+                                                <p className="text-slate-500 dark:text-slate-400 ml-4.5">{d.emissionDate ? formatDate(d.emissionDate) : (d.date ? formatDate(d.date) : 'Sin fecha')}</p>
                                             </div>
                                             <div className="flex items-center gap-3">
                                                 <span className="font-bold text-orange-600 dark:text-orange-400">{(d.amount || 0).toLocaleString()}€</span>
                                                 <button 
-                                                    onClick={() => {
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
                                                         setTransactionType('expense');
                                                         setSelectedDocumentForExpense(d);
                                                         // Scroll to the form
                                                         window.scrollTo({ top: 0, behavior: 'smooth' });
                                                     }}
                                                     className="opacity-0 group-hover:opacity-100 transition-opacity bg-orange-100 hover:bg-orange-200 text-orange-700 dark:bg-orange-900/40 dark:hover:bg-orange-900/60 dark:text-orange-300 px-2 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1"
+                                                    title="Crear gasto a partir de este ticket"
                                                 >
                                                     <Plus className="w-3 h-3" /> Crear Gasto
                                                 </button>
@@ -1236,9 +1265,13 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
                                                       <div className="flex items-center gap-2 mt-0.5">
                                                         <span className="text-[10px] bg-slate-100 dark:bg-slate-700 text-slate-500 px-1.5 py-0.5 rounded">{t.category}</span>
                                                         {t.relatedDocumentId && (
-                                                            <span className="text-[10px] text-blue-500 bg-blue-50 dark:bg-blue-900/30 px-1.5 py-0.5 rounded flex items-center gap-1" title="Ticket asociado">
+                                                            <button 
+                                                                onClick={() => handleOpenTicket(t.relatedDocumentId!)}
+                                                                className="text-[10px] text-blue-500 bg-blue-50 dark:bg-blue-900/30 px-1.5 py-0.5 rounded flex items-center gap-1 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors cursor-pointer" 
+                                                                title="Ver ticket asociado"
+                                                            >
                                                                 <FileText className="w-2.5 h-2.5" /> Ticket
-                                                            </span>
+                                                            </button>
                                                         )}
                                                         {t.userName && (
                                                             <span className="text-[10px] text-slate-400 flex items-center gap-1">
