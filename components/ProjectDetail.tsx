@@ -7,7 +7,7 @@ import {
   Clock, Activity, CheckSquare, AlertCircle, Users, AlertOctagon
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
-import { analyzeProjectStatus } from '../services/geminiService';
+import { analyzeProjectStatus, analyzeDocument } from '../services/geminiService';
 import BudgetManager from './BudgetManager';
 import DocumentManager from './DocumentManager';
 import InvoiceManager from './InvoiceManager';
@@ -43,6 +43,50 @@ const HangGlider = ({ className }: { className?: string }) => (
     <path d="M22 10l-5 8" />
   </svg>
 );
+
+const normalizeDate = (dateStr: string | undefined): string => {
+    if (!dateStr) return new Date().toISOString().split('T')[0];
+    
+    let cleanDate = dateStr.trim();
+    
+    const dmyRegex = /^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/;
+    const match = cleanDate.match(dmyRegex);
+
+    if (match) {
+        let [_, day, month, year] = match;
+        
+        if (year.length === 2) {
+            year = '20' + year;
+        }
+
+        const yearNum = parseInt(year);
+        if (yearNum !== 2026) {
+             year = '2026';
+        }
+
+        const paddedDay = day.padStart(2, '0');
+        const paddedMonth = month.padStart(2, '0');
+        return `${year}-${paddedMonth}-${paddedDay}`;
+    }
+
+    const timestamp = Date.parse(cleanDate);
+    if (!isNaN(timestamp)) {
+        const d = new Date(timestamp);
+        let year = d.getFullYear();
+        
+        if (year !== 2026) {
+            d.setFullYear(2026);
+        }
+        
+        return d.toISOString().split('T')[0];
+    }
+
+    const now = new Date();
+    if (now.getFullYear() !== 2026) {
+        now.setFullYear(2026);
+    }
+    return now.toISOString().split('T')[0];
+};
 
 const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack, onUpdate, onDelete, priceDatabase, currentUserName }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'financials' | 'incidents' | 'budgets' | 'invoices' | 'documents' | 'technical_docs' | 'settings'>('overview');
@@ -156,6 +200,25 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
     { name: 'Otros', value: totalOther, color: '#94a3b8' }, // Slate
   ].filter(d => d.value > 0);
 
+  // --- AUDIT LOGIC ---
+  const financialDocuments = project.documents?.filter(d => d.category === 'financial') || [];
+  const totalTicketsAmount = financialDocuments.reduce((sum, d) => sum + (d.amount || 0), 0);
+  
+  // Gastos sin ticket (transacciones de tipo expense sin relatedDocumentId o cuyo documento no existe)
+  const unlinkedExpenses = project.transactions.filter(t => 
+    t.type === 'expense' && 
+    (!t.relatedDocumentId || !project.documents?.find(d => d.id === t.relatedDocumentId))
+  );
+  
+  // Tickets sin gasto (documentos financieros cuyo ID no está en ninguna transacción)
+  const unlinkedTickets = financialDocuments.filter(d => 
+    !project.transactions.find(t => t.relatedDocumentId === d.id)
+  );
+
+  const totalUnlinkedExpensesAmount = unlinkedExpenses.reduce((sum, t) => sum + t.amount, 0);
+  const totalUnlinkedTicketsAmount = unlinkedTickets.reduce((sum, d) => sum + (d.amount || 0), 0);
+  // -------------------
+
   // Dynamic Budget Calculation
   // Priority: project.budget if > 0 (manual override or synced value)
   // Fallback: Sum of all Accepted budgets
@@ -178,20 +241,141 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
   // --- Actions ---
 
   const handleScanSave = (projectId: string, transaction: Transaction, newMaterials: Material[], newDocument?: ProjectDocument) => {
-      // Set the category on the new document if it exists, before saving to state
-      // (ScannerModal already saves to DB with category, this is for local state update)
-      const finalDoc = newDocument ? { ...newDocument, category: scannerCategory } : undefined;
-
       const updatedProject = {
           ...project,
           transactions: [transaction, ...project.transactions],
           materials: [...project.materials, ...newMaterials],
-          documents: finalDoc ? [...project.documents, finalDoc] : project.documents
+          documents: newDocument ? [...project.documents, newDocument] : project.documents
       };
       
       updateProjectWithHistory(updatedProject);
       setIsScannerOpen(false);
-      alert(`Guardado correctamente: Gasto registrado${newMaterials.length > 0 ? `, ${newMaterials.length} nuevos materiales` : ''}${finalDoc ? ' y documento archivado en ' + (scannerCategory === 'technical' ? 'Documentos Técnicos' : 'Archivos') : ''}.`);
+      alert(`Guardado correctamente: Gasto registrado${newMaterials.length > 0 ? `, ${newMaterials.length} nuevos materiales` : ''}${newDocument ? ' y documento archivado.' : ''}.`);
+  };
+
+  const [selectedDocumentForExpense, setSelectedDocumentForExpense] = useState<ProjectDocument | null>(null);
+  const [isAutoLinking, setIsAutoLinking] = useState(false);
+  const [autoLinkStatus, setAutoLinkStatus] = useState<string>('');
+
+  const handleAutoLink = async () => {
+      if (isAutoLinking) return;
+
+      if (unlinkedExpenses.length === 0) {
+          alert('No hay gastos sin ticket para asociar.');
+          return;
+      }
+
+      // Find all unlinked documents (financial or general)
+      const unlinkedDocs = project.documents?.filter(d => 
+        (d.category === 'financial' || d.category === 'general') &&
+        !project.transactions.find(t => t.relatedDocumentId === d.id)
+      ) || [];
+
+      if (unlinkedDocs.length === 0) {
+          alert('No hay documentos en Archivos o Finanzas para asociar.');
+          return;
+      }
+
+      setIsAutoLinking(true);
+      setAutoLinkStatus('Iniciando...');
+
+      try {
+          let updatedDocs = [...unlinkedDocs];
+          let docsModified = false;
+
+          // Scan documents that don't have an amount
+          for (let i = 0; i < updatedDocs.length; i++) {
+              const doc = updatedDocs[i];
+              if (!doc.amount && (doc.type === 'image' || doc.type === 'pdf')) {
+                  setAutoLinkStatus(`Analizando documento ${i + 1} de ${updatedDocs.length}...`);
+                  try {
+                      const mimeType = doc.type === 'pdf' ? 'application/pdf' : 'image/jpeg';
+                      const data = await analyzeDocument(doc.data, mimeType);
+                      
+                      if (data && data.total > 0) {
+                          const normalizedDate = normalizeDate(data.fecha);
+                          // Update document in DB
+                          const { error } = await supabase.from('documents').update({
+                              amount: data.total,
+                              emission_date: normalizedDate,
+                              category: 'financial'
+                          }).eq('id', doc.id);
+
+                          if (!error) {
+                              updatedDocs[i] = { ...doc, amount: data.total, emissionDate: normalizedDate, category: 'financial' };
+                              docsModified = true;
+                          } else {
+                              console.error("Error updating document in DB:", error);
+                          }
+                      } else {
+                          console.warn("AI didn't return a valid total for document:", doc.id, data);
+                      }
+                  } catch (err) {
+                      console.error("Error scanning document", doc.id, err);
+                  }
+              }
+          }
+
+          setAutoLinkStatus('Buscando coincidencias...');
+
+          const expensesToUpdate: Transaction[] = [];
+          const remainingTickets = [...updatedDocs];
+
+          for (const expense of unlinkedExpenses) {
+              // Find a matching ticket based on amount
+              const matchIndex = remainingTickets.findIndex(t => Math.abs((t.amount || 0) - expense.amount) < 0.01);
+              if (matchIndex !== -1) {
+                  const matchedTicket = remainingTickets[matchIndex];
+                  expensesToUpdate.push({ ...expense, relatedDocumentId: matchedTicket.id });
+                  remainingTickets.splice(matchIndex, 1); // Remove so it's not matched twice
+              }
+          }
+
+          if (expensesToUpdate.length === 0) {
+              if (docsModified) {
+                  // Update project state with the newly scanned documents even if no match
+                  const newDocs = project.documents?.map(d => {
+                      const updated = updatedDocs.find(ud => ud.id === d.id);
+                      return updated ? updated : d;
+                  }) || [];
+                  updateProjectWithHistory({ ...project, documents: newDocs });
+                  alert('Se analizaron los documentos y se extrajeron sus importes, pero no se encontraron coincidencias exactas con los gastos sin ticket. Revisa los importes en la pestaña Finanzas.');
+              } else {
+                  alert('No se pudieron analizar los documentos o no se encontraron importes válidos.');
+              }
+              setIsAutoLinking(false);
+              setAutoLinkStatus('');
+              return;
+          }
+
+          setAutoLinkStatus('Guardando asociaciones...');
+
+          // Update DB for transactions
+          for (const expense of expensesToUpdate) {
+              const { error } = await supabase.from('transactions').update({ related_document_id: expense.relatedDocumentId }).eq('id', expense.id);
+              if (error) throw error;
+          }
+
+          // Update local state
+          const updatedTransactions = project.transactions.map(t => {
+              const updated = expensesToUpdate.find(e => e.id === t.id);
+              return updated ? updated : t;
+          });
+
+          const newDocs = project.documents?.map(d => {
+              const updated = updatedDocs.find(ud => ud.id === d.id);
+              return updated ? updated : d;
+          }) || [];
+
+          updateProjectWithHistory({ ...project, transactions: updatedTransactions, documents: newDocs });
+          alert(`Se han analizado los archivos y asociado automáticamente ${expensesToUpdate.length} gastos con sus tickets.`);
+      } catch (error: any) {
+          console.error("Error auto-linking:", error);
+          alert("Error al asociar automáticamente: " + error.message);
+      } finally {
+          setIsAutoLinking(false);
+          setAutoLinkStatus('');
+      }
   };
 
   const handleAddTransaction = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -209,8 +393,9 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
       amount: Number(formData.get('amount')),
       type: formData.get('type') as 'income' | 'expense',
       category: formData.get('category') as string,
-      date: new Date().toISOString().split('T')[0],
-      userName: currentUserName
+      date: selectedDocumentForExpense?.emissionDate || selectedDocumentForExpense?.date || new Date().toISOString().split('T')[0],
+      userName: currentUserName,
+      relatedDocumentId: selectedDocumentForExpense?.id
     };
     
     try {
@@ -222,7 +407,8 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
             amount: newTransaction.amount,
             date: newTransaction.date || null,
             description: newTransaction.description,
-            user_name: newTransaction.userName // Column user_name exists now
+            user_name: newTransaction.userName,
+            related_document_id: newTransaction.relatedDocumentId
         });
 
         if (error) throw error;
@@ -231,6 +417,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
         updateProjectWithHistory(updated);
         // Cast to any to access reset method on currentTarget
         (e.target as HTMLFormElement).reset();
+        setSelectedDocumentForExpense(null);
     } catch (error: any) {
         console.error("Error adding transaction:", error);
         alert("Error al guardar el movimiento: " + error.message);
@@ -327,6 +514,11 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
                                       <div className="flex items-center gap-2 mt-0.5">
                                         <p className="text-[10px] text-slate-400">{formatDate(t.date)}</p>
                                         <span className="text-[10px] text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded">{t.category}</span>
+                                        {t.relatedDocumentId && (
+                                            <span className="text-[10px] text-blue-500 bg-blue-50 dark:bg-blue-900/30 px-1.5 py-0.5 rounded flex items-center gap-1" title="Ticket asociado">
+                                                <FileText className="w-2.5 h-2.5" /> Ticket
+                                            </span>
+                                        )}
                                         {t.userName && (
                                             <span className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1">
                                                 <User className="w-2.5 h-2.5" /> {t.userName}
@@ -810,7 +1002,24 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
                     <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-6 uppercase tracking-wider flex items-center gap-2">
                         <Plus className="w-4 h-4 text-[#0047AB] dark:text-blue-400" /> Añadir Movimiento
                     </h3>
-                    <form onSubmit={handleAddTransaction} className="space-y-4">
+                    
+                    {selectedDocumentForExpense && (
+                        <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl flex justify-between items-center">
+                            <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300 text-xs">
+                                <FileText className="w-4 h-4" />
+                                <span>Vinculando ticket: <strong>{selectedDocumentForExpense.name}</strong></span>
+                            </div>
+                            <button 
+                                type="button" 
+                                onClick={() => setSelectedDocumentForExpense(null)}
+                                className="text-blue-500 hover:text-blue-700 dark:hover:text-blue-200"
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+                    )}
+
+                    <form key={selectedDocumentForExpense?.id || 'new'} onSubmit={handleAddTransaction} className="space-y-4">
                       <div className="flex gap-2 p-1 bg-slate-100 dark:bg-slate-700 rounded-xl mb-4">
                           <button 
                              type="button" 
@@ -831,8 +1040,8 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
                       <input type="hidden" name="type" value={transactionType} />
                       
                       <div className="flex gap-3">
-                          <input name="amount" type="number" step="0.01" placeholder="Importe (€)" required className="w-1/3 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white transition-colors" onFocus={(e) => e.target.select()} />
-                          <input name="description" placeholder="Descripción" required className="w-2/3 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white transition-colors" />
+                          <input name="amount" type="number" step="0.01" defaultValue={selectedDocumentForExpense?.amount || ''} placeholder="Importe (€)" required className="w-1/3 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white transition-colors" onFocus={(e) => e.target.select()} />
+                          <input name="description" defaultValue={selectedDocumentForExpense?.name || ''} placeholder="Descripción" required className="w-2/3 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#0047AB] text-slate-900 dark:text-white transition-colors" />
                       </div>
 
                       {transactionType === 'expense' ? (
@@ -853,6 +1062,99 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
                         {isSaving ? 'Guardando...' : (transactionType === 'expense' ? 'Registrar Gasto' : 'Registrar Ingreso')}
                       </button>
                     </form>
+                </div>
+             </div>
+
+             {/* Audit Section */}
+             <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-700">
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                        <FileText className="w-4 h-4 text-[#0047AB] dark:text-blue-400" /> Auditoría de Gastos vs Tickets
+                    </h3>
+                    <button 
+                        onClick={handleAutoLink}
+                        disabled={isAutoLinking}
+                        className="bg-blue-50 hover:bg-blue-100 text-[#0047AB] dark:bg-blue-900/30 dark:hover:bg-blue-900/50 dark:text-blue-400 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        {isAutoLinking ? <Loader2 className="w-3 h-3 animate-spin" /> : <BrainCircuit className="w-3 h-3" />}
+                        {autoLinkStatus || 'Auto-Asociar'}
+                    </button>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <div className="bg-slate-50 dark:bg-slate-700 p-4 rounded-xl border border-slate-100 dark:border-slate-600 flex flex-col items-center justify-center">
+                        <span className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold mb-1">Total Gastos Registrados</span>
+                        <span className="text-xl font-bold text-slate-900 dark:text-white">{(totalMaterial + totalPersonal + totalOther).toLocaleString()}€</span>
+                    </div>
+                    <div className="bg-slate-50 dark:bg-slate-700 p-4 rounded-xl border border-slate-100 dark:border-slate-600 flex flex-col items-center justify-center">
+                        <span className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold mb-1">Total Tickets (Archivos)</span>
+                        <span className="text-xl font-bold text-slate-900 dark:text-white">{totalTicketsAmount.toLocaleString()}€</span>
+                    </div>
+                    <div className={`p-4 rounded-xl border flex flex-col items-center justify-center ${Math.abs((totalMaterial + totalPersonal + totalOther) - totalTicketsAmount) > 0.01 ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800' : 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'}`}>
+                        <span className={`text-xs uppercase tracking-wider font-semibold mb-1 ${Math.abs((totalMaterial + totalPersonal + totalOther) - totalTicketsAmount) > 0.01 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>Descuadre</span>
+                        <span className={`text-xl font-bold ${Math.abs((totalMaterial + totalPersonal + totalOther) - totalTicketsAmount) > 0.01 ? 'text-red-700 dark:text-red-300' : 'text-green-700 dark:text-green-300'}`}>{Math.abs((totalMaterial + totalPersonal + totalOther) - totalTicketsAmount).toLocaleString()}€</span>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-3 uppercase tracking-wider flex items-center justify-between">
+                            <span>Gastos sin Ticket Asociado</span>
+                            <span className="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 px-2 py-0.5 rounded-full text-[10px]">{unlinkedExpenses.length}</span>
+                        </h4>
+                        <div className="bg-slate-50 dark:bg-slate-700 rounded-xl border border-slate-100 dark:border-slate-600 max-h-[200px] overflow-y-auto">
+                            {unlinkedExpenses.length > 0 ? (
+                                <ul className="divide-y divide-slate-200 dark:divide-slate-600">
+                                    {unlinkedExpenses.map(t => (
+                                        <li key={t.id} className="p-3 flex justify-between items-center text-xs">
+                                            <div>
+                                                <p className="font-semibold text-slate-900 dark:text-white">{t.description}</p>
+                                                <p className="text-slate-500 dark:text-slate-400">{t.date ? formatDate(t.date) : 'Sin fecha'} • {t.category}</p>
+                                            </div>
+                                            <span className="font-bold text-red-600 dark:text-red-400">{t.amount.toLocaleString()}€</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            ) : (
+                                <div className="p-4 text-center text-xs text-slate-500 dark:text-slate-400">Todos los gastos tienen ticket asociado.</div>
+                            )}
+                        </div>
+                    </div>
+                    <div>
+                        <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-3 uppercase tracking-wider flex items-center justify-between">
+                            <span>Tickets sin Gasto Registrado</span>
+                            <span className="bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 px-2 py-0.5 rounded-full text-[10px]">{unlinkedTickets.length}</span>
+                        </h4>
+                        <div className="bg-slate-50 dark:bg-slate-700 rounded-xl border border-slate-100 dark:border-slate-600 max-h-[200px] overflow-y-auto">
+                            {unlinkedTickets.length > 0 ? (
+                                <ul className="divide-y divide-slate-200 dark:divide-slate-600">
+                                    {unlinkedTickets.map(d => (
+                                        <li key={d.id} className="p-3 flex justify-between items-center text-xs group">
+                                            <div className="flex-1">
+                                                <p className="font-semibold text-slate-900 dark:text-white">{d.name}</p>
+                                                <p className="text-slate-500 dark:text-slate-400">{d.emissionDate ? formatDate(d.emissionDate) : (d.date ? formatDate(d.date) : 'Sin fecha')}</p>
+                                            </div>
+                                            <div className="flex items-center gap-3">
+                                                <span className="font-bold text-orange-600 dark:text-orange-400">{(d.amount || 0).toLocaleString()}€</span>
+                                                <button 
+                                                    onClick={() => {
+                                                        setTransactionType('expense');
+                                                        setSelectedDocumentForExpense(d);
+                                                        // Scroll to the form
+                                                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                                                    }}
+                                                    className="opacity-0 group-hover:opacity-100 transition-opacity bg-orange-100 hover:bg-orange-200 text-orange-700 dark:bg-orange-900/40 dark:hover:bg-orange-900/60 dark:text-orange-300 px-2 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1"
+                                                >
+                                                    <Plus className="w-3 h-3" /> Crear Gasto
+                                                </button>
+                                            </div>
+                                        </li>
+                                    ))}
+                                </ul>
+                            ) : (
+                                <div className="p-4 text-center text-xs text-slate-500 dark:text-slate-400">Todos los tickets están registrados como gastos.</div>
+                            )}
+                        </div>
+                    </div>
                 </div>
              </div>
 
@@ -933,6 +1235,11 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
                                                       <p className="font-semibold text-slate-700 dark:text-slate-200">{t.description}</p>
                                                       <div className="flex items-center gap-2 mt-0.5">
                                                         <span className="text-[10px] bg-slate-100 dark:bg-slate-700 text-slate-500 px-1.5 py-0.5 rounded">{t.category}</span>
+                                                        {t.relatedDocumentId && (
+                                                            <span className="text-[10px] text-blue-500 bg-blue-50 dark:bg-blue-900/30 px-1.5 py-0.5 rounded flex items-center gap-1" title="Ticket asociado">
+                                                                <FileText className="w-2.5 h-2.5" /> Ticket
+                                                            </span>
+                                                        )}
                                                         {t.userName && (
                                                             <span className="text-[10px] text-slate-400 flex items-center gap-1">
                                                                 <User className="w-2.5 h-2.5" /> {t.userName}

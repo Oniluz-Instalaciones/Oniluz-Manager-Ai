@@ -239,15 +239,29 @@ const App: React.FC = () => {
             invoices: invoiceData || [], // Sync invoices from embedded data
             transactions: p.transactions?.map((t: any) => ({
                 ...t,
-                userName: t.user_name // Map database snake_case to app camelCase
+                projectId: t.project_id,
+                userName: t.user_name, // Map database snake_case to app camelCase
+                relatedDocumentId: t.related_document_id
             })) || [],
-            materials: p.materials || [],
-            incidents: p.incidents || [],
+            materials: p.materials?.map((m: any) => ({
+                ...m,
+                projectId: m.project_id,
+                pricePerUnit: m.price_per_unit,
+                minStock: m.min_stock,
+                packageSize: m.package_size
+            })) || [],
+            incidents: p.incidents?.map((i: any) => ({
+                ...i,
+                projectId: i.project_id,
+                resolvedAt: i.resolved_at
+            })) || [],
             documents: [], // Placeholder, will be merged below
             budgets: p.budgets?.map((b: any) => ({
                ...b,
+               projectId: b.project_id,
                items: b.items?.map((i: any) => ({
                    ...i,
+                   budgetId: i.budget_id,
                    pricePerUnit: i.price_per_unit
                })) || [],
                aiPrompt: b.ai_prompt
@@ -305,6 +319,7 @@ const App: React.FC = () => {
           if (data) {
               const formattedDocs = data.map((d: any) => ({
                   ...d,
+                  projectId: d.project_id,
                   uploadedBy: d.uploaded_by,
                   emissionDate: d.emission_date,
                   amount: d.amount

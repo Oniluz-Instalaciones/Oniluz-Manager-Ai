@@ -488,6 +488,56 @@ const formatDate = (dateStr: string) => {
         const fileUrl = uploadResult?.url;
         const fileType = uploadResult?.type || 'image';
 
+        let newDocument: ProjectDocument | undefined;
+        
+        if (fileUrl) {
+            let finalCategory = formData.category;
+            if (formData.category === 'Material' || formData.category === 'Herramienta' || formData.category === 'Transporte' || formData.category === 'Combustible' || formData.category === 'Dietas' || formData.category === 'Personal') {
+                finalCategory = 'financial';
+            } else if (formData.category === 'Planos' || formData.category === 'Certificados' || formData.category === 'Manuales') {
+                finalCategory = 'technical';
+            } else {
+                finalCategory = 'general';
+            }
+
+            const uploadDate = new Date();
+            if (uploadDate.getFullYear() !== 2026) {
+                uploadDate.setFullYear(2026);
+            }
+            const uploadDateStr = uploadDate.toISOString().split('T')[0];
+
+            newDocument = {
+                id: crypto.randomUUID(),
+                projectId: formData.projectId,
+                name: `${formData.docType === 'DELIVERY_NOTE' ? 'Albarán' : 'Factura'} ${formatDate(formData.date)}`,
+                type: fileType,
+                category: finalCategory as 'general' | 'technical' | 'financial', 
+                date: uploadDateStr,
+                emissionDate: formData.date,
+                amount: formData.amount,
+                uploadedBy: currentUserName,
+                data: fileUrl
+            };
+
+            const { error: docError } = await supabase.from('documents').insert({
+                id: newDocument.id,
+                project_id: newDocument.projectId,
+                name: newDocument.name,
+                type: newDocument.type,
+                category: newDocument.category as "general" | "technical" | "financial",
+                date: newDocument.date,
+                emission_date: newDocument.emissionDate,
+                amount: newDocument.amount,
+                uploaded_by: newDocument.uploadedBy,
+                data: newDocument.data 
+            });
+            
+            if (docError) {
+                console.error("Warning: Document save failed", docError);
+                alert("Atención: Los datos se guardaron pero la imagen falló al registrarse en la base de datos.");
+            }
+        }
+
         const newTransaction: Transaction = {
           id: crypto.randomUUID(),
           projectId: formData.projectId,
@@ -496,7 +546,8 @@ const formatDate = (dateStr: string) => {
           amount: Number(formData.amount),
           date: formData.date,
           description: formData.description,
-          userName: currentUserName
+          userName: currentUserName,
+          relatedDocumentId: newDocument?.id
         };
 
         const stockItemsToAdd = detectedMaterials.filter(m => m.addToStock).map(m => ({ ...m, id: crypto.randomUUID(), projectId: formData.projectId }));
@@ -511,7 +562,8 @@ const formatDate = (dateStr: string) => {
                 amount: newTransaction.amount,
                 date: newTransaction.date || null,
                 description: newTransaction.description,
-                user_name: newTransaction.userName
+                user_name: newTransaction.userName,
+                related_document_id: newTransaction.relatedDocumentId
             });
             if (txError) throw new Error("Error al guardar la transacción: " + txError.message);
         }
@@ -580,50 +632,6 @@ const formatDate = (dateStr: string) => {
                     
                     if (insertError) console.error("Error inserting material:", insertError);
                 }
-            }
-        }
-
-        // 3. Document 
-        let newDocument: ProjectDocument | undefined;
-        if (fileUrl) {
-            const finalCategory = defaultCategory; 
-
-            // FORCE 2026 for upload date as well, in case system clock is wrong
-            const uploadDate = new Date();
-            if (uploadDate.getFullYear() !== 2026) {
-                uploadDate.setFullYear(2026);
-            }
-            const uploadDateStr = uploadDate.toISOString().split('T')[0];
-
-            newDocument = {
-                id: crypto.randomUUID(),
-                projectId: formData.projectId,
-                name: `${formData.docType === 'DELIVERY_NOTE' ? 'Albarán' : 'Factura'} ${formatDate(formData.date)}`,
-                type: fileType,
-                category: finalCategory as 'general' | 'technical' | 'financial', 
-                date: uploadDateStr, // Fecha de subida (hoy, forzada a 2026)
-                emissionDate: formData.date, // Fecha del ticket/emisión
-                amount: formData.amount, // Importe
-                uploadedBy: currentUserName, // Usuario que sube
-                data: fileUrl
-            };
-
-            const { error: docError } = await supabase.from('documents').insert({
-                id: newDocument.id,
-                project_id: newDocument.projectId,
-                name: newDocument.name,
-                type: newDocument.type,
-                category: newDocument.category as "general" | "technical" | "financial",
-                date: newDocument.date,
-                emission_date: newDocument.emissionDate,
-                amount: newDocument.amount,
-                uploaded_by: newDocument.uploadedBy,
-                data: newDocument.data 
-            });
-            
-            if (docError) {
-                console.error("Warning: Document save failed", docError);
-                alert("Atención: Los datos se guardaron pero la imagen falló al registrarse en la base de datos.");
             }
         }
 
