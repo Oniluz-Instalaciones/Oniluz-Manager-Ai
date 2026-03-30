@@ -1,35 +1,49 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Función auxiliar para obtener variables de entorno de forma segura
-const getEnv = (key: string): string => {
-  try {
-    // @ts-ignore
-    if (typeof import.meta !== 'undefined' && import.meta && import.meta.env) {
-      // @ts-ignore
-      return import.meta.env[key] || '';
-    }
-  } catch (e) {
-    console.debug('Entorno sin soporte para import.meta.env');
-  }
-  return '';
-};
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://placeholder-project.supabase.co';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'placeholder-anon-key';
 
-const supabaseUrl = getEnv('VITE_SUPABASE_URL');
-const supabaseAnonKey = getEnv('VITE_SUPABASE_ANON_KEY');
-
-export const isSupabaseConfigured = !!supabaseUrl && !!supabaseAnonKey && !supabaseUrl.includes('placeholder');
+export const isSupabaseConfigured = !!import.meta.env.VITE_SUPABASE_URL && !!import.meta.env.VITE_SUPABASE_ANON_KEY && !import.meta.env.VITE_SUPABASE_URL.includes('placeholder');
 
 if (!isSupabaseConfigured) {
   console.warn("ADVERTENCIA: Faltan credenciales de Supabase. La base de datos no conectará.");
 }
 
+// Custom storage adapter to handle iframe/incognito localStorage restrictions
+const memoryStorage: Record<string, string> = {};
+const customStorage = {
+  getItem: (key: string) => {
+    try {
+      return window.localStorage.getItem(key);
+    } catch (e) {
+      console.warn('localStorage is not available, falling back to memory');
+      return memoryStorage[key] || null;
+    }
+  },
+  setItem: (key: string, value: string) => {
+    try {
+      window.localStorage.setItem(key, value);
+    } catch (e) {
+      memoryStorage[key] = value;
+    }
+  },
+  removeItem: (key: string) => {
+    try {
+      window.localStorage.removeItem(key);
+    } catch (e) {
+      delete memoryStorage[key];
+    }
+  }
+};
+
 // Inicializamos el cliente con configuración explícita de persistencia
 export const supabase = createClient(
-  supabaseUrl || 'https://placeholder-project.supabase.co', 
-  supabaseAnonKey || 'placeholder-anon-key',
+  supabaseUrl, 
+  supabaseAnonKey,
   {
     auth: {
-      persistSession: true, // Forzar persistencia en localStorage
+      storage: customStorage, // Use robust custom storage
+      persistSession: true, // Forzar persistencia
       autoRefreshToken: true, // Renovar tokens automáticamente
       detectSessionInUrl: true // Detectar enlaces de login mágicos
     }

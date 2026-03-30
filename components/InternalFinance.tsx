@@ -430,9 +430,10 @@ const InternalFinance: React.FC<InternalFinanceProps> = ({ projects, onBack }) =
                 }
             });
 
+            const incomeTransactions = periodTransactions.filter(t => t.type === 'income' || t.type === 'Income');
+
             // If no invoices found, fallback to estimating from income transactions
             if (outputVAT === 0) {
-                const incomeTransactions = periodTransactions.filter(t => t.type === 'income' || t.type === 'Income');
                 outputVAT = incomeTransactions.reduce((sum, t) => {
                     const amt = Number(t.amount) || 0;
                     return sum + (amt - (amt / 1.21));

@@ -39,6 +39,20 @@ export const signInWithEmail = async (email: string, password: string) => {
 };
 
 /**
+ * Registra un nuevo usuario con email y contraseña.
+ */
+export const signUpWithEmail = async (email: string, password: string) => {
+  if (!isSupabaseConfigured) {
+    return { data: { user: null, session: null }, error: { message: "Supabase no configurado. Revisa .env" } };
+  }
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+  });
+  return { data, error };
+};
+
+/**
  * Cierra la sesión actual.
  */
 export const signOut = async () => {

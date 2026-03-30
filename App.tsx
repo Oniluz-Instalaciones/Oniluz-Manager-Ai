@@ -11,7 +11,7 @@ import ProjectCalendar from './components/ProjectCalendar';
 import Login from './components/Login';
 import { supabase, isSupabaseConfigured } from './lib/supabase'; // Kept for direct DB calls, auth moved to service
 import { getCurrentSession, onAuthStateChange, signOut } from './services/authService';
-import { Loader2, AlertCircle, RefreshCw } from 'lucide-react';
+import { Loader2, AlertCircle, RefreshCw, AlertTriangle } from 'lucide-react';
 
 // --- Helpers for Schema Compatibility ---
 // Tags to identify embedded data in description
@@ -121,6 +121,7 @@ const App: React.FC = () => {
   });
 
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [projectToDelete, setProjectToDelete] = useState<string | null>(null);
   const [showGlobalFinance, setShowGlobalFinance] = useState(false);
   const [showInternalFinance, setShowInternalFinance] = useState(false);
   const [showStockManager, setShowStockManager] = useState(false);
@@ -140,8 +141,8 @@ const App: React.FC = () => {
       const currentSession = await getCurrentSession();
       if (mounted) {
         setSession(currentSession);
-        // Only turn off loading if we found a session, otherwise wait a tick for the listener
-        if (currentSession) setIsAuthLoading(false);
+        // Always turn off loading after the initial check, regardless of session existence
+        setIsAuthLoading(false);
       }
     };
 
@@ -596,18 +597,21 @@ const App: React.FC = () => {
      }
   };
 
-  const handleDeleteProject = async (id: string) => {
-    if (window.confirm("¿Estás seguro de que quieres eliminar este proyecto? Se borrarán todos los datos asociados.")) {
-        setProjects(projects.filter(p => p.id !== id));
-        setSelectedProjectId(null);
+  const handleDeleteProject = (id: string) => {
+      setProjectToDelete(id);
+  };
 
-        const { error } = await supabase.from('projects').delete().eq('id', id);
-        if (error) {
-            console.error("Error deleting project:", error);
-            alert("Error al eliminar el proyecto: " + error.message);
-            fetchProjects();
-        }
-    }
+  const confirmDeleteProject = async (id: string) => {
+      setProjects(projects.filter(p => p.id !== id));
+      setSelectedProjectId(null);
+
+      const { error } = await supabase.from('projects').delete().eq('id', id);
+      if (error) {
+          console.error("Error deleting project:", error);
+          alert("Error al eliminar el proyecto: " + error.message);
+          fetchProjects();
+      }
+      setProjectToDelete(null);
   };
 
   // --- Price Database Handlers (Supabase) ---
@@ -948,34 +952,100 @@ const App: React.FC = () => {
 
   if (selectedProjectId && projects.find(p => p.id === selectedProjectId)) {
     return (
-      <ProjectDetail 
-        project={projects.find(p => p.id === selectedProjectId)!} 
-        projects={projects}
-        onBack={handleBackToMenu}
-        onUpdate={handleUpdateProject}
-        onDelete={handleDeleteProject}
-        priceDatabase={priceDatabase}
-        currentUserName={currentUserName}
-      />
+      <>
+        <ProjectDetail 
+          project={projects.find(p => p.id === selectedProjectId)!} 
+          projects={projects}
+          onBack={handleBackToMenu}
+          onUpdate={handleUpdateProject}
+          onDelete={handleDeleteProject}
+          priceDatabase={priceDatabase}
+          currentUserName={currentUserName}
+        />
+        {projectToDelete && (
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col">
+                    <div className="p-6 text-center">
+                        <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <AlertTriangle className="w-8 h-8" />
+                        </div>
+                        <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">
+                            ¿Eliminar proyecto?
+                        </h3>
+                        <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
+                            Estás a punto de eliminar este proyecto. Se borrarán todos los datos asociados. Esta acción no se puede deshacer.
+                        </p>
+                        <div className="flex gap-3">
+                            <button 
+                                onClick={() => setProjectToDelete(null)}
+                                className="flex-1 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 font-bold rounded-xl transition-colors"
+                            >
+                                Cancelar
+                            </button>
+                            <button 
+                                onClick={() => confirmDeleteProject(projectToDelete)}
+                                className="flex-1 px-4 py-2.5 bg-red-500 hover:bg-red-600 text-white font-bold rounded-xl transition-colors"
+                            >
+                                Eliminar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        )}
+      </>
     );
   }
 
   return (
-    <ProjectList 
-      projects={projects} 
-      onSelectProject={setSelectedProjectId}
-      onAddProject={handleAddProject}
-      onUpdateProject={handleUpdateProject}
-      onOpenGlobalFinance={() => setShowGlobalFinance(true)}
-      onOpenInternalFinance={() => setShowInternalFinance(true)}
-      onOpenStockManager={() => setShowStockManager(true)}
-      onOpenPriceDb={() => setShowPriceDb(true)}
-      onOpenCalendar={() => setShowCalendar(true)}
-      isDarkMode={darkMode}
-      onToggleDarkMode={() => setDarkMode(!darkMode)}
-      onLogout={handleLogout}
-      currentUserName={currentUserName}
-    />
+    <>
+      <ProjectList 
+        projects={projects} 
+        onSelectProject={setSelectedProjectId}
+        onAddProject={handleAddProject}
+        onUpdateProject={handleUpdateProject}
+        onOpenGlobalFinance={() => setShowGlobalFinance(true)}
+        onOpenInternalFinance={() => setShowInternalFinance(true)}
+        onOpenStockManager={() => setShowStockManager(true)}
+        onOpenPriceDb={() => setShowPriceDb(true)}
+        onOpenCalendar={() => setShowCalendar(true)}
+        isDarkMode={darkMode}
+        onToggleDarkMode={() => setDarkMode(!darkMode)}
+        onLogout={handleLogout}
+        currentUserName={currentUserName}
+      />
+      {projectToDelete && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col">
+                  <div className="p-6 text-center">
+                      <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                          <AlertTriangle className="w-8 h-8" />
+                      </div>
+                      <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">
+                          ¿Eliminar proyecto?
+                      </h3>
+                      <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
+                          Estás a punto de eliminar este proyecto. Se borrarán todos los datos asociados. Esta acción no se puede deshacer.
+                      </p>
+                      <div className="flex gap-3">
+                          <button 
+                              onClick={() => setProjectToDelete(null)}
+                              className="flex-1 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 font-bold rounded-xl transition-colors"
+                          >
+                              Cancelar
+                          </button>
+                          <button 
+                              onClick={() => confirmDeleteProject(projectToDelete)}
+                              className="flex-1 px-4 py-2.5 bg-red-500 hover:bg-red-600 text-white font-bold rounded-xl transition-colors"
+                          >
+                              Eliminar
+                          </button>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      )}
+    </>
   );
 };
 

@@ -1,26 +1,41 @@
 import React, { useState } from 'react';
-import { signInWithEmail } from '../services/authService';
-import { Loader2, Mail, Lock, LogIn, AlertCircle, Eye, EyeOff } from 'lucide-react';
+import { signInWithEmail, signUpWithEmail } from '../services/authService';
+import { Loader2, Mail, Lock, LogIn, AlertCircle, Eye, EyeOff, UserPlus } from 'lucide-react';
 
 const Login: React.FC = () => {
+  const [isLoginMode, setIsLoginMode] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     setError(null);
+    setSuccessMsg(null);
 
     try {
-      const { error } = await signInWithEmail(email, password);
-
-      if (error) throw error;
-      // Login successful: App.tsx will detect session change via onAuthStateChange
+      if (isLoginMode) {
+        const { error } = await signInWithEmail(email, password);
+        if (error) throw error;
+        // Login successful: App.tsx will detect session change via onAuthStateChange
+      } else {
+        const { data, error } = await signUpWithEmail(email, password);
+        if (error) throw error;
+        
+        if (data?.user?.identities?.length === 0) {
+           throw new Error('Este correo ya está registrado. Por favor, inicia sesión.');
+        }
+        
+        setSuccessMsg('¡Registro exitoso! Revisa tu correo para confirmar tu cuenta si es necesario, o inicia sesión.');
+        setIsLoginMode(true);
+        setIsLoading(false);
+      }
     } catch (err: any) {
-      setError(err.message || 'Error al iniciar sesión. Verifica tus credenciales.');
+      setError(err.message || 'Error de autenticación. Verifica tus datos.');
       setIsLoading(false); // Only stop loading on error, otherwise wait for app redirect
     }
   };
@@ -46,17 +61,25 @@ const Login: React.FC = () => {
             </div>
           </div>
           <h1 className="text-2xl font-bold text-white relative z-10">Oniluz Manager</h1>
-          <p className="text-blue-100 text-sm mt-2 relative z-10">Accede a tu panel de gestión</p>
+          <p className="text-blue-100 text-sm mt-2 relative z-10">
+            {isLoginMode ? 'Accede a tu panel de gestión' : 'Crea una nueva cuenta'}
+          </p>
         </div>
 
         {/* Form Section */}
         <div className="p-8">
-          <form onSubmit={handleLogin} className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-6">
             
             {error && (
               <div className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-300 p-4 rounded-xl text-sm flex items-start gap-3 border border-red-100 dark:border-red-800">
                 <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
                 <p>{error}</p>
+              </div>
+            )}
+
+            {successMsg && (
+              <div className="bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-300 p-4 rounded-xl text-sm flex items-start gap-3 border border-green-100 dark:border-green-800">
+                <p>{successMsg}</p>
               </div>
             )}
 
@@ -86,6 +109,7 @@ const Login: React.FC = () => {
                   placeholder="••••••••"
                   className="w-full pl-12 pr-12 py-3.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-[#0047AB] focus:border-[#0047AB] outline-none transition-all text-slate-900 dark:text-white placeholder-slate-400"
                   required
+                  minLength={6}
                 />
                 <button
                   type="button"
@@ -106,17 +130,33 @@ const Login: React.FC = () => {
               {isLoading ? (
                 <>
                   <Loader2 className="w-5 h-5 animate-spin" />
-                  <span>Entrando...</span>
+                  <span>{isLoginMode ? 'Entrando...' : 'Registrando...'}</span>
                 </>
               ) : (
                 <>
-                  <LogIn className="w-5 h-5" />
-                  <span>Iniciar Sesión</span>
+                  {isLoginMode ? <LogIn className="w-5 h-5" /> : <UserPlus className="w-5 h-5" />}
+                  <span>{isLoginMode ? 'Iniciar Sesión' : 'Registrarse'}</span>
                 </>
               )}
             </button>
           </form>
           
+          <div className="mt-6 text-center">
+            <button
+              type="button"
+              onClick={() => {
+                setIsLoginMode(!isLoginMode);
+                setError(null);
+                setSuccessMsg(null);
+              }}
+              className="text-sm text-[#0047AB] dark:text-blue-400 hover:underline font-medium"
+            >
+              {isLoginMode 
+                ? '¿No tienes cuenta? Regístrate aquí' 
+                : '¿Ya tienes cuenta? Inicia sesión'}
+            </button>
+          </div>
+
           <div className="mt-8 text-center">
             <p className="text-xs text-slate-400 dark:text-slate-500">
               Oniluz iA &copy; {new Date().getFullYear()} - Gestión Integral

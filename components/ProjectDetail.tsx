@@ -4,7 +4,7 @@ import {
   ArrowLeft, Plus, Trash2, AlertTriangle, CheckCircle, 
   TrendingUp, TrendingDown, Package, FileText, Settings, BrainCircuit, X, Receipt, Paperclip, ChevronDown, Building2, Calendar, RotateCcw, Edit3,
   Hammer, Coffee, User, Wallet, BarChart3, Save, Loader2, Fuel, Car, HelpCircle, Phone, Mail, Sun as SunIcon, Zap, MapPin, Ruler, FileCheck,
-  Clock, Activity, CheckSquare, AlertCircle, Users, AlertOctagon
+  Clock, Activity, CheckSquare, AlertCircle, Users, AlertOctagon, Link2
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { analyzeProjectStatus, analyzeDocument } from '../services/geminiService';
@@ -264,6 +264,24 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
   const [selectedDocumentForExpense, setSelectedDocumentForExpense] = useState<ProjectDocument | null>(null);
   const [isAutoLinking, setIsAutoLinking] = useState(false);
   const [autoLinkStatus, setAutoLinkStatus] = useState<string>('');
+  const [linkingExpenseId, setLinkingExpenseId] = useState<string | null>(null);
+  const [itemToDelete, setItemToDelete] = useState<{type: 'transaction' | 'document', id: string} | null>(null);
+
+  const handleManualLink = async (expenseId: string, documentId: string) => {
+      try {
+          const { error } = await supabase.from('transactions').update({ related_document_id: documentId }).eq('id', expenseId);
+          if (error) throw error;
+
+          const updatedTransactions = project.transactions.map(t => 
+              t.id === expenseId ? { ...t, relatedDocumentId: documentId } : t
+          );
+          updateProjectWithHistory({ ...project, transactions: updatedTransactions });
+          setLinkingExpenseId(null);
+      } catch (error: any) {
+          console.error("Error linking document manually:", error);
+          alert("Error al asociar el documento: " + error.message);
+      }
+  };
 
   const handleAutoLink = async () => {
       if (isAutoLinking) return;
@@ -434,8 +452,11 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
     }
   };
 
-  const handleDeleteTransaction = async (id: string) => {
-      if(!window.confirm("¿Eliminar este movimiento?")) return;
+  const handleDeleteTransaction = (id: string) => {
+      setItemToDelete({ type: 'transaction', id });
+  }
+
+  const confirmDeleteTransaction = async (id: string) => {
       try {
           const { error } = await supabase.from('transactions').delete().eq('id', id);
           if (error) throw error;
@@ -443,6 +464,43 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
       } catch (error: any) {
           console.error("Error deleting transaction:", error);
           alert("Error al eliminar movimiento");
+      } finally {
+          setItemToDelete(null);
+      }
+  }
+
+  const handleDeleteDocument = (id: string, e: React.MouseEvent) => {
+      e.stopPropagation();
+      setItemToDelete({ type: 'document', id });
+  }
+
+  const confirmDeleteDocument = async (id: string) => {
+      try {
+          const docToDelete = project.documents?.find(d => d.id === id);
+          if (docToDelete && docToDelete.data.includes('/photos/')) {
+              try {
+                  const urlParts = docToDelete.data.split('/photos/');
+                  if (urlParts.length > 1) {
+                      const filePath = urlParts[1];
+                      await supabase.storage.from('photos').remove([decodeURIComponent(filePath)]);
+                  }
+              } catch (err) {
+                  console.warn("No se pudo eliminar el archivo físico.", err);
+              }
+          }
+          
+          const { error } = await supabase.from('documents').delete().eq('id', id);
+          if (error) throw error;
+          
+          updateProjectWithHistory({
+              ...project, 
+              documents: (project.documents || []).filter(d => d.id !== id)
+          });
+      } catch (error: any) {
+          console.error("Error deleting document:", error);
+          alert("Error al eliminar el ticket");
+      } finally {
+          setItemToDelete(null);
       }
   }
 
@@ -1126,12 +1184,21 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
                             {unlinkedExpenses.length > 0 ? (
                                 <ul className="divide-y divide-slate-200 dark:divide-slate-600">
                                     {unlinkedExpenses.map(t => (
-                                        <li key={t.id} className="p-3 flex justify-between items-center text-xs">
-                                            <div>
+                                        <li key={t.id} className="p-3 flex justify-between items-center text-xs group hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors">
+                                            <div className="flex-1">
                                                 <p className="font-semibold text-slate-900 dark:text-white">{t.description}</p>
                                                 <p className="text-slate-500 dark:text-slate-400">{t.date ? formatDate(t.date) : 'Sin fecha'} • {t.category}</p>
                                             </div>
-                                            <span className="font-bold text-red-600 dark:text-red-400">{t.amount.toLocaleString()}€</span>
+                                            <div className="flex items-center gap-3">
+                                                <span className="font-bold text-red-600 dark:text-red-400">{t.amount.toLocaleString()}€</span>
+                                                <button 
+                                                    onClick={() => setLinkingExpenseId(t.id)}
+                                                    className="opacity-0 group-hover:opacity-100 transition-opacity bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:hover:bg-blue-900/60 dark:text-blue-300 px-2 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1"
+                                                    title="Asociar ticket manualmente"
+                                                >
+                                                    <Link2 className="w-3 h-3" /> Asociar
+                                                </button>
+                                            </div>
                                         </li>
                                     ))}
                                 </ul>
@@ -1174,6 +1241,13 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
                                                     title="Crear gasto a partir de este ticket"
                                                 >
                                                     <Plus className="w-3 h-3" /> Crear Gasto
+                                                </button>
+                                                <button 
+                                                    onClick={(e) => handleDeleteDocument(d.id, e)}
+                                                    className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 hover:bg-red-100 dark:hover:bg-red-900/40 text-red-500 rounded-lg"
+                                                    title="Eliminar ticket"
+                                                >
+                                                    <Trash2 className="w-3.5 h-3.5" />
                                                 </button>
                                             </div>
                                         </li>
@@ -1767,6 +1841,76 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
               defaultCategory={scannerCategory} // Pass the category (general or technical)
           />
       )}
+
+      {/* MANUAL LINK MODAL */}
+      {linkingExpenseId && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[80vh]">
+                  <div className="p-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-800/50">
+                      <h3 className="font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                          <Link2 className="w-4 h-4 text-blue-500" /> Seleccionar Ticket
+                      </h3>
+                      <button onClick={() => setLinkingExpenseId(null)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">
+                          <X className="w-5 h-5" />
+                      </button>
+                  </div>
+                  <div className="p-4 overflow-y-auto flex-1">
+                      {unlinkedTickets.length === 0 ? (
+                          <p className="text-sm text-slate-500 text-center py-4">No hay tickets sin asociar disponibles.</p>
+                      ) : (
+                          <ul className="space-y-2">
+                              {unlinkedTickets.map(d => (
+                                  <li key={d.id} 
+                                      onClick={() => handleManualLink(linkingExpenseId, d.id)}
+                                      className="p-3 border border-slate-200 dark:border-slate-700 rounded-xl hover:border-blue-500 dark:hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 cursor-pointer transition-all flex justify-between items-center group"
+                                  >
+                                      <div>
+                                          <p className="font-semibold text-slate-800 dark:text-slate-200 text-sm group-hover:text-blue-700 dark:group-hover:text-blue-400 transition-colors">{d.name}</p>
+                                          <p className="text-xs text-slate-500">{d.emissionDate ? formatDate(d.emissionDate) : (d.date ? formatDate(d.date) : 'Sin fecha')}</p>
+                                      </div>
+                                      <span className="font-bold text-slate-700 dark:text-slate-300">{(d.amount || 0).toLocaleString()}€</span>
+                                  </li>
+                              ))}
+                          </ul>
+                      )}
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* DELETE CONFIRMATION MODAL */}
+      {itemToDelete && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col">
+                  <div className="p-6 text-center">
+                      <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                          <AlertTriangle className="w-8 h-8" />
+                      </div>
+                      <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">
+                          ¿Eliminar {itemToDelete.type === 'transaction' ? 'movimiento' : 'ticket'}?
+                      </h3>
+                      <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
+                          Esta acción no se puede deshacer. {itemToDelete.type === 'document' && 'El archivo físico también será eliminado.'}
+                      </p>
+                      <div className="flex gap-3">
+                          <button 
+                              onClick={() => setItemToDelete(null)}
+                              className="flex-1 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 font-bold rounded-xl transition-colors"
+                          >
+                              Cancelar
+                          </button>
+                          <button 
+                              onClick={() => itemToDelete.type === 'transaction' ? confirmDeleteTransaction(itemToDelete.id) : confirmDeleteDocument(itemToDelete.id)}
+                              className="flex-1 px-4 py-2.5 bg-red-500 hover:bg-red-600 text-white font-bold rounded-xl transition-colors"
+                          >
+                              Eliminar
+                          </button>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      )}
+
     </div>
   );
 };

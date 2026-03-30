@@ -19,6 +19,7 @@ const DocumentManager: React.FC<DocumentManagerProps> = ({ project, allProjects 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [isUploading, setIsUploading] = useState(false);
     const [isDeleting, setIsDeleting] = useState<string | null>(null);
+    const [docToDelete, setDocToDelete] = useState<string | null>(null);
     const [editingDocId, setEditingDocId] = useState<string | null>(null);
     const [movingDocId, setMovingDocId] = useState<string | null>(null);
     const [targetProjectId, setTargetProjectId] = useState<string>('');
@@ -305,15 +306,18 @@ const DocumentManager: React.FC<DocumentManagerProps> = ({ project, allProjects 
         }
     };
 
-    const handleDelete = async (docId: string) => {
-        if (!window.confirm('¿Eliminar este documento permanentemente?')) return;
+    const handleDelete = (docId: string) => {
+        setDocToDelete(docId);
+    };
+
+    const confirmDelete = async (docId: string) => {
         setIsDeleting(docId);
         try {
             // 1. Intentar borrar de Storage (si es posible parsear la URL)
-            const docToDelete = project.documents.find(d => d.id === docId);
-            if (docToDelete && docToDelete.data.includes('/photos/')) {
+            const docToDeleteObj = project.documents.find(d => d.id === docId);
+            if (docToDeleteObj && docToDeleteObj.data.includes('/photos/')) {
                 try {
-                    const urlParts = docToDelete.data.split('/photos/');
+                    const urlParts = docToDeleteObj.data.split('/photos/');
                     if (urlParts.length > 1) {
                         const filePath = urlParts[1]; // Resto de la ruta
                         await supabase.storage.from('photos').remove([decodeURIComponent(filePath)]);
@@ -336,6 +340,7 @@ const DocumentManager: React.FC<DocumentManagerProps> = ({ project, allProjects 
             alert("No se pudo eliminar el registro: " + error.message);
         } finally {
             setIsDeleting(null);
+            setDocToDelete(null);
         }
     };
 
@@ -596,6 +601,39 @@ const DocumentManager: React.FC<DocumentManagerProps> = ({ project, allProjects 
                     })}
                 </div>
             )}
+            {/* DELETE CONFIRMATION MODAL */}
+            {docToDelete && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col">
+                        <div className="p-6 text-center">
+                            <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <AlertTriangle className="w-8 h-8" />
+                            </div>
+                            <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">
+                                ¿Eliminar documento?
+                            </h3>
+                            <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
+                                Esta acción no se puede deshacer. El archivo físico también será eliminado.
+                            </p>
+                            <div className="flex gap-3">
+                                <button 
+                                    onClick={() => setDocToDelete(null)}
+                                    className="flex-1 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 font-bold rounded-xl transition-colors"
+                                >
+                                    Cancelar
+                                </button>
+                                <button 
+                                    onClick={() => confirmDelete(docToDelete)}
+                                    className="flex-1 px-4 py-2.5 bg-red-500 hover:bg-red-600 text-white font-bold rounded-xl transition-colors"
+                                >
+                                    Eliminar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
         </div>
     );
 };
