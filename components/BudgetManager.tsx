@@ -193,8 +193,9 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
     const handleApplyValidaTariff = () => {
         if (!currentBudget || !project.elevatorData) return;
 
-        const { solutionType, distanceFromBase, floors } = project.elevatorData;
-        const dist = distanceFromBase || 0; // Distancia calculada en creación
+        const { solutionType, distanceFromBase, floors: rawFloors } = project.elevatorData;
+        const floors = Number(rawFloors) || 0;
+        const dist = Number(distanceFromBase) || 0; // Distancia calculada en creación
 
         // 1. Determinar Grupo de Tarifa
         let activeTariff = VALIDA_TARIFFS.GROUP_1; // Por defecto Grupo 1 (Nexus, Vectio, Supes)

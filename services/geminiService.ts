@@ -9,8 +9,8 @@ const genAI = new GoogleGenAI({ apiKey });
 // CAMBIO IMPORTANTE: Arquitectura actualizada para mejor visión y razonamiento.
 // Primary: 3.1 Flash Lite Preview (Muy rápido y con mayor cuota para escaneos masivos).
 // Fallback: 3.1 Pro Preview (El más capaz, por si el lite falla en documentos complejos).
-const MODEL_PRIMARY = 'gemini-3.1-flash-lite-preview';
-const MODEL_FALLBACK = 'gemini-3.1-pro-preview'; 
+const MODEL_PRIMARY = 'gemini-2.5-flash-preview-05-20';
+const MODEL_FALLBACK = 'gemini-2.0-flash'; 
 
 // Estado Global del Modelo (Sticky Strategy)
 // Si el modelo primario falla por cuota, nos quedamos en el fallback un tiempo
