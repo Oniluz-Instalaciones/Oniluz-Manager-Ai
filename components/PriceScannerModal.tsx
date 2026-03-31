@@ -249,11 +249,11 @@ const PriceScannerModal: React.FC<PriceScannerModalProps> = ({ onClose, onSave }
 
                         <div className="w-full space-y-4 max-w-sm">
                             <button onClick={startCamera} className="w-full bg-purple-600 text-white py-4 rounded-2xl font-bold shadow-xl shadow-purple-900/20 hover:bg-purple-700 transition-transform active:scale-95 flex items-center justify-center gap-3 text-lg"><Camera className="w-6 h-6" /> Escanear Tarifa</button>
-                            <input type="file" accept="image/*,application/pdf" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
-                            <button onClick={() => fileInputRef.current?.click()} className="w-full bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 py-4 rounded-2xl font-bold border border-slate-200 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-600 transition-colors flex items-center justify-center gap-3"><Upload className="w-5 h-5" /> Subir Imagen</button>
+                            <input type="file" accept="*/*" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
+                            <button onClick={() => fileInputRef.current?.click()} className="w-full bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 py-4 rounded-2xl font-bold border border-slate-200 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-600 transition-colors flex items-center justify-center gap-3"><Upload className="w-5 h-5" /> Subir Archivo</button>
                         </div>
                         <p className="text-xs text-slate-400 text-center max-w-xs">
-                            Sube fotos de catálogos o tarifas. La IA detectará automáticamente los precios, unidades y paquetes.
+                            Sube cualquier archivo (imagen, PDF, Excel...). La IA detectará automáticamente los precios, unidades y paquetes.
                         </p>
                     </div>
                 )}

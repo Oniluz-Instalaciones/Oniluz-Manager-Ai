@@ -940,7 +940,7 @@ const InvoiceManager: React.FC<InvoiceManagerProps> = ({ project, onUpdate, pric
                         onChange={(e) => handleDescriptionChange(index, e.target.value)}
                         className="w-full text-sm font-medium text-slate-700 bg-transparent outline-none placeholder-slate-300"
                         placeholder="Descripción del concepto"
-                        onFocus={() => setActiveSuggestionIndex(null)} // Clear suggestions when focusing another field? No, maybe just let it be.
+                        onFocus={() => {}} // Clear suggestions when focusing another field? No, maybe just let it be.
                       />
                       {activeSuggestionIndex === index && suggestions.length > 0 && (
                         <div 
