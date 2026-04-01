@@ -7,7 +7,7 @@ import {
   Clock, Activity, CheckSquare, AlertCircle, Users, AlertOctagon, Link2
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
-import { analyzeProjectStatus, analyzeDocument } from '../services/geminiService';
+import { analyzeProjectStatus, analyzeDocument, calculateDrivingDistance } from '../services/geminiService';
 import BudgetManager from './BudgetManager';
 import DocumentManager from './DocumentManager';
 import InvoiceManager from './InvoiceManager';
@@ -892,6 +892,17 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
                                     <span className="font-medium text-slate-900 dark:text-white">
                                         {project.elevatorData?.distanceFromBase || 0} km
                                     </span>
+                                    <button
+                                        onClick={async () => {
+                                            const dist = await calculateDrivingDistance(project.location);
+                                            if (dist > 0) {
+                                                onUpdate(updated);
+                                            }
+                                        }}
+                                        className="text-xs text-blue-500 hover:text-blue-700 mt-1 flex items-center gap-1"
+                                    >
+                                        <RotateCcw className="w-3 h-3" /> Recalcular
+                                    </button>
                                 </div>
                             </div>
                             
