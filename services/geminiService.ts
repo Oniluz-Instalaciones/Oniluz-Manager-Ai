@@ -2,7 +2,7 @@ import { GoogleGenAI, GenerateContentResponse, Type } from "@google/genai";
 import { Project, PriceItem } from "../types";
 
 // --- CONFIGURACIÓN DE API ---
-const apiKey = process.env.API_KEY || 'AIzaSyAPt-4D6bA9qLK-BrijbJBcmnBU1ojXOA8'; 
+const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GOOGLE_GENERATIVE_AI_API_KEY || ''; 
 const genAI = new GoogleGenAI({ apiKey });
 
 // --- ESTRATEGIA DE MODELOS (ROBUSTEZ) ---
