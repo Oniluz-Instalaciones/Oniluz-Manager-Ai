@@ -896,7 +896,9 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
                                         onClick={async () => {
                                             const dist = await calculateDrivingDistance(project.location);
                                             if (dist > 0) {
-                                                onUpdate(updated);
+                                                const newElevatorData = Object.assign({}, project.elevatorData, { distanceFromBase: dist });
+                                                const newProject = Object.assign({}, project, { elevatorData: newElevatorData });
+                                                onUpdate(newProject);
                                             }
                                         }}
                                         className="text-xs text-blue-500 hover:text-blue-700 mt-1 flex items-center gap-1"
