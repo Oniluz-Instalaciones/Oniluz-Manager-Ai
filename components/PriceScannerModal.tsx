@@ -150,30 +150,67 @@ const PriceScannerModal: React.FC<PriceScannerModalProps> = ({ onClose, onSave }
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
+      const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls') || file.type.includes('spreadsheet');
+
+      if (isExcel) {
+        // Leer Excel con xlsx y convertir a texto
+        const arrayBuffer = await file.arrayBuffer();
+        const XLSX = await import('xlsx');
+        const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+        
+        let allText = '';
+        workbook.SheetNames.forEach(sheetName => {
+          const sheet = workbook.Sheets[sheetName];
+          allText += `\n--- Hoja: ${sheetName} ---\n`;
+          allText += XLSX.utils.sheet_to_csv(sheet);
+        });
+
+        // Crear una imagen de texto para enviársela a Gemini
+        setIsAnalyzing(true);
+        setStep('review');
+        try {
+          const { parseMaterialsFromText } = await import('../services/geminiService');
+          const items = await parseMaterialsFromText(allText);
+          const newItems: PriceItem[] = items.map(item => ({
+            ...item,
+            id: crypto.randomUUID(),
+            discount: item.discount || undefined
+          }));
+          setDetectedItems(newItems);
+          setStep('form');
+        } catch (error) {
+          console.error(error);
+          alert("Error al procesar el Excel.");
+          setStep('capture');
+        } finally {
+          setIsAnalyzing(false);
+        }
+        return;
+      }
+
+      // Para imágenes y PDFs (comportamiento original)
       const reader = new FileReader();
       reader.onloadend = () => {
         const base64String = reader.result as string;
         const newPage: ScannedPage = {
-            id: crypto.randomUUID(),
-            base64: base64String,
-            blob: file,
-            mimeType: file.type
+          id: crypto.randomUUID(),
+          base64: base64String,
+          blob: file,
+          mimeType: file.type
         };
-        
         if (isMultiPage) {
-            setPages(prev => [...prev, newPage]);
-            setCurrentPageIndex(pages.length);
-            setStep('review');
+          setPages(prev => [...prev, newPage]);
+          setCurrentPageIndex(pages.length);
+          setStep('review');
         } else {
-            // Single page mode: Process immediately
-            setPages([newPage]);
-            setStep('review');
-            processPagesList([newPage]);
+          setPages([newPage]);
+          setStep('review');
+          processPagesList([newPage]);
         }
       };
       reader.readAsDataURL(file);
     }
-  };
+};
 
   const updateItem = (index: number, field: keyof PriceItem, value: any) => {
       const updated = [...detectedItems];
