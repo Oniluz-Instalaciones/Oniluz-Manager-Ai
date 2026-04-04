@@ -151,21 +151,18 @@ const PriceScannerModal: React.FC<PriceScannerModalProps> = ({ onClose, onSave }
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
       const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls') || file.type.includes('spreadsheet');
-
+      const isCsv = file.name.endsWith('.csv') || file.type === 'text/csv';
+      console.log('Tipo de archivo:', file.type, '| Nombre:', file.name, '| isCsv:', isCsv);
       if (isExcel) {
-        // Leer Excel con xlsx y convertir a texto
         const arrayBuffer = await file.arrayBuffer();
         const XLSX = await import('xlsx');
         const workbook = XLSX.read(arrayBuffer, { type: 'array' });
-        
         let allText = '';
         workbook.SheetNames.forEach(sheetName => {
           const sheet = workbook.Sheets[sheetName];
           allText += `\n--- Hoja: ${sheetName} ---\n`;
           allText += XLSX.utils.sheet_to_csv(sheet);
         });
-
-        // Crear una imagen de texto para enviársela a Gemini
         setIsAnalyzing(true);
         setStep('review');
         try {
@@ -181,6 +178,30 @@ const PriceScannerModal: React.FC<PriceScannerModalProps> = ({ onClose, onSave }
         } catch (error) {
           console.error(error);
           alert("Error al procesar el Excel.");
+          setStep('capture');
+        } finally {
+          setIsAnalyzing(false);
+        }
+        return;
+      }
+
+      if (isCsv) {
+        setIsAnalyzing(true);
+        setStep('review');
+        try {
+          const text = await file.text();
+          const { parseMaterialsFromText } = await import('../services/geminiService');
+          const items = await parseMaterialsFromText(text);
+          const newItems: PriceItem[] = items.map(item => ({
+            ...item,
+            id: crypto.randomUUID(),
+            discount: item.discount || undefined
+          }));
+          setDetectedItems(newItems);
+          setStep('form');
+        } catch (error) {
+          console.error(error);
+          alert("Error al procesar el CSV.");
           setStep('capture');
         } finally {
           setIsAnalyzing(false);
@@ -211,39 +232,6 @@ const PriceScannerModal: React.FC<PriceScannerModalProps> = ({ onClose, onSave }
       reader.readAsDataURL(file);
     }
 };
-
-  const updateItem = (index: number, field: keyof PriceItem, value: any) => {
-      const updated = [...detectedItems];
-      updated[index] = { ...updated[index], [field]: value };
-      setDetectedItems(updated);
-  };
-
-  const removeItem = (index: number) => {
-      const updated = [...detectedItems];
-      updated.splice(index, 1);
-      setDetectedItems(updated);
-  };
-
-  const addEmptyItem = () => {
-      setDetectedItems([...detectedItems, {
-          id: crypto.randomUUID(),
-          name: '',
-          unit: 'ud',
-          price: 0,
-          category: 'Material'
-      }]);
-  };
-
-  const handleSubmit = () => {
-      onSave(detectedItems);
-      onClose();
-  };
-
-  const handleClose = () => {
-      stopCamera();
-      onClose();
-  }
-
   return (
     <div className="fixed inset-0 bg-slate-900/90 flex items-center justify-center p-0 sm:p-4 z-50 backdrop-blur-md">
       <div className="bg-white dark:bg-slate-800 rounded-none sm:rounded-3xl w-full max-w-3xl shadow-2xl overflow-hidden flex flex-col h-full sm:h-auto sm:max-h-[90vh] border border-slate-200 dark:border-slate-700 transition-colors">

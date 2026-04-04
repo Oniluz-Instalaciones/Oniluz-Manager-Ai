@@ -196,6 +196,12 @@ const robustGenerate = async <T>(
             const isQuotaError = errStr.includes('429') || error.status === 429 || error.code === 429 || errStr.includes('RESOURCE_EXHAUSTED');
             const isTimeout = errStr.includes('Timeout') || errStr.includes('fetch failed') || errStr.includes('network');
             const isServerError = errStr.includes('500') || error.status === 500 || error.code === 500 || errStr.includes('503') || error.status === 503;
+            const isBadRequest = errStr.includes('400') || error.status === 400 || error.code === 400;
+
+            if (isBadRequest) {
+                console.error("[Oniluz iA] ❌ Bad Request (400) — Error de payload, no se reintenta.");
+                throw error;
+}
 
             if (!isQuotaError && !isTimeout && !isServerError) {
                 if (attempt >= maxRetries) throw error;
@@ -400,7 +406,12 @@ export const analyzeDocument = async (input: string | string[], mimeType: string
                         { text: prompt }
                     ] 
                 },
-                config: { temperature: 0.0, responseMimeType: 'application/json', responseSchema: documentSchema }
+                config: { 
+                    temperature: 0.0, 
+                    responseMimeType: 'application/json', 
+                    responseSchema: documentSchema,
+                    thinkingConfig: { thinkingLevel: 'minimal' }
+                }
             });
         }, true, onStatus); // Pass onStatus to robustGenerate
 
@@ -427,10 +438,16 @@ export const chatWithAssistant = async (message: string, context?: string): Prom
         const response = await robustGenerate(async (model) => {
             return genAI.models.generateContent({
                 model: model,
-                contents: message,
-                config: { systemInstruction: context || 'Eres un asistente útil.' }
+                // ✅ FIX: mismo patrón
+                contents: {
+                    parts: [{ text: message }]
+                },
+                config: { 
+                    systemInstruction: context || 'Eres un asistente útil.',
+                    thinkingConfig: { thinkingLevel: 'minimal' }
+                }
             });
-        }, true); // Allow fallback for chat
+        }, true);
         return response.text || "Sin respuesta.";
       } catch (error: any) {
         if (error.toString().includes('429')) return "⚠️ El asistente está durmiendo (429). Inténtalo en 1 minuto.";
@@ -450,8 +467,14 @@ export const analyzeProjectStatus = async (project: Project): Promise<string> =>
         const response = await robustGenerate(async (model) => {
             return genAI.models.generateContent({
                 model: model,
-                contents: prompt,
-                config: { systemInstruction: "Consultor senior." }
+                contents: {
+                    parts: [{ text: prompt }]
+                },
+                config: { 
+                    systemInstruction: "Consultor senior.",
+                    thinkingConfig: { thinkingLevel: 'minimal' }
+                }
+                
             });
         }, true);
         
@@ -524,6 +547,7 @@ export const generateSmartBudget = async (description: string, currentPrices: Pr
     });
 };
 
+// ✅ FIX: parseMaterialsFromInput
 export const parseMaterialsFromInput = async (textInput: string): Promise<PriceItem[]> => {
     return apiQueue.add(async () => {
         try {
@@ -550,12 +574,21 @@ export const parseMaterialsFromInput = async (textInput: string): Promise<PriceI
             const response = await robustGenerate(async (model) => {
                 return genAI.models.generateContent({ 
                     model: model, 
-                    contents: prompt,
-                    config: { responseMimeType: 'application/json', responseSchema: materialsSchema }
+                    // ✅ FIX: contents como objeto estructurado, NO string directo
+                    contents: {
+                        parts: [{ text: prompt }]
+                    },
+                    config: { 
+                        temperature: 0.3, 
+                        systemInstruction, 
+                        responseMimeType: 'application/json', 
+                        responseSchema: budgetSchema,
+                        thinkingConfig: { thinkingLevel: 'minimal' }  // ✅ AÑADIR esto
+                    }
                 });
             }, true);
 
-            const result = JSON.parse(response.text || "[]");
+            const result = cleanAndParseJSON(response.text || "[]");
             return (Array.isArray(result) ? result : []).map((item: any) => ({
                 ...item,
                 price: sanitizeNumber(item.price),
@@ -607,7 +640,11 @@ export const parseMaterialsFromImage = async (input: string | string[]): Promise
                             { text: prompt }
                         ]
                     },
-                    config: { responseMimeType: 'application/json', responseSchema: materialsSchema }
+                    config: { 
+    responseMimeType: 'application/json', 
+    responseSchema: materialsSchema,
+    thinkingConfig: { thinkingLevel: 'minimal' }  // ✅ AÑADIR
+}
                 });
             }, true);
 
@@ -626,6 +663,9 @@ export const parseMaterialsFromImage = async (input: string | string[]): Promise
  * Usamos OpenStreetMap (Nominatim + OSRM) para evitar errores 429 de Gemini.
  * Es gratis, no requiere API Key (para uso moderado) y es exacto.
  */
+export const parseMaterialsFromText = async (text: string): Promise<PriceItem[]> => {
+    return parseMaterialsFromInput(text);
+};
 export const calculateDrivingDistance = async (destination: string): Promise<number> => {
     // No pasamos por la cola de API de Gemini porque esto es una petición fetch estándar.
     try {
