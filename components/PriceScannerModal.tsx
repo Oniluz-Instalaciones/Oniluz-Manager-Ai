@@ -232,7 +232,44 @@ const PriceScannerModal: React.FC<PriceScannerModalProps> = ({ onClose, onSave }
       reader.readAsDataURL(file);
     }
 };
-  return (
+// ✅ FUNCIONES QUE FALTABAN
+const handleClose = () => {
+    stopCamera();
+    onClose();
+  };
+
+  const handleSubmit = () => {
+    if (detectedItems.length === 0) {
+      alert("No hay artículos para guardar.");
+      return;
+    }
+    onSave(detectedItems);
+    onClose();
+  };
+
+  const addEmptyItem = () => {
+    setDetectedItems(prev => [...prev, {
+      id: crypto.randomUUID(),
+      name: '',
+      unit: 'ud',
+      price: 0,
+      category: 'Material',
+      discount: undefined
+    }]);
+  };
+
+  const updateItem = (index: number, field: keyof PriceItem, value: any) => {
+    setDetectedItems(prev => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+  };
+
+  const removeItem = (index: number) => {
+    setDetectedItems(prev => prev.filter((_, i) => i !== index));
+  };
+return (
     <div className="fixed inset-0 bg-slate-900/90 flex items-center justify-center p-0 sm:p-4 z-50 backdrop-blur-md">
       <div className="bg-white dark:bg-slate-800 rounded-none sm:rounded-3xl w-full max-w-3xl shadow-2xl overflow-hidden flex flex-col h-full sm:h-auto sm:max-h-[90vh] border border-slate-200 dark:border-slate-700 transition-colors">
         <div className="bg-purple-600 p-5 flex justify-between items-center text-white shadow-lg z-10 shrink-0">
