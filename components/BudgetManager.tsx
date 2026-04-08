@@ -254,7 +254,13 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
         if (!aiPrompt.trim()) return;
         setIsGenerating(true);
         try {
-            const docImages = includeDocs ? (project.documents || []).filter(d => d.type === 'image').map(d => d.data) : [];
+            // ✅ FIX: usa la URL de Supabase directamente (prepareImagePart la descargará)
+    const docImages = includeDocs 
+    ? (project.documents || [])
+        .filter(d => d.category === 'technical' && d.data)
+        .slice(0, 5)
+        .map(d => d.data)
+    : [];
             const contextPrompt = `Contexto del Proyecto: Nombre "${project.name}", Tipo "${project.type}", Ubicación "${project.location}". Solicitud del usuario: ${aiPrompt}`;
 
             const items = await generateSmartBudget(contextPrompt, priceDatabase, docImages);
@@ -347,7 +353,6 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                 total: currentBudget.total,
                 ai_prompt: currentBudget.aiPrompt
             };
-
             let { error: budgetError } = await supabase.from('budgets').upsert(budgetPayload);
 
             if (budgetError && (budgetError.message.includes('ai_prompt') || budgetError.code === 'PGRST204')) {
@@ -356,21 +361,7 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                 budgetError = retry.error;
             }
 
-            if (budgetError) throw budgetError;
-
-            const { error: deleteError } = await supabase.from('budget_items').delete().eq('budget_id', currentBudget.id);
-            if (deleteError) throw deleteError;
-
-            if (currentBudget.items.length > 0) {
-                const itemsToInsert = currentBudget.items.map(item => ({
-                    budget_id: currentBudget.id,
-                    name: item.name,
-                    unit: item.unit,
-                    quantity: item.quantity,
-                    price_per_unit: item.pricePerUnit,
-                    category: item.category
-                }));
-
+}
                 const { error: insertError } = await supabase.from('budget_items').insert(itemsToInsert);
                 if (insertError) throw insertError;
             }
