@@ -344,75 +344,75 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
         setIsSaving(true);
 
         try {
-    const budgetPayload: any = {
-        id: currentBudget.id,
-        project_id: project.id,
-        name: currentBudget.name,
-        date: currentBudget.date,
-        status: currentBudget.status,
-        total: currentBudget.total,
-        ai_prompt: currentBudget.aiPrompt
-    };
-    let { error: budgetError } = await supabase.from('budgets').upsert(budgetPayload);
+            const budgetPayload: any = {
+                id: currentBudget.id,
+                project_id: project.id,
+                name: currentBudget.name,
+                date: currentBudget.date,
+                status: currentBudget.status,
+             total: currentBudget.total,
+             ai_prompt: currentBudget.aiPrompt
+            };
+            let { error: budgetError } = await supabase.from('budgets').upsert(budgetPayload);
+         
+            if (budgetError && (budgetError.message.includes('ai_prompt') || budgetError.code === 'PGRST204')) {
+                delete budgetPayload.ai_prompt;
+                const retry = await supabase.from('budgets').upsert(budgetPayload);
+                budgetError = retry.error;
+            }
 
-    if (budgetError && (budgetError.message.includes('ai_prompt') || budgetError.code === 'PGRST204')) {
-        delete budgetPayload.ai_prompt;
-        const retry = await supabase.from('budgets').upsert(budgetPayload);
-        budgetError = retry.error;
-    }
+            if (budgetError) throw budgetError;
 
-    if (budgetError) throw budgetError;
+            const itemsToInsert = currentBudget.items.map(item => ({
+                id: item.id,
+                budget_id: currentBudget.id,
+                name: item.name,
+                unit: item.unit,
+                quantity: item.quantity,
+                price_per_unit: item.pricePerUnit,
+                category: item.category,
+                discount: item.discount ?? 0
+            }));
 
-    const itemsToInsert = currentBudget.items.map(item => ({
-        id: item.id,
-        budget_id: currentBudget.id,
-        name: item.name,
-        unit: item.unit,
-        quantity: item.quantity,
-        price_per_unit: item.pricePerUnit,
-        category: item.category,
-        discount: item.discount ?? 0
-    }));
+            await supabase.from('budget_items').delete().eq('budget_id', currentBudget.id);
 
-    await supabase.from('budget_items').delete().eq('budget_id', currentBudget.id);
+            if (itemsToInsert.length > 0) {
+                const { error: insertError } = await supabase.from('budget_items').insert(itemsToInsert);
+                if (insertError) throw insertError;
+            }
 
-    if (itemsToInsert.length > 0) {
-        const { error: insertError } = await supabase.from('budget_items').insert(itemsToInsert);
-        if (insertError) throw insertError;
-    }
-
-    const budgets = project.budgets || [];
-    const existingIndex = budgets.findIndex(b => b.id === currentBudget.id);
+            const budgets = project.budgets || [];
+            const existingIndex = budgets.findIndex(b => b.id === currentBudget.id);
     
-    let updatedBudgets;
-    if (existingIndex >= 0) {
-        updatedBudgets = budgets.map((b, i) => i === existingIndex ? currentBudget : b);
-    } else {
-        updatedBudgets = [currentBudget, ...budgets];
-    }
+            let updatedBudgets;
+            if (existingIndex >= 0) {
+                updatedBudgets = budgets.map((b, i) => i === existingIndex ? currentBudget : b);
+            } else {
+                updatedBudgets = [currentBudget, ...budgets];
+            }
 
-    let newStatus = project.status;
-    let newProgress = project.progress;
+            let newStatus = project.status;
+            let newProgress = project.progress;
 
-    if (project.status === 'Planning') {
-        newStatus = 'In Progress';
-        newProgress = Math.max(project.progress || 0, 50);
-    }
+            if (project.status === 'Planning') {
+                newStatus = 'In Progress';
+                newProgress = Math.max(project.progress || 0, 50);
+            }
 
-    onUpdate({ 
-        ...project, 
-        budgets: updatedBudgets,
-        status: newStatus,
-        progress: newProgress
-    });
-    setView('list');
+            onUpdate({ 
+                ...project, 
+                budgets: updatedBudgets,
+                status: newStatus,
+                progress: newProgress
+            });
+            setView('list');
 
-} catch (error: any) {
-    console.error("Error saving budget:", error);
-    alert("Error guardando en la nube: " + error.message);
-} finally {
-    setIsSaving(false);
-}
+        } catch (error: any) {
+            console.error("Error saving budget:", error);
+            alert("Error guardando en la nube: " + error.message);
+        } finally {
+            setIsSaving(false);
+        }
 
     const handleDeleteBudget = (id: string) => {
         setBudgetToDelete(id);
