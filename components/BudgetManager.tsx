@@ -344,22 +344,6 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
         setIsSaving(true);
 
         try {
-            const budgetPayload: any = {
-                id: currentBudget.id,
-                project_id: project.id,
-                name: currentBudget.name,
-                date: currentBudget.date,
-                status: currentBudget.status,
-             total: currentBudget.total,
-             ai_prompt: currentBudget.aiPrompt
-            };
-            let { error: budgetError } = await supabase.from('budgets').upsert(budgetPayload);
-         
-            if (budgetError && (budgetError.message.includes('ai_prompt') || budgetError.code === 'PGRST204')) {
-                delete budgetPayload.ai_prompt;
-                const retry = await supabase.from('budgets').upsert(budgetPayload);
-                budgetError = retry.error;
-            }
 
             if (budgetError) throw budgetError;
 
