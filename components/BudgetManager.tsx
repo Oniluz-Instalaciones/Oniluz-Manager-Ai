@@ -394,9 +394,10 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
         } catch (error: any) {
             console.error("Error saving budget:", error);
             alert("Error guardando en la nube: " + error.message);
-        } finally {
+           } finally {
             setIsSaving(false);
         }
+    };
 
     const handleDeleteBudget = (id: string) => {
         setBudgetToDelete(id);
