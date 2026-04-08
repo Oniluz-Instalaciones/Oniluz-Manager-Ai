@@ -361,7 +361,7 @@ const BudgetManager: React.FC<BudgetManagerProps> = ({ project, onUpdate, priceD
                 budgetError = retry.error;
             }
 
-}
+
                 const { error: insertError } = await supabase.from('budget_items').insert(itemsToInsert);
                 if (insertError) throw insertError;
             }
