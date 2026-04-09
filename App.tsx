@@ -205,7 +205,7 @@ const App: React.FC = () => {
           incidents(*),
           budgets(*, items:budget_items(*))
         `)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: true });
 
       if (error) throw error;
 
