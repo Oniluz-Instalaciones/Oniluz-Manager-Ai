@@ -96,6 +96,7 @@ export interface BudgetItem {
   quantity: number;
   pricePerUnit: number;
   category: string; // 'Material' | 'Mano de Obra' | 'Maquinaria'
+  discount?: number;
 }
 
 export interface Budget {
