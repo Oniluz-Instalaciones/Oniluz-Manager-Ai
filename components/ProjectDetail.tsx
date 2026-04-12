@@ -896,14 +896,12 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
                                         onClick={async () => {
                                             const dist = await calculateDrivingDistance(project.location);
                                             if (dist > 0) {
-                                                const newElevatorData = {
-                                                    ...(project.elevatorData || {}),
-                                                    distanceFromBase: dist
-                                                };
+                                                const cleanElevatorData = JSON.parse(JSON.stringify(project.elevatorData || {}));
+                                                cleanElevatorData.distanceFromBase = dist;
 
                                                 const { error } = await supabase
                                                     .from('projects')
-                                                    .update({ elevator_data: newElevatorData })
+                                                    .update({ elevator_data: cleanElevatorData })
                                                     .eq('id', project.id);
 
                                                 if (error) {
@@ -912,10 +910,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
                                                     return;
                                                 }
 
-                                                onUpdate({
-                                                    ...project,
-                                                    elevatorData: newElevatorData
-                                                });
+                                                window.location.reload();
                                             }
                                         }}
                                         className="text-xs text-blue-500 hover:text-blue-700 mt-1 flex items-center gap-1"
