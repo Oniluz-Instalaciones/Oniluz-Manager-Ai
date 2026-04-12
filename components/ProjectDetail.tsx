@@ -912,7 +912,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
 
                                                 const { error } = await supabase
                                                     .from('projects')
-                                                    .update({ elevator_data: JSON.stringify(cleanElevatorData) })
+                                                    .update({ elevator_data: cleanElevatorData })
                                                     .eq('id', project.id);
 
                                                 if (error) {
