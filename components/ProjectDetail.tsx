@@ -896,7 +896,26 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
                                         onClick={async () => {
                                             const dist = await calculateDrivingDistance(project.location);
                                             if (dist > 0) {
-                                                updateElevatorField('distanceFromBase', dist);
+                                                const newElevatorData = {
+                                                    ...(project.elevatorData || {}),
+                                                    distanceFromBase: dist
+                                                };
+
+                                                const { error } = await supabase
+                                                    .from('projects')
+                                                    .update({ elevator_data: newElevatorData })
+                                                    .eq('id', project.id);
+
+                                                if (error) {
+                                                    console.error('Error guardando distancia:', error);
+                                                    alert('Error al guardar la distancia.');
+                                                    return;
+                                                }
+
+                                                onUpdate({
+                                                    ...project,
+                                                    elevatorData: newElevatorData
+                                                });
                                             }
                                         }}
                                         className="text-xs text-blue-500 hover:text-blue-700 mt-1 flex items-center gap-1"
@@ -923,7 +942,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
                             </div>
                         </div>
 
-                        <div className="space-y-4">
+                        <div className="space-yonClick-4">
                              <div className="flex items-start gap-3">
                                 <div className="p-2 bg-slate-50 dark:bg-slate-700/50 rounded-lg text-slate-400">
                                     <FileCheck className="w-4 h-4" />
