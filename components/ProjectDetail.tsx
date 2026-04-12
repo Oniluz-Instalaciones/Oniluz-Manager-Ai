@@ -898,7 +898,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
                                             if (dist > 0) {
                                                 const { error } = await supabase
                                                     .from('projects')
-                                                    .update({ elevator_data: { ...(project.elevatorData as any || {}), distanceFromBase: dist } })
+                                                    .update({ elevator_data: JSON.stringify({ ...(project.elevatorData as any || {}), distanceFromBase: dist }) })
                                                     .eq('id', project.id);
 
                                                 if (error) {

@@ -54,7 +54,7 @@ const extractProjectData = (rawDesc: string, rawPhone: string, rawEmail: string,
     let description = rawDesc || '';
     let phone = rawPhone;
     let email = rawEmail;
-    let elevatorData = rawElevator;
+    let elevatorData = typeof rawElevator === 'string' ? (() => { try { return JSON.parse(rawElevator); } catch { return null; } })() : rawElevator;
     let pvData = rawPv;
     let invoiceData = null;
 
