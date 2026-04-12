@@ -221,97 +221,75 @@ if (hasCachedData) {
 
       // OPTIMIZATION: Removed 'documents(*)' from main fetch to prevent "Failed to fetch" (payload too large)
       // Documents are now lazy-loaded when a project is selected.
-      const { data, error } = await supabase
-        .from('projects')
-        .select(`
-          *,
-          transactions(*),
-          materials(*),
-          incidents(*),
-          budgets(*, items:budget_items(*))
-        `)
-        .order('start_date', { ascending: false});
+      // FASE 1: Solo proyectos — rápido, UI aparece inmediatamente
+const { data, error } = await supabase
+  .from('projects')
+  .select('*')
+  .order('start_date', { ascending: false });
 
-      if (error) throw error;
+if (error) throw error;
 
-      if (data) {
-        const formattedProjects: Project[] = data.map((p: any) => {
-          // Robust extraction: Checks DB columns first, falls back to description embedding
-          const { description, phone, email, elevatorData, pvData, invoiceData } = extractProjectData(
-              p.description, 
-              p.client_phone, 
-              p.client_email, 
-              p.elevator_data, 
-              p.pv_data
-          );
-          
-          return {
-            id: p.id,
-            type: p.type as any,
-            name: p.name,
-            client: p.client,
-            clientPhone: phone, 
-            clientEmail: email,
-            location: p.location,
-            status: p.status,
-            progress: Number(p.progress),
-            startDate: p.start_date,
-            endDate: p.end_date,
-            budget: Number(p.budget),
-            description: description, // Clean description without JSON blobs
-            pvData: pvData, 
-            elevatorData: elevatorData, 
-            invoiceData: invoiceData, 
-            invoices: invoiceData || [], // Sync invoices from embedded data
-            transactions: p.transactions?.map((t: any) => ({
-                ...t,
-                projectId: t.project_id,
-                userName: t.user_name, // Map database snake_case to app camelCase
-                relatedDocumentId: t.related_document_id
-            })) || [],
-            materials: p.materials?.map((m: any) => ({
-                ...m,
-                projectId: m.project_id,
-                pricePerUnit: m.price_per_unit,
-                minStock: m.min_stock,
-                packageSize: m.package_size
-            })) || [],
-            incidents: p.incidents?.map((i: any) => ({
-                ...i,
-                projectId: i.project_id,
-                resolvedAt: i.resolved_at
-            })) || [],
-            documents: [], // Placeholder, will be merged below
-            budgets: p.budgets?.map((b: any) => ({
-               ...b,
-               projectId: b.project_id,
-               items: b.items?.map((i: any) => ({
-                   ...i,
-                   budgetId: i.budget_id,
-                   pricePerUnit: i.price_per_unit
-               })) || [],
-               aiPrompt: b.ai_prompt
-            })) || []
-          };
-        });
-
-        // CRITICAL FIX: Preserve existing documents when refreshing project list
-        // Since we lazy-load documents, a full fetchProjects() (which returns documents=[]) 
-        // would wipe out currently loaded documents if we simply replaced the state.
-        setProjects(currentProjects => {
-  const merged = formattedProjects.map(newP => {
-    const existingP = currentProjects.find(p => p.id === newP.id);
-    if (existingP && existingP.documents && existingP.documents.length > 0) {
-      return { ...newP, documents: existingP.documents };
-    }
-    return newP;
+if (data) {
+  // Mostrar proyectos básicos inmediatamente
+  const basicProjects: Project[] = data.map((p: any) => {
+    const { description, phone, email, elevatorData, pvData, invoiceData } = extractProjectData(
+      p.description, p.client_phone, p.client_email, p.elevator_data, p.pv_data
+    );
+    return {
+      id: p.id, type: p.type as any, name: p.name, client: p.client,
+      clientPhone: phone, clientEmail: email, location: p.location,
+      status: p.status, progress: Number(p.progress),
+      startDate: p.start_date, endDate: p.end_date,
+      budget: Number(p.budget), description,
+      pvData, elevatorData, invoiceData,
+      invoices: invoiceData || [],
+      transactions: [], materials: [], incidents: [], documents: [], budgets: []
+    };
   });
-  writeProjectsCache(merged); // ← línea añadida
-  return merged;
-});
 
-        setFetchError(null); // Clear any previous errors on success
-      }
+  setProjects(currentProjects => {
+    const merged = basicProjects.map(newP => {
+      const existingP = currentProjects.find(p => p.id === newP.id);
+      if (existingP && existingP.documents?.length > 0) return { ...newP, documents: existingP.documents };
+      return newP;
+    });
+    writeProjectsCache(merged);
+    return merged;
+  });
+  setIsLoading(false); // UI visible ya
+
+  // FASE 2: Cargar relaciones en segundo plano
+  const ids = data.map((p: any) => p.id);
+  const [txRes, matRes, incRes, budRes] = await Promise.all([
+    supabase.from('transactions').select('*').in('project_id', ids),
+    supabase.from('materials').select('*').in('project_id', ids),
+    supabase.from('incidents').select('*').in('project_id', ids),
+    supabase.from('budgets').select('*, items:budget_items(*)').in('project_id', ids),
+  ]);
+
+  setProjects(currentProjects => {
+    const enriched = currentProjects.map(p => ({
+      ...p,
+      transactions: txRes.data?.filter((t: any) => t.project_id === p.id).map((t: any) => ({
+        ...t, projectId: t.project_id, userName: t.user_name, relatedDocumentId: t.related_document_id
+      })) || p.transactions,
+      materials: matRes.data?.filter((m: any) => m.project_id === p.id).map((m: any) => ({
+        ...m, projectId: m.project_id, pricePerUnit: m.price_per_unit, minStock: m.min_stock, packageSize: m.package_size
+      })) || p.materials,
+      incidents: incRes.data?.filter((i: any) => i.project_id === p.id).map((i: any) => ({
+        ...i, projectId: i.project_id, resolvedAt: i.resolved_at
+      })) || p.incidents,
+      budgets: budRes.data?.filter((b: any) => b.project_id === p.id).map((b: any) => ({
+        ...b, projectId: b.project_id, aiPrompt: b.ai_prompt,
+        items: b.items?.map((i: any) => ({ ...i, budgetId: i.budget_id, pricePerUnit: i.price_per_unit })) || []
+      })) || p.budgets,
+    }));
+    writeProjectsCache(enriched);
+    return enriched;
+  });
+  setFetchError(null);
+}
+      
     } catch (err: any) {
       console.error(`Error fetching projects from Supabase (Attempt ${retryCount + 1}):`, err);
       
