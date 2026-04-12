@@ -894,37 +894,40 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
                                     </span>
                                     <button
                                         onClick={async () => {
-    const dist = await calculateDrivingDistance(project.location);
-    if (dist > 0) {
-        // elevator_data viene como string desde Supabase, hay que parsearlo
-        let cleanElevatorData: any = {};
-        try {
-            const raw = project.elevatorData;
-            if (typeof raw === 'string') {
-                cleanElevatorData = JSON.parse(raw);
-            } else if (typeof raw === 'object' && raw !== null) {
-                cleanElevatorData = JSON.parse(JSON.stringify(raw));
-            }
-        } catch {
-            cleanElevatorData = {};
-        }
+                                            const dist = await calculateDrivingDistance(project.location);
+                                            if (dist > 0) {
+                                                let cleanElevatorData: any = {};
+                                                try {
+                                                    const raw = project.elevatorData;
+                                                    if (typeof raw === 'string') {
+                                                        cleanElevatorData = JSON.parse(raw);
+                                                    } else if (typeof raw === 'object' && raw !== null) {
+                                                        cleanElevatorData = JSON.parse(JSON.stringify(raw));
+                                                    }
+                                                } catch {
+                                                    cleanElevatorData = {};
+                                                }
 
-        cleanElevatorData.distanceFromBase = dist;
+                                                cleanElevatorData.distanceFromBase = dist;
 
-        const { error } = await supabase
-            .from('projects')
-            .update({ elevator_data: JSON.stringify(cleanElevatorData) })
-            .eq('id', project.id);
+                                                const { error } = await supabase
+                                                    .from('projects')
+                                                    .update({ elevator_data: JSON.stringify(cleanElevatorData) })
+                                                    .eq('id', project.id);
 
-        if (error) {
-            console.error('Error guardando distancia:', error);
-            alert('Error al guardar la distancia.');
-            return;
-        }
+                                                if (error) {
+                                                    console.error('Error guardando distancia:', error);
+                                                    alert('Error al guardar la distancia.');
+                                                    return;
+                                                }
 
-        window.location.reload();
-    }
-}}
+                                                window.location.reload();
+                                            }
+                                        }}
+                                        className="text-xs text-blue-500 hover:text-blue-700 mt-1 flex items-center gap-1"
+                                    >
+                                        <RotateCcw className="w-3 h-3" /> Recalcular
+                                    </button>
                                 </div>
                             </div>
                             
