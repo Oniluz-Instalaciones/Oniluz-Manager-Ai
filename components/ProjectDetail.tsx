@@ -894,26 +894,11 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
                                     </span>
                                     <button
                                         onClick={async () => {
-    const dist = await calculateDrivingDistance(project.location);
-    if (dist > 0) {
-        const newElevatorData = Object.assign({}, project.elevatorData, { distanceFromBase: dist });
-        const newProject = Object.assign({}, project, { elevatorData: newElevatorData });
-
-        // ✅ Guardar en Supabase para que persista
-        const { error } = await supabase
-            .from('projects')
-            .update({ elevator_data: newElevatorData })
-            .eq('id', project.id);
-
-        if (error) {
-            console.error('Error guardando distancia:', error);
-            alert('Error al guardar la distancia.');
-            return;
-        }
-
-        onUpdate(newProject);
-    }
-}}
+                                            const dist = await calculateDrivingDistance(project.location);
+                                            if (dist > 0) {
+                                                updateElevatorField('distanceFromBase', dist);
+                                            }
+                                        }}
                                         className="text-xs text-blue-500 hover:text-blue-700 mt-1 flex items-center gap-1"
                                     >
                                         <RotateCcw className="w-3 h-3" /> Recalcular
