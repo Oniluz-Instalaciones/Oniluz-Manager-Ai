@@ -894,29 +894,37 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
                                     </span>
                                     <button
                                         onClick={async () => {
-                                            const dist = await calculateDrivingDistance(project.location);
-                                            if (dist > 0) {
-                                                const cleanElevatorData = JSON.parse(JSON.stringify(project.elevatorData || {}));
-                                                cleanElevatorData.distanceFromBase = dist;
+    const dist = await calculateDrivingDistance(project.location);
+    if (dist > 0) {
+        // elevator_data viene como string desde Supabase, hay que parsearlo
+        let cleanElevatorData: any = {};
+        try {
+            const raw = project.elevatorData;
+            if (typeof raw === 'string') {
+                cleanElevatorData = JSON.parse(raw);
+            } else if (typeof raw === 'object' && raw !== null) {
+                cleanElevatorData = JSON.parse(JSON.stringify(raw));
+            }
+        } catch {
+            cleanElevatorData = {};
+        }
 
-                                                const { error } = await supabase
-                                                    .from('projects')
-                                                    .update({ elevator_data: cleanElevatorData })
-                                                    .eq('id', project.id);
+        cleanElevatorData.distanceFromBase = dist;
 
-                                                if (error) {
-                                                    console.error('Error guardando distancia:', error);
-                                                    alert('Error al guardar la distancia.');
-                                                    return;
-                                                }
+        const { error } = await supabase
+            .from('projects')
+            .update({ elevator_data: JSON.stringify(cleanElevatorData) })
+            .eq('id', project.id);
 
-                                                window.location.reload();
-                                            }
-                                        }}
-                                        className="text-xs text-blue-500 hover:text-blue-700 mt-1 flex items-center gap-1"
-                                    >
-                                        <RotateCcw className="w-3 h-3" /> Recalcular
-                                    </button>
+        if (error) {
+            console.error('Error guardando distancia:', error);
+            alert('Error al guardar la distancia.');
+            return;
+        }
+
+        window.location.reload();
+    }
+}}
                                 </div>
                             </div>
                             
