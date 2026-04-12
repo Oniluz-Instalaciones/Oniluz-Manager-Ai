@@ -113,7 +113,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
   
   // Local state for Settings form to allow manual save
   const [settingsForm, setSettingsForm] = useState<Project | null>(null);
-
+  const [localDistance, setLocalDistance] = useState<number>(project.elevatorData?.distanceFromBase || 0);
   useEffect(() => {
       if (activeTab === 'settings' && project) {
           setSettingsForm(project);
@@ -890,29 +890,15 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
                                 <div>
                                     <span className="text-xs text-slate-500 dark:text-slate-400 block mb-0.5">Distancia desde Base</span>
                                     <span className="font-medium text-slate-900 dark:text-white">
-                                        {project.elevatorData?.distanceFromBase || 0} km
+                                        {localDistance} km
                                     </span>
                                     <button
                                         onClick={async () => {
                                             const dist = await calculateDrivingDistance(project.location);
                                             if (dist > 0) {
-                                                let cleanElevatorData: any = {};
-                                                try {
-                                                    const raw = project.elevatorData;
-                                                    if (typeof raw === 'string') {
-                                                        cleanElevatorData = JSON.parse(raw);
-                                                    } else if (typeof raw === 'object' && raw !== null) {
-                                                        cleanElevatorData = JSON.parse(JSON.stringify(raw));
-                                                    }
-                                                } catch {
-                                                    cleanElevatorData = {};
-                                                }
-
-                                                cleanElevatorData.distanceFromBase = dist;
-
                                                 const { error } = await supabase
                                                     .from('projects')
-                                                    .update({ elevator_data: cleanElevatorData })
+                                                    .update({ elevator_data: { ...(project.elevatorData as any || {}), distanceFromBase: dist } })
                                                     .eq('id', project.id);
 
                                                 if (error) {
@@ -921,7 +907,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, projects, onBack
                                                     return;
                                                 }
 
-                                                window.location.reload();
+                                                setLocalDistance(dist);
                                             }
                                         }}
                                         className="text-xs text-blue-500 hover:text-blue-700 mt-1 flex items-center gap-1"
