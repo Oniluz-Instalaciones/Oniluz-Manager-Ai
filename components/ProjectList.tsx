@@ -38,12 +38,13 @@ interface ProjectListProps {
   isDarkMode: boolean;
   onToggleDarkMode: () => void;
   onLogout: () => void;
+  isRevalidating?: boolean;
   currentUserName: string;
 }
 
 const ProjectList: React.FC<ProjectListProps> = ({ 
   projects, onSelectProject, onAddProject, onUpdateProject, 
-  onOpenGlobalFinance, onOpenInternalFinance, onOpenStockManager, onOpenPriceDb, onOpenCalendar, isDarkMode, onToggleDarkMode, onLogout, currentUserName
+  onOpenGlobalFinance, onOpenInternalFinance, onOpenStockManager, onOpenPriceDb, onOpenCalendar, isDarkMode, onToggleDarkMode, onLogout, currentUserName, isRevalidating = false
 }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalType, setModalType] = useState<ProjectType>('General');
@@ -363,6 +364,12 @@ const ProjectList: React.FC<ProjectListProps> = ({
                         <div className={`w-4 h-4 bg-white rounded-full absolute top-1 transition-transform shadow-sm ${isDarkMode ? 'left-7' : 'left-1'}`}></div>
                       </button>
                     </div>
+                    {isRevalidating && (
+  <div className="flex items-center justify-center gap-1.5 py-1.5 text-xs text-slate-400 dark:text-slate-500">
+    <span className="inline-block h-1.5 w-1.5 rounded-full bg-blue-400 animate-ping" />
+    Actualizando proyectos...
+  </div>
+)}
                     <button 
                       onClick={onLogout}
                       className="w-full flex items-center justify-center p-2.5 rounded-xl bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 hover:border-red-100 transition-all font-semibold text-sm gap-2"

@@ -15,6 +15,25 @@ import { Loader2, AlertCircle, RefreshCw, AlertTriangle } from 'lucide-react';
 
 // --- Helpers for Schema Compatibility ---
 // Tags to identify embedded data in description
+// --- Cache de proyectos (stale-while-revalidate) ---
+const PROJECTS_CACHE_KEY = 'oniluz_projects_v1';
+const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutos
+
+function readProjectsCache(): Project[] | null {
+  try {
+    const raw = localStorage.getItem(PROJECTS_CACHE_KEY);
+    if (!raw) return null;
+    const { data, ts } = JSON.parse(raw);
+    if (Date.now() - ts > CACHE_TTL_MS) return null;
+    return data as Project[];
+  } catch { return null; }
+}
+
+function writeProjectsCache(data: Project[]) {
+  try {
+    localStorage.setItem(PROJECTS_CACHE_KEY, JSON.stringify({ data, ts: Date.now() }));
+  } catch { /* quota exceeded */ }
+}
 const EMBED_TAG = '[Contacto:';
 const ELEVATOR_TAG_OPEN = '[ELEVATOR_JSON]';
 const ELEVATOR_TAG_CLOSE = '[/ELEVATOR_JSON]';
@@ -109,8 +128,9 @@ const App: React.FC = () => {
   const [isAuthLoading, setIsAuthLoading] = useState(true);
 
   // Application State
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [projects, setProjects] = useState<Project[]>(() => readProjectsCache() ?? []);
+  const [isLoading, setIsLoading] = useState(() => !readProjectsCache()); // false si hay caché
+  const [isRevalidating, setIsRevalidating] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
   // Price Database is now fetched from Supabase, not local storage
@@ -182,7 +202,12 @@ const App: React.FC = () => {
     
     // Reset error state before fetching ONLY on first attempt
     if (retryCount === 0) setFetchError(null);
-    
+    const hasCachedData = projects.length > 0;
+if (hasCachedData) {
+  setIsRevalidating(true);
+} else {
+
+}
     try {
       if (retryCount === 0) setIsLoading(true);
 
@@ -274,15 +299,16 @@ const App: React.FC = () => {
         // Since we lazy-load documents, a full fetchProjects() (which returns documents=[]) 
         // would wipe out currently loaded documents if we simply replaced the state.
         setProjects(currentProjects => {
-            return formattedProjects.map(newP => {
-                const existingP = currentProjects.find(p => p.id === newP.id);
-                // If we have existing documents in memory for this project, keep them
-                if (existingP && existingP.documents && existingP.documents.length > 0) {
-                    return { ...newP, documents: existingP.documents };
-                }
-                return newP;
-            });
-        });
+  const merged = formattedProjects.map(newP => {
+    const existingP = currentProjects.find(p => p.id === newP.id);
+    if (existingP && existingP.documents && existingP.documents.length > 0) {
+      return { ...newP, documents: existingP.documents };
+    }
+    return newP;
+  });
+  writeProjectsCache(merged); // ← línea añadida
+  return merged;
+});
 
         setFetchError(null); // Clear any previous errors on success
       }
@@ -304,6 +330,7 @@ const App: React.FC = () => {
     } finally {
       // Only stop loading if we are not retrying or if we hit max retries
       if (retryCount === 0 || retryCount >= 3) setIsLoading(false);
+      setIsRevalidating(false);
     }
   }, [session]);
 
@@ -889,17 +916,7 @@ const App: React.FC = () => {
       );
   }
 
-  if (isLoading && projects.length === 0) {
-      return (
-          <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900">
-              <div className="flex flex-col items-center gap-4">
-                  <Loader2 className="w-10 h-10 animate-spin text-[#0047AB]" />
-                  <p className="text-slate-500 font-medium">Sincronizando proyectos...</p>
-              </div>
-          </div>
-      );
-  }
-
+  
   if (showPriceDb) {
       return (
           <PriceDatabase 
@@ -1012,6 +1029,7 @@ const App: React.FC = () => {
         isDarkMode={darkMode}
         onToggleDarkMode={() => setDarkMode(!darkMode)}
         onLogout={handleLogout}
+        isRevalidating={isRevalidating}
         currentUserName={currentUserName}
       />
       {projectToDelete && (
